@@ -75,6 +75,16 @@ export const getDeviceTypeColor = (type) => {
                 gradient: 'from-cyan-500 to-cyan-600',
                 hex: '#06b6d4'
             };
+        case 'office supplies':
+        case 'office':
+        case 'stationery':
+            return {
+                bg: 'bg-rose-50',
+                text: 'text-rose-600',
+                border: 'border-rose-100',
+                gradient: 'from-rose-500 to-rose-600',
+                hex: '#f43f5e'
+            };
         default:
             return {
                 bg: 'bg-slate-50',

@@ -18,7 +18,7 @@ export const getProducts = async (req, res) => {
     try {
         const pool = getPool();
         const result = await pool.request().query(`
-            SELECT ProductID, ProductName, DeviceType, MinStock, MaxStock, CurrentStock, LastPrice, UnitOfMeasure, IsActive, ImageURL, Location
+            SELECT ProductID, ProductName, DeviceType, MinStock, MaxStock, CurrentStock, LastPrice, UnitOfMeasure, IsActive, ImageURL, Location, BarcodeID
             FROM dbo.Stock_Products
             WHERE IsActive = 1
         `);
@@ -32,7 +32,7 @@ export const getProducts = async (req, res) => {
 // UPDATE Product
 export const updateProduct = async (req, res) => {
     const { id } = req.params;
-    const { ProductName, DeviceType, LastPrice, CurrentStock, MinStock, MaxStock, ImageURL, Location } = req.body;
+    const { ProductName, DeviceType, LastPrice, CurrentStock, MinStock, MaxStock, ImageURL, Location, BarcodeID } = req.body;
 
     try {
         const pool = getPool();
@@ -60,6 +60,11 @@ export const updateProduct = async (req, res) => {
         if (Location !== undefined) {
             request.input('Location', sql.NVarChar, Location);
             query += `, Location = @Location`;
+        }
+
+        if (BarcodeID !== undefined) {
+            request.input('BarcodeID', sql.NVarChar, BarcodeID);
+            query += `, BarcodeID = @BarcodeID`;
         }
 
         query += ` WHERE ProductID = @ProductID`;

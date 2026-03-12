@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-
+import logodaikin from '../../public/DAIKIN_logo.svg.png';
 import { API_BASE, API_URL } from '../config/api';
 
 const LoginPage = () => {
@@ -45,7 +45,7 @@ const LoginPage = () => {
                 <div className="text-center  mb-8">
                     <img
                     
-                        src="./public/DAIKIN_logo.svg.png"
+                        src={logodaikin}
                         alt="DAIKIN Logo"
                         className="h-12 mx-auto mb-6 object-contain"
                     />

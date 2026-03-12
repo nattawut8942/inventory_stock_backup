@@ -38,14 +38,33 @@ export const login = async (req, res) => {
                 return res.status(401).json({ success: false, message: 'Invalid username or password' });
             }
 
-            // Get user data - check multiple field name variations
-            const empCode = apiData.EmpCode || apiData.empcode || apiData.Empcode || '';
-            const shortName = apiData.ShortName || apiData.Shortname || apiData.shortname || apiData.empname || '';
-            const empPic = apiData.EmpPic || apiData.Emppic || apiData.emppic || '';
+            // Get user data - case-insensitive dynamic key search
+            const keys = Object.keys(apiData);
+            const codeKey = keys.find(k => k.toLowerCase() === 'empcode') || '';
+            const nameKey = keys.find(k => ['shortname', 'empname'].includes(k.toLowerCase())) || '';
+            // Specifically look for sect_short, fallback to sect only if not found (avoiding _CD or _Long)
+            const sectKey = keys.find(k => k.toLowerCase() === 'sect_short') || keys.find(k => k.toLowerCase() === 'sect') || '';
+            const picKey = keys.find(k => k.toLowerCase() === 'emppic') || '';
+
+            const empCode = codeKey ? apiData[codeKey] : '';
+            const shortName = nameKey ? apiData[nameKey] : '';
+            const sect = sectKey ? apiData[sectKey] : '';
+            const empPic = picKey ? apiData[picKey] : '';
+
+            const ccKey = keys.find(k => k.toLowerCase() === 'cost_center') || '';
+            const costCenter = ccKey ? String(apiData[ccKey]).trim() : '';
 
             // Validate that API returned actual user data
             if (!empCode && !shortName) {
                 return res.status(401).json({ success: false, message: 'Invalid username or password' });
+            }
+
+            // [Restriction] Only Cost Center 7510 allowed
+            if (costCenter !== '7510') {
+                return res.status(403).json({
+                    success: false,
+                    message: `ขออภัย เฉพาะหน่วยงาน Cost Center 7510 เท่านั้นที่มีสิทธิ์เข้าใช้งานระบบ (Your CC: ${costCenter || 'N/A'})`
+                });
             }
 
             // Check if user is admin from database
@@ -63,6 +82,7 @@ export const login = async (req, res) => {
                     username: username,
                     role: role,
                     name: shortName || username,
+                    sect: sect,
                     empcode: empCode
                 },
                 SECRET_KEY,
@@ -76,6 +96,7 @@ export const login = async (req, res) => {
                     username,
                     role,
                     name: shortName || username,
+                    sect: sect,
                     empcode: empCode,
                     empPic: empPic
                 }

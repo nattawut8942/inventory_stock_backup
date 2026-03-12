@@ -14,7 +14,9 @@ import {
     Shield,
     Plus,
     User,
-    FileKey
+    FileKey,
+    Printer,
+    ClipboardList
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatThaiDate } from '../utils/formatDate';
@@ -34,17 +36,19 @@ const Header = ({ onMenuClick }) => {
 
     const getPageConfig = (pathname) => {
         switch (pathname) {
-            case '/': return { title: 'Dashboard', icon: LayoutDashboard, color: 'text-indigo-600' };
-            case '/inventory': return { title: 'Stock Inventory', icon: Package, color: 'text-emerald-600' };
-            case '/receive': return { title: 'Receive Goods', icon: ArrowDownToLine, color: 'text-blue-600' };
-            case '/withdraw': return { title: 'Withdraw Goods', icon: ArrowUpFromLine, color: 'text-orange-600' };
-            case '/history': return { title: 'Transaction History', icon: History, color: 'text-violet-600' };
-            case '/purchase-orders': return { title: 'Purchase Orders', icon: ShoppingCart, color: 'text-pink-600' };
-            case '/reports': return { title: 'Reports & Analytics', icon: FileSpreadsheet, color: 'text-teal-600' };
-            case '/management': return { title: 'System Management', icon: Shield, color: 'text-indigo-600' };
-            case '/manual-import': return { title: 'Manual Stock Import', icon: Plus, color: 'text-cyan-600' };
-            case '/ma-license': return { title: 'MA / License Management', icon: FileKey, color: 'text-amber-600' };
-            default: return { title: 'IT Stock Management', icon: Package, color: 'text-slate-600' };
+            case '/': return { title: 'DASHBOARD', icon: LayoutDashboard, color: 'text-indigo-600' };
+            case '/inventory': return { title: 'STOCK INVENTORY', icon: Package, color: 'text-emerald-600' };
+            case '/receive': return { title: 'RECEIVE GOODS', icon: ArrowDownToLine, color: 'text-blue-600' };
+            case '/withdraw': return { title: 'WITHDRAW GOODS', icon: ArrowUpFromLine, color: 'text-orange-600' };
+            case '/history': return { title: 'TRANSACTION HISTORY', icon: History, color: 'text-violet-600' };
+            case '/purchase-orders': return { title: 'PURCHASE ORDERS', icon: ShoppingCart, color: 'text-pink-600' };
+            case '/reports': return { title: 'REPORTS & ANALYTICS', icon: FileSpreadsheet, color: 'text-teal-600' };
+            case '/management': return { title: 'SYSTEM MANAGEMENT', icon: Shield, color: 'text-indigo-600' };
+            case '/manual-import': return { title: 'MANUAL STOCK IMPORT', icon: Plus, color: 'text-cyan-600' };
+            case '/ma-license': return { title: 'MA / LICENSE MANAGEMENT', icon: FileKey, color: 'text-amber-600' };
+            case '/ink-toner': return { title: 'INK & TONER STOCK', icon: Printer, color: 'text-cyan-600' };
+            case '/bitlocker': return { title: 'BITLOCKER MANAGEMENT', icon: Shield, color: 'text-indigo-600' };
+            default: return { title: 'IT STOCK MANAGEMENT', icon: Package, color: 'text-slate-600' };
         }
     };
 

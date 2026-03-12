@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 
 // Config & Services
 import { connectDB } from './src/config/db.js';
-import { initializeDatabase } from './src/config/initDb.js';
+import { connectDciDB } from './src/config/dciDb.js';
 import { sendDailyReport } from './src/services/emailService.js';
 
 // Routes
@@ -21,6 +21,10 @@ import userRoutes from './src/routes/userRoutes.js';
 import locationRoutes from './src/routes/locationRoutes.js';
 import reasonRoutes from './src/routes/reasonRoutes.js';
 import maRoutes from './src/routes/maRoutes.js';
+import inkTonerRoutes from './src/routes/inkTonerRoutes.js';
+import stockCountRoutes from './src/routes/stockCountRoutes.js';
+import budgetRoutes from './src/routes/budgetRoutes.js'; // Added Budget Routes
+import bitlockerRoutes from './src/routes/bitlockerRoutes.js'; // BitLocker Management
 
 // Setup Environment
 dotenv.config();
@@ -29,7 +33,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
 // Middleware
 app.use(cors());
@@ -43,19 +47,23 @@ app.use('/uploads', express.static(uploadsDir));
 const startServer = async () => {
     try {
         await connectDB();
-        await initializeDatabase();
+        await connectDciDB();
 
         // Routes
-        app.use('/api', authRoutes);         // /api/authen
-        app.use('/api', productRoutes);      // /api/products, /api/types, /api/forecast, /api/upload
-        app.use('/api', vendorRoutes);       // /api/vendors
-        app.use('/api', poRoutes);           // /api/pos
-        app.use('/api', transactionRoutes);  // /api/transactions, /api/invoices, /api/receive
-        app.use('/api', reportRoutes);       // /api/report/export, /api/test-email
-        app.use('/api', userRoutes);         // /api/admin-users
-        app.use('/api', locationRoutes);     // /api/locations
-        app.use('/api', reasonRoutes);       // /api/reasons
-        app.use('/api', maRoutes);            // /api/ma
+        app.use('/ITinventory/api', authRoutes);         // /api/authen
+        app.use('/ITinventory/api', productRoutes);      // /api/products, /api/types, /api/forecast, /api/upload
+        app.use('/ITinventory/api', vendorRoutes);       // /api/vendors
+        app.use('/ITinventory/api', poRoutes);           // /api/pos
+        app.use('/ITinventory/api', transactionRoutes);  // /api/transactions, /api/invoices, /api/receive
+        app.use('/ITinventory/api', reportRoutes);       // /api/report/export, /api/test-email
+        app.use('/ITinventory/api', userRoutes);         // /api/admin-users
+        app.use('/ITinventory/api', locationRoutes);     // /api/locations
+        app.use('/ITinventory/api', reasonRoutes);       // /api/reasons
+        app.use('/ITinventory/api', maRoutes);            // /api/ma
+        app.use('/ITinventory/api', inkTonerRoutes);      // /api/ink-toner
+        app.use('/ITinventory/api', stockCountRoutes);    // /api/stock-count
+        app.use('/ITinventory/api', budgetRoutes);        // /api/budget
+        app.use('/ITinventory/api', bitlockerRoutes);     // /api/bitlocker
 
         // Cron Job (Daily Low Stock Report at 07:00 AM)
         cron.schedule('20 18 * * *', async () => {

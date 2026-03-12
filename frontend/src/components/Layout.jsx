@@ -14,7 +14,7 @@ const Layout = () => {
                 onClose={() => setIsSidebarOpen(false)}
             />
 
-            <main className="flex-1 flex flex-col h-full relative w-full">
+            <main className="flex-1 flex flex-col h-full relative min-w-0">
                 {/* Global Header (Sticky) */}
                 <Header onMenuClick={() => setIsSidebarOpen(true)} />
 
@@ -24,7 +24,7 @@ const Layout = () => {
                     <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-indigo-500/10 to-transparent pointer-events-none -z-10"></div>
 
                     {/* Max width container */}
-                    <div className="max-w-7xl mx-auto">
+                    <div className="max-w-7xl mx-auto w-full">
                         <Outlet />
                     </div>
                 </div>

@@ -4,7 +4,8 @@ import {
     Shield, Clock, AlertTriangle, DollarSign, Server, Monitor, Cpu, Wifi,
     Plus, Edit2, Trash2, X, Search, ChevronDown, Eye, FileText, Calendar,
     MapPin, Tag, Hash, Building, CreditCard, RefreshCw, CheckCircle, XCircle,
-    HardDrive, Globe, Wrench, Printer, ChevronLeft, ChevronRight
+    HardDrive, Globe, Wrench, Printer, ChevronLeft, ChevronRight,
+    ChevronUp, ArrowUpDown
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AlertModal from '../components/AlertModal';
@@ -96,12 +97,14 @@ const MALicensePage = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [cardFilter, setCardFilter] = useState('all'); // 'all', 'active', 'expiringSoon', 'expired'
+    const [viewMode, setViewMode] = useState('list'); // 'list' or 'grid'
     const [detailItem, setDetailItem] = useState(null);
     const [formModal, setFormModal] = useState({ isOpen: false, item: null }); // null = create, object = edit
     const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
 
-    // Pagination State
+    // Pagination and Sort State
     const [currentPage, setCurrentPage] = useState(1);
+    const [sortConfig, setSortConfig] = useState(null);
     const itemsPerPage = 10;
 
     // ─── FETCH DATA ──────────────────────
@@ -178,12 +181,47 @@ const MALicensePage = () => {
             });
     }, [items, activeTab, statusFilter, cardFilter, searchTerm]);
 
+    const sortedItems = useMemo(() => {
+        let sortableItems = [...filteredItems];
+        if (sortConfig !== null) {
+            sortableItems.sort((a, b) => {
+                let aValue = a[sortConfig.key] || '';
+                let bValue = b[sortConfig.key] || '';
+
+                if (sortConfig.key === '_duration') {
+                    // Sort by EndDate for duration
+                    aValue = new Date(a.EndDate || 0).getTime();
+                    bValue = new Date(b.EndDate || 0).getTime();
+                } else if (sortConfig.key === 'Status') {
+                    // Custom order could be implemented here, string comparison suffices usually
+                }
+
+                if (aValue < bValue) {
+                    return sortConfig.direction === 'asc' ? -1 : 1;
+                }
+                if (aValue > bValue) {
+                    return sortConfig.direction === 'asc' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+        return sortableItems;
+    }, [filteredItems, sortConfig]);
+
     const paginatedItems = useMemo(() => {
         const startIndex = (currentPage - 1) * itemsPerPage;
-        return filteredItems.slice(startIndex, Math.min(startIndex + itemsPerPage, filteredItems.length));
-    }, [filteredItems, currentPage]);
+        return sortedItems.slice(startIndex, Math.min(startIndex + itemsPerPage, sortedItems.length));
+    }, [sortedItems, currentPage]);
 
-    const totalPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage));
+    const totalPages = Math.max(1, Math.ceil(sortedItems.length / itemsPerPage));
+
+    const handleSort = (key) => {
+        let direction = 'asc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
 
     const stats = useMemo(() => {
         const active = items.filter(i => i.Status === 'Active').length;
@@ -268,50 +306,50 @@ const MALicensePage = () => {
         switch (cat) {
             case 'HARDWARE':
                 return [
-                    { key: 'SubType', label: 'ประเภท', width: 'w-24' },
-                    { key: 'ItemName', label: 'ชื่ออุปกรณ์', width: 'flex-1' },
-                    { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'w-32' },
-                    { key: 'SerialNumber', label: 'S/N', width: 'w-32' },
-                    { key: 'PONumber', label: 'PO/สัญญา', width: 'w-28' },
-                    { key: 'VendorName', label: 'Vendor', width: 'w-32' },
-                    { key: 'EndDate', label: 'หมดประกัน', width: 'w-28' },
-                    { key: '_duration', label: 'ระยะเวลา', width: 'w-24' },
-                    { key: 'Status', label: 'สถานะ', width: 'w-24' },
+                    { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
+                    { key: 'ItemName', label: 'ชื่ออุปกรณ์', width: 'min-w-[150px]' },
+                    { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'min-w-[100px]' },
+                    { key: 'SerialNumber', label: 'S/N', width: 'min-w-[100px] break-all' },
+                    { key: 'PONumber', label: 'PO/สัญญา', width: 'min-w-[100px] break-all' },
+                    { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
+                    { key: 'EndDate', label: 'หมดประกัน', width: 'whitespace-nowrap min-w-[90px]' },
+                    { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
+                    { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
                 ];
             case 'SOFTWARE':
                 return [
-                    { key: 'SubType', label: 'ประเภท', width: 'w-24' },
-                    { key: 'ItemName', label: 'ชื่อ Software', width: 'flex-1' },
-                    { key: 'ServiceNumber', label: 'เลขบริการ', width: 'w-28' },
-                    { key: 'LicenseQty', label: 'จำนวน', width: 'w-20 text-center' },
-                    { key: 'VendorName', label: 'Vendor', width: 'w-32' },
-                    { key: 'EndDate', label: 'หมดอายุ', width: 'w-28' },
-                    { key: '_duration', label: 'ระยะเวลา', width: 'w-24' },
-                    { key: 'Status', label: 'สถานะ', width: 'w-24' },
+                    { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
+                    { key: 'ItemName', label: 'ชื่อ Software', width: 'min-w-[150px]' },
+                    { key: 'ServiceNumber', label: 'เลขบริการ', width: 'min-w-[120px] break-all' },
+                    { key: 'LicenseQty', label: 'จำนวน', width: 'min-w-[60px] text-center' },
+                    { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
+                    { key: 'EndDate', label: 'หมดอายุ', width: 'whitespace-nowrap min-w-[90px]' },
+                    { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
+                    { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
                 ];
             case 'SERVICE':
                 return [
-                    { key: 'SubType', label: 'ประเภท', width: 'w-28' },
-                    { key: 'ItemName', label: 'ชื่อบริการ', width: 'flex-1' },
-                    { key: 'ServiceNumber', label: 'เลขสัญญา', width: 'w-28' },
-                    { key: 'Price', label: 'ราคา', width: 'w-28' },
-                    { key: 'VendorName', label: 'Vendor', width: 'w-32' },
-                    { key: 'LocationName', label: 'สถานที่', width: 'w-28' },
-                    { key: 'EndDate', label: 'หมดสัญญา', width: 'w-28' },
-                    { key: '_duration', label: 'ระยะเวลา', width: 'w-24' },
-                    { key: 'Status', label: 'สถานะ', width: 'w-24' },
+                    { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
+                    { key: 'ItemName', label: 'ชื่อบริการ', width: 'min-w-[150px]' },
+                    { key: 'ServiceNumber', label: 'เลขสัญญา', width: 'min-w-[120px] break-all' },
+                    { key: 'Price', label: 'ราคา', width: 'min-w-[80px]' },
+                    { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
+                    { key: 'LocationName', label: 'สถานที่', width: 'min-w-[100px]' },
+                    { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
+                    { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
+                    { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
                 ];
             case 'RENTAL':
                 return [
-                    { key: 'SubType', label: 'ประเภท', width: 'w-28' },
-                    { key: 'ItemName', label: 'ชื่อรายการ', width: 'flex-1' },
-                    { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'w-28' },
-                    { key: 'PONumber', label: 'เลขสัญญา', width: 'w-28' },
-                    { key: 'LicenseQty', label: 'จำนวน', width: 'w-20 text-center' },
-                    { key: 'VendorName', label: 'Vendor', width: 'w-32' },
-                    { key: 'EndDate', label: 'หมดสัญญา', width: 'w-28' },
-                    { key: '_duration', label: 'ระยะเวลา', width: 'w-24' },
-                    { key: 'Status', label: 'สถานะ', width: 'w-24' },
+                    { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
+                    { key: 'ItemName', label: 'ชื่อรายการ', width: 'min-w-[150px]' },
+                    { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'min-w-[100px]' },
+                    { key: 'PONumber', label: 'เลขสัญญา', width: 'min-w-[120px] break-all' },
+                    { key: 'LicenseQty', label: 'จำนวน', width: 'min-w-[60px] text-center' },
+                    { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
+                    { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
+                    { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
+                    { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
                 ];
             default:
                 return [];
@@ -320,18 +358,28 @@ const MALicensePage = () => {
 
     const renderCellValue = (item, col) => {
         if (col.key === 'Status') {
+            const days = getDaysRemaining(item.EndDate);
+            const isAlert = item.Status !== 'Cancelled' && days !== null && days <= 90;
             return (
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${STATUS_COLORS[item.Status] || STATUS_COLORS.Active}`}>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${STATUS_COLORS[item.Status] || STATUS_COLORS.Active} ${isAlert ? 'animate-pulse ring-2 ring-red-400 ring-offset-1' : ''}`}>
                     {item.Status}
                 </span>
             );
         }
-        if (col.key === 'EndDate') return formatDate(item.EndDate);
+        if (col.key === 'EndDate') {
+            const days = getDaysRemaining(item.EndDate);
+            const isAlert = item.Status !== 'Cancelled' && days !== null && days <= 90;
+            return (
+                <span className={isAlert ? 'text-red-600 font-bold animate-pulse' : ''}>
+                    {formatDate(item.EndDate)}
+                </span>
+            );
+        }
         if (col.key === '_duration') {
             const days = getDaysRemaining(item.EndDate);
             if (days === null) return '-';
-            if (days <= 0) return <span className="text-red-500 font-bold text-xs">หมดอายุ</span>;
-            if (days <= 90) return <span className="text-amber-500 font-bold text-xs">{days} วัน</span>;
+            if (days <= 0) return <span className="text-red-500 font-bold text-xs animate-pulse">หมดอายุ</span>;
+            if (days <= 90) return <span className="text-amber-500 font-bold text-xs animate-pulse">{days} วัน</span>;
             return <span className="text-emerald-600 font-bold text-xs">{formatDuration(item.StartDate, item.EndDate)}</span>;
         }
         if (col.key === 'Price') return `฿${(item.Price || 0).toLocaleString()}`;
@@ -367,7 +415,7 @@ const MALicensePage = () => {
                         return (
                             <button
                                 key={cat.key}
-                                onClick={() => { setActiveTab(cat.key); setSearchTerm(''); setStatusFilter('all'); setCardFilter('all'); }}
+                                onClick={() => { setActiveTab(cat.key); setSearchTerm(''); setStatusFilter('all'); setCardFilter('all'); setSortConfig(null); }}
                                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === cat.key
                                     ? `bg-gradient-to-r ${cat.color} text-white shadow-lg`
                                     : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
@@ -381,13 +429,13 @@ const MALicensePage = () => {
                 </div>
 
                 {/* Controls */}
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                     <div className="flex gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100">
                         <Search size={16} className="text-slate-400 self-center" />
                         <input
                             type="text"
                             placeholder="ค้นหา..."
-                            className="bg-transparent border-none outline-none text-sm w-40 text-slate-700 placeholder-slate-400"
+                            className="bg-transparent border-none outline-none text-sm w-32 md:w-40 text-slate-700 placeholder-slate-400"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -400,6 +448,25 @@ const MALicensePage = () => {
                         <option value="all">ทุกสถานะ</option>
                         {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
+
+                    {/* View Mode Toggle */}
+                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            title="มุมมองรายการ"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('grid')}
+                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            title="มุมมองการ์ด"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                        </button>
+                    </div>
+
                     {isAdmin && (
                         <button
                             onClick={() => setFormModal({ isOpen: true, item: null })}
@@ -412,71 +479,154 @@ const MALicensePage = () => {
                 </div>
             </div>
 
-            {/* Data Table */}
-            <motion.div
-                key={activeTab}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden flex flex-col"
-            >
-                <div className="overflow-x-auto overflow-y-auto max-h-[60vh] 2xl:max-h-[70vh] custom-scrollbar relative">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-50 text-slate-600 uppercase text-[11px] tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-                            <tr>
-                                <th className="p-3 pl-5 w-8 bg-slate-50">#</th>
-                                {getColumns(activeTab).map(col => (
-                                    <th key={col.key} className={`p-3 ${col.width} bg-slate-50`}>{col.label}</th>
-                                ))}
-                                <th className="p-3 w-20 text-center bg-slate-50">ดู</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {filteredItems.length === 0 ? (
+            {/* Data Display */}
+            {viewMode === 'list' ? (
+                <motion.div
+                    key={`list-${activeTab}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden flex flex-col"
+                >
+                    <div className="overflow-x-auto max-h-[60vh] 2xl:max-h-[70vh] custom-scrollbar relative">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-50 text-slate-600 uppercase text-[11px] tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                                 <tr>
-                                    <td colSpan={getColumns(activeTab).length + 2} className="p-12 text-center text-slate-400">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <FileText size={40} className="text-slate-300" />
-                                            <p className="font-bold">ไม่พบรายการ</p>
-                                            <p className="text-xs">เพิ่มรายการใหม่หรือเปลี่ยนตัวกรอง</p>
-                                        </div>
-                                    </td>
+                                    <th className="p-2 pl-3 w-8 bg-slate-50">#</th>
+                                    {getColumns(activeTab).map(col => (
+                                        <th key={col.key} className={`p-2 ${col.width} bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors group select-none`} onClick={() => handleSort(col.key)}>
+                                            <div className="flex items-center gap-1">
+                                                {col.label}
+                                                {sortConfig?.key === col.key ? (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={12} className="text-indigo-600" /> : <ChevronDown size={12} className="text-indigo-600" />
+                                                ) : (
+                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                )}
+                                            </div>
+                                        </th>
+                                    ))}
+                                    <th className="p-2 w-16 text-center bg-slate-50">ดู</th>
                                 </tr>
-                            ) : paginatedItems.map((item, idx) => {
-                                const days = getDaysRemaining(item.EndDate);
-                                const isExpiring = days !== null && days > 0 && days <= 90;
-                                const isExpired = days !== null && days <= 0;
-                                const globalIdx = (currentPage - 1) * itemsPerPage + idx;
-                                return (
-                                    <motion.tr
-                                        key={item.ItemID}
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        transition={{ delay: idx * 0.02 }}
-                                        className={`hover:bg-slate-50 transition-colors cursor-pointer ${isExpired ? 'bg-red-50/30' : isExpiring ? 'bg-amber-50/30' : ''}`}
-                                        onClick={() => setDetailItem(item)}
-                                    >
-                                        <td className="p-3 pl-5 text-slate-400 font-mono text-xs">{globalIdx + 1}</td>
-                                        {getColumns(activeTab).map(col => (
-                                            <td key={col.key} className={`p-3 text-slate-700 text-xs font-medium ${col.width}`}>
-                                                {renderCellValue(item, col)}
-                                            </td>
-                                        ))}
-                                        <td className="p-3 text-center">
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); setDetailItem(item); }}
-                                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                                            >
-                                                <Eye size={16} />
-                                            </button>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {filteredItems.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={getColumns(activeTab).length + 2} className="p-12 text-center text-slate-400">
+                                            <div className="flex flex-col items-center gap-3">
+                                                <FileText size={40} className="text-slate-300" />
+                                                <p className="font-bold">ไม่พบรายการ</p>
+                                                <p className="text-xs">เพิ่มรายการใหม่หรือเปลี่ยนตัวกรอง</p>
+                                            </div>
                                         </td>
-                                    </motion.tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
+                                    </tr>
+                                ) : paginatedItems.map((item, idx) => {
+                                    const days = getDaysRemaining(item.EndDate);
+                                    const isExpiring = days !== null && days > 0 && days <= 90;
+                                    const isExpired = days !== null && days <= 0;
+                                    const globalIdx = (currentPage - 1) * itemsPerPage + idx;
+                                    return (
+                                        <motion.tr
+                                            key={item.ItemID}
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            transition={{ delay: idx * 0.02 }}
+                                            className={`hover:bg-slate-50 transition-colors cursor-pointer ${isExpired && item.Status !== 'Cancelled' ? 'bg-red-50/50' : isExpiring && item.Status !== 'Cancelled' ? 'bg-amber-50/50' : ''}`}
+                                            onClick={() => setDetailItem(item)}
+                                        >
+                                            <td className="p-2 pl-3 text-slate-400 font-mono text-xs">{globalIdx + 1}</td>
+                                            {getColumns(activeTab).map(col => (
+                                                <td key={col.key} className={`p-2 text-slate-700 text-xs font-medium ${col.width}`}>
+                                                    {renderCellValue(item, col)}
+                                                </td>
+                                            ))}
+                                            <td className="p-2 text-center">
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setDetailItem(item); }}
+                                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                                >
+                                                    <Eye size={16} />
+                                                </button>
+                                            </td>
+                                        </motion.tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </motion.div>
+            ) : (
+                <motion.div
+                    key={`grid-${activeTab}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                >
+                    {filteredItems.length === 0 ? (
+                        <div className="col-span-full p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200">
+                            <div className="flex flex-col items-center gap-3">
+                                <FileText size={40} className="text-slate-300" />
+                                <p className="font-bold">ไม่พบรายการ</p>
+                                <p className="text-xs">เพิ่มรายการใหม่หรือเปลี่ยนตัวกรอง</p>
+                            </div>
+                        </div>
+                    ) : (
+                        paginatedItems.map((item, idx) => {
+                            const days = getDaysRemaining(item.EndDate);
+                            const isExpiring = days !== null && days > 0 && days <= 90;
+                            const isExpired = days !== null && days <= 0;
+                            const isAlert = item.Status !== 'Cancelled' && (isExpiring || isExpired);
+
+                            return (
+                                <motion.div
+                                    key={item.ItemID}
+                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ delay: idx * 0.02 }}
+                                    className={`bg-white rounded-2xl border ${isAlert ? 'border-red-200 shadow-red-100' : 'border-slate-200'} shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all overflow-hidden cursor-pointer flex flex-col relative`}
+                                    onClick={() => setDetailItem(item)}
+                                >
+                                    {isAlert && (
+                                        <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 m-3 animate-ping"></div>
+                                    )}
+                                    <div className="p-4 border-b border-slate-50 flex items-start gap-3">
+                                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${activeCat?.color} flex items-center justify-center shadow-lg shrink-0`}>
+                                            <activeCat.icon className="w-5 h-5 text-white" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <h4 className="font-bold text-slate-800 text-sm truncate">{item.ItemName}</h4>
+                                            <p className="text-xs text-slate-500 truncate">{item.SubType}</p>
+                                        </div>
+                                    </div>
+                                    <div className="p-4 flex-1 space-y-3">
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-500">สถานะ:</span>
+                                            {renderCellValue(item, { key: 'Status' })}
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-500">หมดอายุ:</span>
+                                            <span className={isAlert ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-700'}>
+                                                {formatDate(item.EndDate)}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-500">ระยะเวลา:</span>
+                                            {renderCellValue(item, { key: '_duration' })}
+                                        </div>
+                                        <div className="flex justify-between items-start gap-2 text-xs">
+                                            <span className="text-slate-500 whitespace-nowrap">Vendor:</span>
+                                            <span className="font-medium text-slate-700 text-right break-words">{item.VendorName || '-'}</span>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            )
+                        })
+                    )}
+                </motion.div>
+            )}
+
+            {/* Pagination Control Container */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mt-4">
                 {/* Table Footer with Pagination */}
-                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-slate-500">
+                <div className="px-5 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-slate-500">
                     <div className="flex items-center gap-4">
                         <span>ทั้งหมด <span className="font-bold text-slate-700">{filteredItems.length}</span> รายการ</span>
                         <span className="hidden sm:inline text-slate-300">|</span>
@@ -507,7 +657,7 @@ const MALicensePage = () => {
                         </div>
                     )}
                 </div>
-            </motion.div>
+            </div>
 
             {/* ─── DETAIL MODAL ────────────── */}
             {detailItem && (
@@ -516,15 +666,15 @@ const MALicensePage = () => {
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
-                            className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden"
+                            className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden"
                         >
                             {/* Header */}
-                            <div className={`p-6 bg-gradient-to-r ${activeCat?.color} text-white relative overflow-hidden`}>
+                            <div className={`p-4 md:p-5 bg-gradient-to-r ${activeCat?.color} text-white relative overflow-hidden`}>
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
                                 <div className="flex justify-between items-start relative z-10">
                                     <div>
                                         <p className="text-xs font-bold uppercase tracking-widest opacity-80 mb-1">{activeCat?.label}</p>
-                                        <h3 className="font-black text-2xl tracking-tight">{detailItem.ItemName}</h3>
+                                        <h3 className="font-black text-xl md:text-2xl tracking-tight">{detailItem.ItemName}</h3>
                                         <p className="text-white/70 text-sm mt-1">{detailItem.SubType}</p>
                                     </div>
                                     <button onClick={() => setDetailItem(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
@@ -534,7 +684,7 @@ const MALicensePage = () => {
                             </div>
 
                             {/* Body */}
-                            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                            <div className="p-4 md:p-5 space-y-4 max-h-[60vh] overflow-y-auto">
                                 {/* Status Badge */}
                                 <div className="flex items-center gap-3">
                                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${STATUS_COLORS[detailItem.Status]}`}>
@@ -550,7 +700,7 @@ const MALicensePage = () => {
                                 </div>
 
                                 {/* Detail Grid */}
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="bg-slate-50 rounded-xl overflow-hidden divide-y divide-slate-100 border border-slate-100 shadow-sm">
                                     {detailItem.Brand && (
                                         <DetailField icon={Tag} label="ยี่ห้อ/รุ่น" value={detailItem.Brand} />
                                     )}
@@ -587,15 +737,15 @@ const MALicensePage = () => {
                                 <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-2">
                                     <button
                                         onClick={() => { setDetailItem(null); setFormModal({ isOpen: true, item: detailItem }); }}
-                                        className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors border border-indigo-200"
+                                        className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors border border-indigo-200"
                                     >
                                         <Edit2 size={14} /> แก้ไข
                                     </button>
                                     <div className="relative group">
-                                        <button className="flex items-center gap-1.5 px-4 py-2 bg-amber-50 text-amber-600 rounded-xl text-sm font-bold hover:bg-amber-100 transition-colors border border-amber-200">
+                                        <button className="flex items-center gap-1.5 px-4 py-2 bg-amber-50 text-amber-600 rounded-lg text-sm font-bold hover:bg-amber-100 transition-colors border border-amber-200">
                                             <RefreshCw size={14} /> เปลี่ยนสถานะ <ChevronDown size={12} />
                                         </button>
-                                        <div className="absolute bottom-full left-0 mb-1 bg-white rounded-xl shadow-xl border border-slate-200 py-1 hidden group-hover:block z-10 min-w-[140px]">
+                                        <div className="absolute bottom-full left-0 mb-1 bg-white rounded-lg shadow-xl border border-slate-200 py-1 hidden group-hover:block z-10 min-w-[140px]">
                                             {STATUS_OPTIONS.filter(s => s !== detailItem.Status).map(s => (
                                                 <button
                                                     key={s}
@@ -609,7 +759,7 @@ const MALicensePage = () => {
                                     </div>
                                     <button
                                         onClick={() => { setDetailItem(null); handleDelete(detailItem); }}
-                                        className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-600 rounded-xl text-sm font-bold hover:bg-red-100 transition-colors border border-red-200 ml-auto"
+                                        className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-bold hover:bg-red-100 transition-colors border border-red-200 ml-auto"
                                     >
                                         <Trash2 size={14} /> ลบ
                                     </button>
@@ -648,14 +798,11 @@ const MALicensePage = () => {
 
 // ─── DETAIL FIELD COMPONENT ──────────────
 const DetailField = ({ icon: Icon, label, value }) => (
-    <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-        <div className="p-1.5 bg-white rounded-lg shadow-sm text-indigo-500 shrink-0">
-            <Icon size={14} />
-        </div>
-        <div className="min-w-0">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-            <p className="text-sm font-bold text-slate-700 truncate">{value}</p>
-        </div>
+    <div className="flex items-center p-3 sm:px-4">
+        <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0 flex items-center gap-2">
+            <Icon size={14} className="text-indigo-400" /> {label}
+        </span>
+        <span className="text-sm font-bold text-slate-800">{value}</span>
     </div>
 );
 
@@ -700,12 +847,12 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                 <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden"
+                    className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden"
                 >
                     {/* Header */}
-                    <div className={`p-5 bg-gradient-to-r ${catInfo?.color} text-white`}>
+                    <div className={`p-4 md:p-5 bg-gradient-to-r ${catInfo?.color} text-white`}>
                         <div className="flex justify-between items-center">
-                            <h3 className="font-black text-xl">
+                            <h3 className="font-black text-lg md:text-xl">
                                 {isEdit ? 'แก้ไขรายการ' : `เพิ่ม ${catInfo?.label} ใหม่`}
                             </h3>
                             <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
@@ -715,7 +862,7 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                     </div>
 
                     {/* Form */}
-                    <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
+                    <form onSubmit={handleSubmit} className="p-4 md:p-5 space-y-4 max-h-[65vh] overflow-y-auto">
                         {/* Row 1 */}
                         <div className="grid grid-cols-2 gap-4">
                             <FormField label="ประเภทย่อย" required>
@@ -828,12 +975,12 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
 
                     {/* Footer */}
                     <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3">
-                        <button onClick={onClose} className="flex-1 py-3 bg-white text-slate-600 rounded-xl font-bold border border-slate-200 hover:bg-slate-50 transition-colors">
+                        <button onClick={onClose} className="flex-1 py-2.5 bg-white text-slate-600 rounded-lg text-sm font-bold border border-slate-200 hover:bg-slate-50 transition-colors">
                             ยกเลิก
                         </button>
                         <button
                             onClick={handleSubmit}
-                            className={`flex-1 py-3 text-white rounded-xl font-bold bg-gradient-to-r ${catInfo?.color} hover:shadow-lg transition-all`}
+                            className={`flex-1 py-2.5 text-white rounded-lg text-sm font-bold bg-gradient-to-r ${catInfo?.color} hover:shadow-lg transition-all`}
                         >
                             {isEdit ? 'บันทึกการแก้ไข' : 'เพิ่มรายการ'}
                         </button>

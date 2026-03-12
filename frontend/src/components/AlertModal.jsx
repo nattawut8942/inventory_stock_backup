@@ -19,24 +19,24 @@ const AlertModal = ({ isOpen, type = 'info', title, message, onConfirm, onCancel
         <Portal>
             <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/60 backdrop-blur-sm">
                 <div className="flex min-h-screen items-center justify-center p-4">
-                    <div className="w-full max-w-sm transform overflow-hidden rounded-3xl bg-white p-6 text-center shadow-2xl transition-all animate-in zoom-in-95">
-                        <div className={`w-16 h-16 ${bg} rounded-full flex items-center justify-center mx-auto mb-4 ${color}`}>
-                            <Icon size={32} />
+                    <div className="w-full max-w-sm transform overflow-hidden rounded-2xl bg-white p-5 text-center shadow-2xl transition-all animate-in zoom-in-95">
+                        <div className={`w-14 h-14 ${bg} rounded-full flex items-center justify-center mx-auto mb-4 ${color}`}>
+                            <Icon size={28} />
                         </div>
-                        <h3 className="font-black text-xl mb-2 text-slate-800">{title}</h3>
-                        <p className="text-slate-500 text-sm mb-6 px-4 leading-relaxed">{message}</p>
+                        <h3 className="font-black text-lg mb-2 text-slate-800">{title}</h3>
+                        <p className="text-slate-500 text-sm mb-5 px-4 leading-relaxed">{message}</p>
                         <div className="flex gap-3">
                             {onCancel && (
                                 <button
                                     onClick={onCancel}
-                                    className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors"
+                                    className="flex-1 bg-slate-100 text-slate-600 py-2.5 rounded-lg font-bold hover:bg-slate-200 transition-colors"
                                 >
                                     {cancelText}
                                 </button>
                             )}
                             <button
                                 onClick={onConfirm || onCancel}
-                                className={`flex-1 text-white py-3 rounded-xl font-bold transition-all shadow-lg ${btn}`}
+                                className={`flex-1 text-white py-2.5 rounded-lg font-bold transition-all shadow-md ${btn}`}
                             >
                                 {confirmText}
                             </button>

@@ -285,6 +285,42 @@ export const exportReport = async (req, res) => {
                     }));
                     break;
                 }
+                case 'ma': {
+                    sheetName = '🛡️ สัญญา MA';
+                    const maRequest = pool.request();
+                    if (startDate) maRequest.input('startDate', sql.DateTime, new Date(startDate));
+                    if (endDate) maRequest.input('endDate', sql.DateTime, new Date(endDate));
+
+                    let maQuery = `
+                        SELECT m.Category, m.ItemName, m.SubType, m.Brand, m.SerialNumber, 
+                               m.PONumber, v.VendorName, m.ServiceNumber, m.StartDate, m.EndDate, m.Price, m.Status
+                        FROM dbo.MA_Items m
+                        LEFT JOIN dbo.Stock_Vendors v ON m.VendorID = v.VendorID
+                        WHERE 1=1
+                    `;
+                    if (startDate) maQuery += ' AND m.EndDate >= @startDate';
+                    if (endDate) maQuery += ' AND m.EndDate <= @endDate';
+                    maQuery += ' ORDER BY m.EndDate ASC';
+
+                    const maResult = await maRequest.query(maQuery);
+                    data = maResult.recordset.map((row, idx) => ({
+                        'อันดับ': idx + 1,
+                        'ชื่อระบบ/อุปกรณ์': row.ItemName || '-',
+                        'หมวดหมู่': row.Category || '-',
+                        'ประเภท': row.SubType || '-',
+                        'ยี่ห้อ': row.Brand || '-',
+                        'S/N': row.SerialNumber || '-',
+                        'ผู้รับเหมา (Vendor)': row.VendorName || '-',
+                        'วันเริ่มสัญญา': row.StartDate ? new Date(row.StartDate).toLocaleDateString('th-TH') : '-',
+                        'วันสิ้นสุดสัญญา': row.EndDate ? new Date(row.EndDate).toLocaleDateString('th-TH') : '-',
+                        'สถานะ': row.Status === 'Active' ? '✅ ใช้งานอยู่' :
+                            row.Status === 'Expiring' ? '⚠️ ใกล้หมดอายุ' :
+                                row.Status === 'Expired' ? '❌ หมดอายุแล้ว' :
+                                    row.Status === 'Cancelled' ? '⛔ ยกเลิก' : row.Status,
+                        'มูลค่า (฿)': row.Price || 0
+                    }));
+                    break;
+                }
             }
 
             if (data.length > 0) {

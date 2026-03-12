@@ -185,10 +185,37 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
 
         // 2. Vendor Name
         let vendorName = "";
-        const supplierLineIndex = lines.findIndex(l => l.toUpperCase().includes('SUPPLIER'));
-        if (supplierLineIndex !== -1 && lines[supplierLineIndex + 1]) {
-            let vendorLine = lines[supplierLineIndex + 1];
-            vendorName = vendorLine.split(/Issue Date|Print Date|PO:/i)[0].trim();
+
+        // ค้นหาตำแหน่งบรรทัดที่มีคำว่า SUPPLIER หรือ VENDOR ก่อน
+        const supplierLineIndex = lines.findIndex(l => l.toUpperCase().includes('SUPPLIER') || l.toUpperCase().includes('VENDOR'));
+
+        if (supplierLineIndex !== -1) {
+            // สำรวจจากบรรทัดถัดจาก SUPPLIER ลงมา (ดูสัก 5 บรรทัด)
+            for (let i = 1; i <= 5; i++) {
+                let currentLine = lines[supplierLineIndex + i];
+                if (!currentLine) break;
+
+                // ถ้าเจอบรรทัดที่มีคำว่า CO.,LTD หรือคล้ายๆ กัน ให้หยิบมาแล้วหยุดเลย
+                const matchSuffix = currentLine.match(/(.*?)(CO\.,\s*LTD\.?|COMPANY LIMITED|LTD\.?|CORPORATION)/i);
+                if (matchSuffix) {
+                    // matchSuffix[1] คือข้อความข้างหน้า (เช่น SAMAPHAN TECHNOLOGIES )
+                    // matchSuffix[2] คือคำลงท้าย (เช่น CO.,LTD.)
+                    vendorName = (matchSuffix[1] + matchSuffix[2]).trim();
+                    break;
+                }
+            }
+
+            // Fallback กรณีใน 5 บรรทัดนั้นไม่มีคำว่า CO.,LTD เลย ให้ดึงจากบรรทัดที่ 2 รองจากบรรทัด SUPPLIER มาใช้งาน
+            if (!vendorName) {
+                let line2 = lines[supplierLineIndex + 2] || "";
+                let line1 = lines[supplierLineIndex + 1] || "";
+
+                if (line2 && !line2.toUpperCase().includes('ISSUE')) {
+                    vendorName = line2.split(/Issue Date|Print Date|PO:/i)[0].trim();
+                } else if (line1) {
+                    vendorName = line1.split(/Issue Date|Print Date|PO:/i)[0].trim();
+                }
+            }
         }
 
         // 3. PR and BG
@@ -435,11 +462,11 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
     return (
         <Portal>
             <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-sm">
-                <div className="flex min-h-screen items-center justify-center p-2">
-                    <div className="w-full max-w-2xl transform overflow-hidden rounded-3xl bg-white text-left align-middle shadow-2xl transition-all animate-in zoom-in-95 my-8">
-                        <div className="bg-slate-50 rounded-t-3xl border-b border-slate-200">
-                            <div className="p-6 flex justify-between items-center">
-                                <h3 className="font-bold text-lg text-slate-800">{isEditMode ? 'แก้ไขใบสั่งซื้อ' : 'สร้างใบสั่งซื้อ'}</h3>
+                <div className="flex min-h-[100dvh] items-center justify-center p-2 md:p-4">
+                    <div className="w-full max-w-3xl transform overflow-hidden rounded-2xl bg-white text-left align-middle shadow-xl transition-all animate-in zoom-in-95 my-8">
+                        <div className="bg-slate-50 rounded-t-2xl border-b border-slate-200">
+                            <div className="p-4 md:p-5 flex justify-between items-center">
+                                <h3 className="font-bold text-base text-slate-800">{isEditMode ? 'แก้ไขใบสั่งซื้อ' : 'สร้างใบสั่งซื้อ'}</h3>
                                 <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
                             </div>
 
@@ -525,20 +552,20 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                 )}
                             </div>
                         ) : (
-                            <form onSubmit={handleFormSubmit} className="p-6 md:p-8 space-y-6">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <form onSubmit={handleFormSubmit} className="p-4 md:p-5 space-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">PO Number</label>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">PO Number</label>
                                         <input
                                             name="PO_ID"
                                             value={newPO.PO_ID}
                                             onChange={(e) => setNewPO({ ...newPO, PO_ID: e.target.value })}
                                             disabled={isEditMode}
-                                            className={`w-full border border-slate-200 p-3 rounded-xl outline-none focus:border-indigo-500 font-mono ${isEditMode ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50'}`}
+                                            className={`w-full border border-slate-200 p-2 md:p-2.5 text-sm rounded-lg outline-none focus:border-indigo-500 font-mono ${isEditMode ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50'}`}
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Vendor Name</label>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Vendor Name</label>
                                         <VendorCombobox
                                             vendors={vendors}
                                             value={selectedVendor}
@@ -549,86 +576,76 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Section</label>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Section</label>
                                         <input
                                             name="Section"
                                             value={newPO.Section}
                                             onChange={(e) => setNewPO({ ...newPO, Section: e.target.value })}
                                             ref={sectionRef}
-                                            className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:border-indigo-500"
+                                            className="w-full bg-slate-50 border border-slate-200 p-2 md:p-2.5 text-sm rounded-lg outline-none focus:border-indigo-500"
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Budget No.</label>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Budget No.</label>
                                         <input
                                             name="BudgetNo"
                                             value={newPO.BudgetNo}
                                             onChange={(e) => setNewPO({ ...newPO, BudgetNo: e.target.value })}
-                                            className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:border-indigo-500"
+                                            className="w-full bg-slate-50 border border-slate-200 p-2 md:p-2.5 text-sm rounded-lg outline-none focus:border-indigo-500"
                                             placeholder="ระบุเลขงบประมาณ"
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">PR No.</label>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">PR No.</label>
                                         <input
                                             name="PR_No"
                                             value={newPO.PR_No}
                                             onChange={(e) => setNewPO({ ...newPO, PR_No: e.target.value })}
-                                            className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:border-indigo-500"
+                                            className="w-full bg-slate-50 border border-slate-200 p-2 md:p-2.5 text-sm rounded-lg outline-none focus:border-indigo-500"
                                             placeholder="ระบุเลข PR"
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Due Date</label>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Due Date</label>
                                         <input
                                             name="DueDate"
                                             type="date"
                                             value={newPO.DueDate}
                                             onChange={(e) => setNewPO({ ...newPO, DueDate: e.target.value })}
-                                            className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:border-indigo-500"
+                                            className="w-full bg-slate-50 border border-slate-200 p-2 md:p-2.5 text-sm rounded-lg outline-none focus:border-indigo-500"
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Requested By</label>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Requested By</label>
                                         <input
                                             name="RequestedBy"
                                             value={newPO.RequestedBy}
                                             onChange={(e) => setNewPO({ ...newPO, RequestedBy: e.target.value })}
-                                            className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:border-indigo-500"
+                                            className="w-full bg-slate-50 border border-slate-200 p-2 md:p-2.5 text-sm rounded-lg outline-none focus:border-indigo-500"
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">คนเปิด PR (Delivery To)</label>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">คนเปิด PR (Delivery To)</label>
                                         <input
                                             name="DeliveryTo"
                                             value={newPO.DeliveryTo}
                                             onChange={(e) => setNewPO({ ...newPO, DeliveryTo: e.target.value })}
-                                            className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:border-indigo-500"
+                                            className="w-full bg-slate-50 border border-slate-200 p-2 md:p-2.5 text-sm rounded-lg outline-none focus:border-indigo-500"
                                             placeholder="เช่น natthawut.t"
-                                        />
-                                    </div>
-                                    <div className="sm:col-span-2">
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Remark</label>
-                                        <textarea
-                                            name="Remark"
-                                            value={newPO.Remark}
-                                            onChange={(e) => setNewPO({ ...newPO, Remark: e.target.value })}
-                                            className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:border-indigo-500 min-h-[80px]"
-                                            placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
                                         />
                                     </div>
                                 </div>
 
 
                                 <div>
-                                    <div className="flex justify-between items-center mb-3">
+                                    <div className="flex justify-between items-center mb-2">
                                         <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">รายการอุปกรณ์</label>
-                                        <button type="button" onClick={addItem} className="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 text-sm font-bold">
-                                            <Plus size={16} /> เพิ่มรายการ
+                                        <button type="button" onClick={addItem} className="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 text-xs font-bold px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors">
+                                            <Plus size={14} /> เพิ่มรายการ
                                         </button>
                                     </div>
                                     {/* Header Row */}
-                                    <div className="hidden sm:flex gap-2 items-center px-3 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                    <div className="hidden sm:flex gap-2 items-center px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                         <div className="flex-1">ชื่ออุปกรณ์</div>
                                         <div className="w-16 text-center">จำนวน</div>
                                         <div className="w-24 text-right">ราคา/หน่วย</div>
@@ -636,7 +653,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                     </div>
                                     <div className="space-y-2 relative z-[100]">
                                         {poItems.map((item, index) => (
-                                            <div key={index} className="flex flex-col sm:flex-row gap-2 sm:items-center bg-slate-50 p-3 rounded-xl border border-slate-200 relative">
+                                            <div key={index} className="flex flex-col sm:flex-row gap-2 sm:items-center bg-slate-50/50 p-2 rounded-lg border border-slate-200 relative">
                                                 <div className="flex-1 w-full">
                                                     <div className="sm:hidden text-[10px] font-bold text-slate-400 mb-1 uppercase">ชื่ออุปกรณ์</div>
                                                     <ProductCombobox
@@ -692,25 +709,26 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                             </div>
                                         ))}
                                     </div>
-                                    <p className="text-right text-sm font-bold text-slate-600 mt-2">ยอดรวม: ฿{getTotalAmount().toLocaleString()}</p>
+                                    <p className="text-right text-sm font-bold text-indigo-600 mt-2">ยอดรวม: ฿{getTotalAmount().toLocaleString()}</p>
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Remark</label>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Remark</label>
                                     <textarea
                                         name="Remark"
                                         rows="2"
                                         value={newPO.Remark}
                                         onChange={(e) => setNewPO({ ...newPO, Remark: e.target.value })}
-                                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:border-indigo-500 resize-none"
+                                        className="w-full bg-slate-50 border border-slate-200 p-2 md:p-2.5 text-sm rounded-lg outline-none focus:border-indigo-500 resize-none min-h-[60px]"
+                                        placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
                                     ></textarea>
                                 </div>
 
-                                <div className="flex gap-3 pt-4">
-                                    <button type="button" onClick={onClose} className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold hover:bg-slate-200 transition-all">
+                                <div className="flex gap-2 pt-2">
+                                    <button type="button" onClick={onClose} className="flex-1 bg-slate-100 text-slate-600 py-2.5 rounded-lg text-sm font-bold hover:bg-slate-200 transition-all">
                                         ยกเลิก
                                     </button>
-                                    <button type="submit" className="flex-[2] bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">
+                                    <button type="submit" className="flex-[2] bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-all shadow-md shadow-indigo-200">
                                         {isEditMode ? 'บันทึกการแก้ไข' : 'สร้างใบสั่งซื้อ'}
                                     </button>
                                 </div>

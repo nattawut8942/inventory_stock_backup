@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
 
+
 // Components
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -18,7 +19,8 @@ import PurchaseOrdersPage from './pages/PurchaseOrdersPage';
 import ReportPage from './pages/ReportPage';
 import ManagementPage from './pages/ManagementPage';
 import MALicensePage from './pages/MALicensePage';
-
+import InkTonerStockPage from './pages/InkTonerStockPage';
+import BitLockerPage from './pages/BitLockerPage';
 
 // App Routes Component
 const AppRoutes = () => {
@@ -43,13 +45,16 @@ const AppRoutes = () => {
             >
                 <Route index element={<DashboardPage />} />
                 <Route path="inventory" element={<InventoryPage />} />
+                <Route path="ink-toner" element={<InkTonerStockPage />} />
                 <Route path="history" element={<HistoryPage />} />
                 <Route path="reports" element={<ReportPage />} />
                 <Route path="ma-license" element={<MALicensePage />} />
+                <Route path="bitlocker" element={<BitLockerPage />} />
 
                 {/* PO and Receive - viewable by all, actions restricted in components */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
                 <Route path="receive" element={<ReceivePage />} />
+                
                 <Route
                     path="manual-import"
                     element={
@@ -66,7 +71,6 @@ const AppRoutes = () => {
                         </ProtectedRoute>
                     }
                 />
-
             </Route>
 
             {/* Catch all - redirect to home */}
@@ -77,7 +81,7 @@ const AppRoutes = () => {
 
 const App = () => {
     return (
-        <BrowserRouter>
+        <BrowserRouter basename={import.meta.env.BASE_URL}>
             <AuthProvider>
                 <DataProvider>
                     <AppRoutes />

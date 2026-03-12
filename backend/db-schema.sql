@@ -20,10 +20,6 @@ CREATE TABLE dbo.Stock_Locations (
 );
 
 -- Default seed data for Locations
-INSERT INTO dbo.Stock_Locations (Name) VALUES
-('Server Room'), ('Stock Room A'), ('Stock Room B'),
-('Cabinet 1'), ('Cabinet 2'), ('Front Desk');
-
 -- =====================================================
 -- 2. Vendor Master (Suppliers)
 -- =====================================================
@@ -49,7 +45,8 @@ CREATE TABLE dbo.Stock_Products (
     UnitOfMeasure NVARCHAR(50) DEFAULT 'Pcs', -- Unit (Pcs, Box, Set, etc.)
     IsActive BIT DEFAULT 1,                   -- Soft delete flag (0 = hidden)
     ImageURL NVARCHAR(MAX),                   -- Product image path (/uploads/...)
-    Location NVARCHAR(255)                    -- Storage location
+    Location NVARCHAR(255),                   -- Storage location
+    BarcodeID NVARCHAR(100)                   -- Real barcode for physical scanning
 );
 
 -- =====================================================
@@ -67,7 +64,8 @@ CREATE TABLE dbo.Stock_PurchaseOrders (
     Remark NVARCHAR(MAX),                     -- General notes
     Status NVARCHAR(50) DEFAULT 'Open',       -- Open, Partial, Completed, Cancelled
     BudgetNo NVARCHAR(100),                   -- Budget Number (Optional)
-    DeliveryTo NVARCHAR(100)                  -- PR Opener name (e.g. natthawut.t)
+    DeliveryTo NVARCHAR(100),                 -- PR Opener name (e.g. natthawut.t)
+    OrderType NVARCHAR(50) DEFAULT 'Product'  -- Product (stock), MA (service/license)
 );
 
 -- =====================================================
@@ -84,8 +82,21 @@ CREATE TABLE dbo.Stock_PODetails (
     BG_No NVARCHAR(100),                      -- Budget number per line
     ProgressBit CHAR(1),                      -- Y/N progress flag
     AssetPlace NVARCHAR(255),                 -- Asset location
-    ItemRemark NVARCHAR(MAX)                  -- Item-specific notes
+    ItemRemark NVARCHAR(MAX),                 -- Item-specific notes
+    ItemType NVARCHAR(50) DEFAULT 'Product'   -- Product (stock), MA (service/license)
 );
+
+-- =====================================================
+-- 5.1 Order Types (Lookup for PO types)
+-- =====================================================
+CREATE TABLE dbo.Stock_OrderTypes (
+    TypeCode  NVARCHAR(50) PRIMARY KEY,       -- e.g. Product, MA, Rental
+    TypeLabel NVARCHAR(100) NOT NULL,          -- Display label
+    Icon      NVARCHAR(10) DEFAULT '📦',       -- Emoji icon
+    IsActive  BIT DEFAULT 1,
+    SortOrder INT DEFAULT 0
+);
+
 
 -- =====================================================
 -- 6. Invoices Table (Receiving Records)
@@ -155,4 +166,41 @@ CREATE INDEX IX_Invoices_PO_ID ON dbo.Stock_Invoices(PO_ID);
 -- Stock_Transactions       | Log: All stock movements (IN/OUT)
 -- Stock_UserRole           | Access: List of Admin/Staff users
 -- Stock_WithdrawalReasons  | Lookup: Reasons for stock withdrawal (OUT)
+-- Stock_StockCountSessions | Header: Stock count session records
+-- Stock_StockCountItems    | Detail: Items counted per session
 -- =====================================================
+
+-- =====================================================
+-- MIGRATION: Schema checks previously in initDb.js
+-- (Run IF NOT EXISTS to safely add missing columns)
+-- =====================================================
+
+-- ImageURL
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Stock_Products' AND COLUMN_NAME = 'ImageURL')
+BEGIN ALTER TABLE dbo.Stock_Products ADD ImageURL NVARCHAR(MAX); END
+
+-- MaxStock
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Stock_Products' AND COLUMN_NAME = 'MaxStock')
+BEGIN ALTER TABLE dbo.Stock_Products ADD MaxStock INT DEFAULT 0; END
+
+-- Location
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Stock_Products' AND COLUMN_NAME = 'Location')
+BEGIN ALTER TABLE dbo.Stock_Products ADD Location NVARCHAR(255); END
+
+-- BudgetNo on POs
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Stock_PurchaseOrders' AND COLUMN_NAME = 'BudgetNo')
+BEGIN ALTER TABLE dbo.Stock_PurchaseOrders ADD BudgetNo NVARCHAR(50); END
+
+-- DeliveryTo on POs
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Stock_PurchaseOrders' AND COLUMN_NAME = 'DeliveryTo')
+BEGIN ALTER TABLE dbo.Stock_PurchaseOrders ADD DeliveryTo NVARCHAR(100); END
+
+-- Vendors table
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Stock_Vendors' AND xtype='U')
+CREATE TABLE dbo.Stock_Vendors (
+    VendorID INT IDENTITY(1,1) PRIMARY KEY,
+    VendorName NVARCHAR(255) NOT NULL,
+    ContactInfo NVARCHAR(MAX),
+    IsActive BIT DEFAULT 1
+);
+

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FileText, Search, Calendar, Eye, X, Package, Check, CircleArrowDown, ShoppingCart, Clock, Phone, RotateCcw } from 'lucide-react';
+import { FileText, Search, Calendar, Eye, X, Package, Check, CircleArrowDown, ShoppingCart, Clock, Phone, RotateCcw, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
@@ -22,14 +22,19 @@ const ReceivePage = () => {
     const [activePo, setActivePo] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedInvoice, setSelectedInvoice] = useState(null); // For Invoice Detail View
-    // Default to current month date range
+    // Default to 3 months date range for UX
     const getDefaultDateRange = () => {
         const now = new Date();
         const y = now.getFullYear();
         const m = now.getMonth();
-        const startDate = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+
+        // ย้อนหลัง 3 เดือน
+        const start = new Date(y, m - 2, 1);
+        const startDate = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-01`;
+
         const lastDay = new Date(y, m + 1, 0).getDate();
         const endDate = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
         return { startDate, endDate };
     };
     const defaultRange = getDefaultDateRange();
@@ -42,6 +47,15 @@ const ReceivePage = () => {
     // Pagination State for Invoices
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(10);
+    const [sortConfig, setSortConfig] = useState(null);
+
+    const handleSort = (key) => {
+        let direction = 'desc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') {
+            direction = 'asc';
+        }
+        setSortConfig({ key, direction });
+    };
 
     // Selection state for Receive Modal
     const [selectedItems, setSelectedItems] = useState({});
@@ -161,6 +175,13 @@ const ReceivePage = () => {
                         if (dateTo) matchDate = matchDate && d <= dateTo;
                     }
 
+                    // UX Enhancement: Always show unfinished POs (Open/Partial) if using default date range
+                    const isDefaultDate = dateFrom === defaultRange.startDate && dateTo === defaultRange.endDate;
+                    const isUnfinished = po.Status === 'Open' || po.Status === 'Pending' || po.Status === 'Partial';
+                    if (isDefaultDate && isUnfinished) {
+                        matchDate = true;
+                    }
+
                     return matchSearch && matchDate;
                 });
 
@@ -198,8 +219,18 @@ const ReceivePage = () => {
     const { filteredPOs, filteredInvoices } = result;
 
     // Pagination Logic
-    const totalPages = Math.ceil(filteredInvoices.length / itemsPerPage);
-    const currentInvoices = filteredInvoices.slice(
+    const sortedInvoices = [...filteredInvoices].sort((a, b) => {
+        if (!sortConfig) return 0;
+        let aVal = a[sortConfig.key] || '';
+        let bVal = b[sortConfig.key] || '';
+
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    const totalPages = Math.ceil(sortedInvoices.length / itemsPerPage);
+    const currentInvoices = sortedInvoices.slice(
         (currentPage - 1) * itemsPerPage,
         currentPage * itemsPerPage
     );
@@ -399,13 +430,27 @@ const ReceivePage = () => {
                         <thead className="bg-gradient-to-r from-slate-50 to-slate-100 text-xs text-slate-500 uppercase border-b border-slate-200">
                             <tr>
                                 {/* 3. เพิ่ม whitespace-nowrap ในคอลัมน์ที่ต้องการให้กว้างตามเนื้อหา */}
-                                <th className="p-4 pl-6 font-bold whitespace-nowrap">เลข INVOICE</th>
-                                <th className="p-4 font-bold whitespace-nowrap">PO REF.</th>
-                                <th className="p-4 font-bold whitespace-nowrap">VENDOR</th>
-                                <th className="p-4 font-bold whitespace-nowrap">BUDGET NO.</th>
-                                <th className="p-4 font-bold whitespace-nowrap">วัน-เวลา</th>
-                                <th className="p-4 font-bold text-center whitespace-nowrap">สถานะ</th>
-                                <th className="p-4 font-bold text-center whitespace-nowrap">User</th>
+                                <th className="p-4 pl-6 font-bold whitespace-nowrap cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('InvoiceNo')}>
+                                    <div className="flex items-center gap-1">เลข INVOICE {sortConfig?.key === 'InvoiceNo' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                </th>
+                                <th className="p-4 font-bold whitespace-nowrap cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('PO_ID')}>
+                                    <div className="flex items-center gap-1">PO REF. {sortConfig?.key === 'PO_ID' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                </th>
+                                <th className="p-4 font-bold whitespace-nowrap cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('VendorName')}>
+                                    <div className="flex items-center gap-1">VENDOR {sortConfig?.key === 'VendorName' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                </th>
+                                <th className="p-4 font-bold whitespace-nowrap cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('BudgetNo')}>
+                                    <div className="flex items-center gap-1">BUDGET NO. {sortConfig?.key === 'BudgetNo' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                </th>
+                                <th className="p-4 font-bold whitespace-nowrap cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('ReceiveDate')}>
+                                    <div className="flex items-center gap-1">วัน-เวลา {sortConfig?.key === 'ReceiveDate' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                </th>
+                                <th className="p-4 font-bold text-center whitespace-nowrap cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Status')}>
+                                    <div className="flex items-center justify-center gap-1">สถานะ {sortConfig?.key === 'Status' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                </th>
+                                <th className="p-4 font-bold text-center whitespace-nowrap cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('ReceivedBy')}>
+                                    <div className="flex items-center justify-center gap-1">User {sortConfig?.key === 'ReceivedBy' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                </th>
                                 <th className="p-4 font-bold text-center whitespace-nowrap">ดำเนินการ</th>
                             </tr>
                         </thead>
@@ -503,19 +548,19 @@ const ReceivePage = () => {
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.95 }}
-                                className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-white/20"
+                                className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden"
                             >
                                 {/* Header */}
-                                <div className="p-6 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
+                                <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
                                     <div className="flex justify-between items-start relative z-10">
                                         <div>
                                             <div className="flex items-center gap-2 mb-1 opacity-80">
                                                 <Package size={16} />
-                                                <span className="text-lm font-bold uppercase tracking-wider">ใบสั่งซื้อ</span>
+                                                <span className="text-xs font-bold uppercase tracking-wider">ใบสั่งซื้อ</span>
                                             </div>
-                                            <h3 className="font-black text-2xl tracking-tight">{selectedPO.PO_ID}</h3>
-                                            <p className="text-slate-300 font-medium mt-1">{selectedPO.VendorName || 'ไม่ระบุผู้ขาย (Unknown Vendor)'}</p>
+                                            <h3 className="font-black text-lg md:text-xl tracking-tight">{selectedPO.PO_ID}</h3>
+                                            <p className="text-slate-300 font-medium mt-1 text-sm">{selectedPO.VendorName || 'ไม่ระบุผู้ขาย (Unknown Vendor)'}</p>
                                             {selectedPO.VendorName && (vendors || []).find(v => v.VendorName === selectedPO.VendorName)?.ContactInfo && (
                                                 <div className="mt-2 text-xs bg-white/10 p-2 rounded-lg backdrop-blur-sm border border-white/10 text-indigo-50">
                                                     <p className="font-bold mb-0.5 flex items-center gap-1"><Phone size={10} /> Contact Info:</p>
@@ -524,47 +569,47 @@ const ReceivePage = () => {
                                             )}
                                         </div>
                                         <button onClick={() => setSelectedPO(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                                            <X size={20} />
+                                            <X size={18} />
                                         </button>
                                     </div>
                                 </div>
 
                                 {/* Body */}
-                                <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto bg-slate-50/50">
+                                <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto bg-slate-50/50">
                                     {/* Info */}
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                                            <p className="text-xs text-slate-700 font-bold mb-1 uppercase tracking-wider">สถานะ</p>
-                                            <span className={`inline-block text-sm font-bold px-3 py-1 rounded-full border ${getStatusColor(selectedPO.Status)}`}>
+                                    <div className="bg-white rounded-2xl overflow-hidden divide-y divide-slate-100 border border-slate-100 shadow-sm">
+                                        <div className="flex items-center p-3 sm:px-4">
+                                            <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0">สถานะ</span>
+                                            <span className={`text-sm font-bold px-3 py-1 rounded-full border ${getStatusColor(selectedPO.Status)}`}>
                                                 {selectedPO.Status === 'Open' ? 'Pending' : selectedPO.Status === 'Partial' ? 'Partial' : selectedPO.Status === 'Completed' ? 'Completed' : selectedPO.Status}
                                             </span>
                                         </div>
-                                        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                                            <p className="text-xs text-slate-700 font-bold mb-1 uppercase tracking-wider">REQUEST DATE</p>
-                                            <p className="text-sm text-slate-800">{formatThaiDate(selectedPO.RequestDate)}</p>
+                                        <div className="flex items-center p-3 sm:px-4">
+                                            <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0">REQUEST DATE</span>
+                                            <span className="text-sm font-bold text-slate-800">{formatThaiDate(selectedPO.RequestDate)}</span>
                                         </div>
                                         {selectedPO.DueDate && (
-                                            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                                                <p className="text-xs text-slate-700 font-bold mb-1 uppercase tracking-wider">DUE DATE</p>
-                                                <p className="text-sm text-slate-800">{formatThaiDate(selectedPO.DueDate)}</p>
+                                            <div className="flex items-center p-3 sm:px-4">
+                                                <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0">DUE DATE</span>
+                                                <span className="text-sm font-bold text-slate-800">{formatThaiDate(selectedPO.DueDate)}</span>
                                             </div>
                                         )}
                                         {selectedPO.BudgetNo && (
-                                            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                                                <p className="text-xs text-slate-700 font-bold mb-1 uppercase tracking-wider">BUDGET NO.</p>
-                                                <p className="text-sm text-slate-800 font-mono">{selectedPO.BudgetNo}</p>
+                                            <div className="flex items-center p-3 sm:px-4">
+                                                <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0">BUDGET NO.</span>
+                                                <span className="text-sm font-bold text-slate-800 font-mono">{selectedPO.BudgetNo}</span>
                                             </div>
                                         )}
                                         {selectedPO.PR_No && (
-                                            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                                                <p className="text-xs text-slate-700 font-bold mb-1 uppercase tracking-wider">PR NO.</p>
-                                                <p className="text-sm text-slate-800 font-mono">{selectedPO.PR_No}</p>
+                                            <div className="flex items-center p-3 sm:px-4">
+                                                <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0">PR NO.</span>
+                                                <span className="text-sm font-bold text-slate-800 font-mono">{selectedPO.PR_No}</span>
                                             </div>
                                         )}
                                         {selectedPO.DeliveryTo && (
-                                            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                                                <p className="text-xs text-slate-700 font-bold mb-1 uppercase tracking-wider">ผู้เปิด PR</p>
-                                                <p className="text-sm text-slate-800">{selectedPO.DeliveryTo}</p>
+                                            <div className="flex items-center p-3 sm:px-4">
+                                                <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0">ผู้เปิด PR</span>
+                                                <span className="text-sm font-bold text-slate-800">{selectedPO.DeliveryTo}</span>
                                             </div>
                                         )}
                                     </div>
@@ -622,17 +667,17 @@ const ReceivePage = () => {
                                 </div>
 
                                 {/* Footer */}
-                                <div className="p-5 bg-white border-t border-slate-100 flex gap-3">
+                                <div className="p-4 bg-white border-t border-slate-100 flex gap-3">
                                     <button
                                         onClick={() => setSelectedPO(null)}
-                                        className="flex-1 bg-white border-2 border-slate-100 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-50 hover:border-slate-200 transition-all"
+                                        className="flex-1 bg-white border-2 border-slate-100 text-slate-600 font-bold py-2 text-sm rounded-lg hover:bg-slate-50 hover:border-slate-200 transition-all"
                                     >
                                         ปิด
                                     </button>
                                     {user?.role === 'Staff' && (
                                         <button
                                             onClick={() => { setActivePo(selectedPO); setSelectedPO(null); setIsModalOpen(true); }}
-                                            className="flex-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-3 rounded-xl hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-lg shadow-emerald-200 flex items-center justify-center gap-2"
+                                            className="flex-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-2 text-sm rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-md flex items-center justify-center gap-2"
                                         >
                                             <Check size={18} /> รับของ
                                         </button>
@@ -658,18 +703,18 @@ const ReceivePage = () => {
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.95 }}
-                                className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-white/20"
+                                className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden"
                             >
                                 {/* Header */}
-                                <div className="p-6 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
+                                <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
                                     <div className="flex justify-between items-start relative z-10">
                                         <div>
                                             <div className="flex items-center gap-2 mb-1 opacity-90">
                                                 <FileText size={16} />
-                                                <span className="text-sm font-bold uppercase tracking-wider">รายละเอียด Invoice</span>
+                                                <span className="text-xs font-bold uppercase tracking-wider">รายละเอียด Invoice</span>
                                             </div>
-                                            <h3 className="font-black text-2xl tracking-tight">{selectedInvoice.InvoiceNo}</h3>
+                                            <h3 className="font-black text-lg md:text-xl tracking-tight">{selectedInvoice.InvoiceNo}</h3>
                                             <div className="flex gap-3 mt-2 text-indigo-100 text-xs font-medium">
                                                 <span className="bg-white/20 px-2 py-0.5 rounded">PO: {selectedInvoice.PO_ID}</span>
                                                 <span className="bg-white/20 px-2 py-0.5 rounded flex items-center gap-1"><Calendar size={10} /> {formatThaiDate(selectedInvoice.ReceiveDate)}</span>
@@ -691,13 +736,13 @@ const ReceivePage = () => {
                                             })()}
                                         </div>
                                         <button onClick={() => setSelectedInvoice(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                                            <X size={20} />
+                                            <X size={18} />
                                         </button>
                                     </div>
                                 </div>
 
                                 {/* Body */}
-                                <div className="p-6 bg-slate-50/50">
+                                <div className="p-4 bg-slate-50/50">
                                     <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
                                         <Package className="text-violet-500" size={18} />
                                         รายการที่รับเข้า
@@ -707,9 +752,9 @@ const ReceivePage = () => {
                                         <table className="w-full text-sm">
                                             <thead className="bg-slate-50 border-b border-slate-100">
                                                 <tr>
-                                                    <th className="text-left p-3 font-bold text-slate-500">รายการ</th>
-                                                    <th className="text-center p-3 font-bold text-slate-500 w-24">จำนวน</th>
-                                                    <th className="text-right p-3 font-bold text-slate-500 w-32">มูลค่ารวม</th>
+                                                    <th className="text-left p-2.5 font-bold text-slate-500">รายการ</th>
+                                                    <th className="text-center p-2.5 font-bold text-slate-500 w-24">จำนวน</th>
+                                                    <th className="text-right p-2.5 font-bold text-slate-500 w-32">มูลค่ารวม</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-50">
@@ -761,7 +806,7 @@ const ReceivePage = () => {
                                 <div className="p-4 bg-white border-t border-slate-100 flex gap-3">
                                     <button
                                         onClick={() => setSelectedInvoice(null)}
-                                        className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-200 transition-all"
+                                        className="flex-1 bg-slate-100 text-slate-600 font-bold py-2 text-sm rounded-lg hover:bg-slate-200 transition-all border border-slate-200"
                                     >
                                         ปิดหน้าต่าง
                                     </button>
@@ -771,13 +816,13 @@ const ReceivePage = () => {
                                                 setSelectedInvoice(null);
                                                 setCancelConfirm({ isOpen: true, invoiceNo: selectedInvoice.InvoiceNo });
                                             }}
-                                            className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white font-bold py-3 rounded-xl hover:from-red-600 hover:to-red-700 transition-all shadow-lg shadow-red-200 flex items-center justify-center gap-2"
+                                            className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white font-bold py-2 text-sm rounded-lg hover:from-red-600 hover:to-red-700 transition-all shadow-md flex items-center justify-center gap-2"
                                         >
-                                            <RotateCcw size={18} /> ยกเลิก Invoice
+                                            <RotateCcw size={16} /> ยกเลิก Invoice
                                         </button>
                                     )}
                                     {selectedInvoice.Status === 'Cancelled' && (
-                                        <div className="flex-1 bg-red-50 text-red-600 font-bold py-3 rounded-xl text-center border border-red-200">
+                                        <div className="flex-1 bg-red-50 text-red-600 font-bold py-2.5 text-sm rounded-lg text-center border border-red-200">
                                             Invoice นี้ถูกยกเลิกแล้ว
                                         </div>
                                     )}
@@ -802,21 +847,21 @@ const ReceivePage = () => {
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.95 }}
-                                className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-white/20"
+                                className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden"
                             >
-                                <div className="p-6 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
+                                <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
                                     <div className="flex justify-between items-start relative z-10">
                                         <div>
                                             <div className="flex items-center gap-2 mb-1 opacity-90">
                                                 <Package size={16} />
-                                                <span className="text-sm font-bold uppercase tracking-wider">บันทึกรับของ</span>
+                                                <span className="text-xs font-bold uppercase tracking-wider">บันทึกรับของ</span>
                                             </div>
-                                            <h3 className="font-black text-2xl tracking-tight">{activePo.PO_ID}</h3>
-                                            <p className="text-indigo-100 text-sm font-medium mt-1">{activePo.VendorName}</p>
+                                            <h3 className="font-black text-lg md:text-xl tracking-tight">{activePo.PO_ID}</h3>
+                                            <p className="text-indigo-100 text-xs font-medium mt-1">{activePo.VendorName}</p>
                                         </div>
                                         <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                                            <X size={20} />
+                                            <X size={18} />
                                         </button>
                                     </div>
                                 </div>
@@ -831,8 +876,8 @@ const ReceivePage = () => {
                                     })).filter(i => i.Qty > 0);
                                     handleReceive(activePo.PO_ID, fd.get('InvoiceNo'), items);
                                 }} className="flex flex-col h-full">
-                                    <div className="p-6 bg-slate-50/50 space-y-6 max-h-[60vh] overflow-y-auto">
-                                        <div className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm">
+                                    <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto bg-slate-50/50">
+                                        <div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-sm">
                                             <label className="text-xs font-bold text-indigo-500 uppercase mb-2 block tracking-wider flex items-center gap-1">
                                                 <FileText size={14} /> เลข Invoice
                                             </label>
@@ -840,7 +885,7 @@ const ReceivePage = () => {
                                                 name="InvoiceNo"
                                                 required
                                                 placeholder="e.g. INV-2024-001"
-                                                className="w-full bg-slate-50 border-2 border-indigo-50 p-4 rounded-xl outline-none focus:border-indigo-500 font-mono text-lg font-bold text-slate-700 placeholder-indigo-200 transition-colors"
+                                                className="w-full bg-slate-50 border-2 border-indigo-50 p-2.5 rounded-lg outline-none focus:border-indigo-500 font-mono text-sm font-bold text-slate-700 placeholder-indigo-200 transition-colors"
                                             />
                                         </div>
 
@@ -926,15 +971,15 @@ const ReceivePage = () => {
                                         <button
                                             type="button"
                                             onClick={() => setIsModalOpen(false)}
-                                            className="flex-1 bg-white border border-slate-200 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all"
+                                            className="flex-1 bg-white border border-slate-200 text-slate-600 font-bold py-2 text-sm rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all"
                                         >
                                             ยกเลิก
                                         </button>
                                         <button
                                             type="submit"
-                                            className="flex-[2] bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold py-3 rounded-xl hover:from-violet-700 hover:to-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
+                                            className="flex-[2] bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold py-2 text-sm rounded-lg hover:from-violet-700 hover:to-indigo-700 transition-all shadow-md shadow-indigo-200 flex items-center justify-center gap-2"
                                         >
-                                            <Check size={20} /> ยืนยันการรับของ
+                                            <Check size={18} /> ยืนยันการรับของ
                                         </button>
                                     </div>
                                 </form>

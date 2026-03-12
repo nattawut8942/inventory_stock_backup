@@ -13,14 +13,19 @@ const HistoryPage = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(20);
 
-    // Default to current month date range
+    // Default to 3 months date range for UX
     const getDefaultDateRange = () => {
         const now = new Date();
         const y = now.getFullYear();
         const m = now.getMonth();
-        const startDate = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+
+        // ย้อนหลัง 3 เดือน
+        const start = new Date(y, m - 2, 1);
+        const startDate = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-01`;
+
         const lastDay = new Date(y, m + 1, 0).getDate();
         const endDate = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
         return { startDate, endDate };
     };
     const defaultRange = getDefaultDateRange();
@@ -138,89 +143,87 @@ const HistoryPage = () => {
             </div>
 
             {/* Desktop Table View */}
-           <div className="hidden lg:block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
-    <table className="w-full text-left text-lg min-w-max table-auto">
-        <thead className="bg-slate-50 text-slate-500 uppercase text-[12px] tracking-widest border-b border-slate-200">
-            <tr>
-                <th className="p-4 pl-6 whitespace-nowrap">วันที่บันทึก</th>
-                <th className="p-4 whitespace-nowrap">หมวดหมู่</th>
-                <th className="p-4 whitespace-nowrap">รายการ</th>
-                <th className="p-4 text-center whitespace-nowrap">จำนวน</th>
-                <th className="p-4 whitespace-nowrap">หมายเหตุ</th>
-                <th className="p-4 whitespace-nowrap">ผู้ใช้</th>
-            </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-            {currentTransactions.map((t) => {
-                const isIn =
-                    (t.TransType || "").toUpperCase().trim() === "IN" ||
-                    (t.RefInfo || "").toLowerCase().includes("invoice");
-                return (
-                    <tr key={t.TransID} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-4 pl-6 text-slate-500 font-mono text-xs whitespace-nowrap">
-                            {formatThaiDate(t.TransDate)}
-                        </td>
-                        <td className="p-4 whitespace-nowrap">
-                            <span
-                                className={`font-bold px-2.5 py-1 rounded-full text-[10px] border ${
-                                    isIn
-                                        ? "bg-emerald-50 text-emerald-600 border-emerald-100"
-                                        : "bg-red-50 text-red-600 border-red-100"
-                                }`}
-                            >
-                                {t.TransType}
-                            </span>
-                        </td>
-                        <td className="p-4 font-bold text-slate-700 whitespace-nowrap">
-                            {t.ProductName}
-                        </td>
-                        <td
-                            className={`p-4 text-center font-bold font-mono text-sm whitespace-nowrap ${
-                                isIn ? "text-emerald-600" : "text-red-500"
-                            }`}
-                        >
-                            {isIn ? "+" : "-"}
-                            {Math.abs(t.Qty)}
-                        </td>
-                        <td className="p-4 text-slate-500 text-xs whitespace-nowrap">
-                            {t.RefInfo}
-                        </td>
-                        <td className="p-4 whitespace-nowrap">
-                            <span className="flex items-center gap-2 text-xs text-slate-600 font-medium">
-                                <div className="w-6 h-6 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500">
-                                    {t.UserID?.[0]}
-                                </div>
-                                {t.UserID}
-                            </span>
-                        </td>
-                    </tr>
-                );
-            })}
-        </tbody>
-    </table>
+            <div className="hidden lg:block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+                <table className="w-full text-left text-lg min-w-max table-auto">
+                    <thead className="bg-slate-50 text-slate-500 uppercase text-[12px] tracking-widest border-b border-slate-200">
+                        <tr>
+                            <th className="p-4 pl-6 whitespace-nowrap">วันที่บันทึก</th>
+                            <th className="p-4 whitespace-nowrap">หมวดหมู่</th>
+                            <th className="p-4 whitespace-nowrap">รายการ</th>
+                            <th className="p-4 text-center whitespace-nowrap">จำนวน</th>
+                            <th className="p-4 whitespace-nowrap">หมายเหตุ</th>
+                            <th className="p-4 whitespace-nowrap">ผู้ใช้</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {currentTransactions.map((t) => {
+                            const isIn =
+                                (t.TransType || "").toUpperCase().trim() === "IN" ||
+                                (t.RefInfo || "").toLowerCase().includes("invoice");
+                            return (
+                                <tr key={t.TransID} className="hover:bg-slate-50 transition-colors">
+                                    <td className="p-4 pl-6 text-slate-500 font-mono text-xs whitespace-nowrap">
+                                        {formatThaiDate(t.TransDate)}
+                                    </td>
+                                    <td className="p-4 whitespace-nowrap">
+                                        <span
+                                            className={`font-bold px-2.5 py-1 rounded-full text-[10px] border ${isIn
+                                                    ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                                                    : "bg-red-50 text-red-600 border-red-100"
+                                                }`}
+                                        >
+                                            {t.TransType}
+                                        </span>
+                                    </td>
+                                    <td className="p-4 font-bold text-slate-700 whitespace-nowrap">
+                                        {t.ProductName}
+                                    </td>
+                                    <td
+                                        className={`p-4 text-center font-bold font-mono text-sm whitespace-nowrap ${isIn ? "text-emerald-600" : "text-red-500"
+                                            }`}
+                                    >
+                                        {isIn ? "+" : "-"}
+                                        {Math.abs(t.Qty)}
+                                    </td>
+                                    <td className="p-4 text-slate-500 text-xs whitespace-nowrap">
+                                        {t.RefInfo}
+                                    </td>
+                                    <td className="p-4 whitespace-nowrap">
+                                        <span className="flex items-center gap-2 text-xs text-slate-600 font-medium">
+                                            <div className="w-6 h-6 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                                                {t.UserID?.[0]}
+                                            </div>
+                                            {t.UserID}
+                                        </span>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
 
-    {/* แสดงหน้าว่างเมื่อไม่พบข้อมูล (Empty State) */}
-    {filteredTransactions.length === 0 && (
-        <div className="p-12">
-            <EmptyState
-                message="ไม่พบรายการประวัติที่ตรงกับเงื่อนไข"
-                actionLabel={
-                    searchTerm ||
-                    filter !== "ALL" ||
-                    dateFrom !== defaultRange.startDate
-                        ? "ล้างตัวกรอง"
-                        : null
-                }
-                onAction={() => {
-                    setSearchTerm("");
-                    setFilter("ALL");
-                    setDateFrom(defaultRange.startDate);
-                    setDateTo(defaultRange.endDate);
-                }}
-            />
-        </div>
-    )}
-</div>
+                {/* แสดงหน้าว่างเมื่อไม่พบข้อมูล (Empty State) */}
+                {filteredTransactions.length === 0 && (
+                    <div className="p-12">
+                        <EmptyState
+                            message="ไม่พบรายการประวัติที่ตรงกับเงื่อนไข"
+                            actionLabel={
+                                searchTerm ||
+                                    filter !== "ALL" ||
+                                    dateFrom !== defaultRange.startDate
+                                    ? "ล้างตัวกรอง"
+                                    : null
+                            }
+                            onAction={() => {
+                                setSearchTerm("");
+                                setFilter("ALL");
+                                setDateFrom(defaultRange.startDate);
+                                setDateTo(defaultRange.endDate);
+                            }}
+                        />
+                    </div>
+                )}
+            </div>
 
             {/* Mobile Card View */}
             <div className="lg:hidden space-y-4">

@@ -1,5 +1,5 @@
-import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
     LayoutDashboard,
     Package,
@@ -11,10 +11,14 @@ import {
     History,
     Database,
     FileSpreadsheet,
-    Shield
+    Shield,
+    Printer,
+    ChevronDown,
+    ClipboardList
 } from 'lucide-react';
 import { FileKey } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import logodaikin from '../../public/DAIKIN_logo.svg.png';
 
 const SidebarItem = ({ icon: Icon, label, to }) => (
     <NavLink
@@ -31,35 +35,87 @@ const SidebarItem = ({ icon: Icon, label, to }) => (
     </NavLink>
 );
 
-const Sidebar = ({ isOpen, onClose }) => {
-    const { user, logout } = useAuth();
+const NavItem = ({ icon: Icon, label, to, isSubItem = false, onClose }) => {
+    const location = useLocation();
     const navigate = useNavigate();
+    const isActive = location.pathname === to || location.pathname.startsWith(`${to}/`);
 
-    // Close sidebar when navigating (mobile)
     const handleNavigation = (to) => {
         navigate(to);
         if (onClose) onClose();
     };
+
+    return (
+        <button
+            onClick={() => handleNavigation(to)}
+            className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-300 font-medium ${isActive
+                ? 'bg-white text-indigo-900 shadow-xl shadow-indigo-900/10 ' + (isSubItem ? 'scale-100' : 'scale-105')
+                : 'text-indigo-100/70 hover:bg-white/10 hover:text-white hover:backdrop-blur-lg'
+                } ${isSubItem ? 'pl-11 py-2.5' : ''}`}
+        >
+            <Icon size={isSubItem ? 16 : 18} />
+            <span className={isSubItem ? "text-xs font-semibold" : "text-sm"}>{label}</span>
+        </button>
+    );
+};
+
+const NavGroup = ({ icon: Icon, label, children, paths = [] }) => {
+    const location = useLocation();
+    const [isGroupOpen, setIsGroupOpen] = useState(() =>
+        paths.some(path => location.pathname === path || location.pathname.startsWith(`${path}/`))
+    );
+    const isActiveGroup = paths.some(path => location.pathname === path || location.pathname.startsWith(`${path}/`));
+
+    useEffect(() => {
+        if (!isActiveGroup && isGroupOpen) {
+            setIsGroupOpen(false);
+        } else if (isActiveGroup && !isGroupOpen) {
+            setIsGroupOpen(true);
+        }
+    }, [location.pathname, isActiveGroup]);
+
+    return (
+        <div className="space-y-1 mb-1">
+            <button
+                onClick={() => setIsGroupOpen(!isGroupOpen)}
+                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all duration-300 font-medium ${isActiveGroup || isGroupOpen
+                    ? 'bg-white/10 text-white backdrop-blur-md shadow-inner shadow-white/5'
+                    : 'text-indigo-100/70 hover:bg-white/10 hover:text-white hover:backdrop-blur-lg'
+                    }`}
+            >
+                <div className="flex items-center space-x-3">
+                    <Icon size={18} className={isActiveGroup ? 'text-indigo-300' : ''} />
+                    <span className="text-sm font-bold tracking-wide uppercase">{label}</span>
+                </div>
+                <ChevronDown size={16} className={`transition-transform duration-300 ${isGroupOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <div
+                className="overflow-hidden transition-[grid-template-rows,opacity] duration-300 ease-in-out"
+                style={{
+                    display: 'grid',
+                    gridTemplateRows: isGroupOpen ? '1fr' : '0fr',
+                    opacity: isGroupOpen ? 1 : 0
+                }}
+            >
+                <div className="min-h-0">
+                    <div className="space-y-1 mt-1">
+                        {children}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const Sidebar = ({ isOpen, onClose }) => {
+    const { user, logout } = useAuth();
+    const navigate = useNavigate();
 
     const handleLogout = () => {
         logout();
         navigate('/login');
         if (onClose) onClose();
     };
-
-    // Custom NavItem to handle click closure
-    const NavItem = ({ icon: Icon, label, to }) => (
-        <button
-            onClick={() => handleNavigation(to)}
-            className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-300 font-medium ${window.location.pathname === to
-                ? 'bg-white text-indigo-900 shadow-xl shadow-indigo-900/10 scale-105'
-                : 'text-indigo-100/70 hover:bg-white/10 hover:text-white hover:backdrop-blur-lg'
-                }`}
-        >
-            <Icon size={18} />
-            <span className="text-sm">{label}</span>
-        </button>
-    );
 
     return (
         <>
@@ -87,7 +143,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                 <div className="relative z-10 flex flex-col items-center mb-10 text-center">
                     <div className="p-2 rounded-xl mb-3 w-full max-w-[200px] relative">
                         <img
-                            src="/public/DAIKIN_logo.svg.png"
+                            src={logodaikin}
                             alt="DAIKIN"
                             className="h-8 w-auto mx-auto object-contain"
                         />
@@ -105,31 +161,37 @@ const Sidebar = ({ isOpen, onClose }) => {
                     </div>
                 </div>
 
-                <nav className="relative z-10 flex-1 space-y-1.5 overflow-y-auto scrollbar-none pr-2">
-                    <NavItem icon={LayoutDashboard} label="Dashboard" to="/" />
-                    <NavItem icon={Database} label="Inventory" to="/inventory" />
-                     <NavItem icon={FileKey} label="MA / License" to="/ma-license" />
-                    {/* PO and Receive - viewable by all */}
-                    <NavItem icon={ShoppingCart} label="Purchase Orders" to="/purchase-orders" />
-                    <NavItem icon={ArrowDownToLine} label="Receive Items" to="/receive" />
+                <nav className="relative z-10 flex-1 space-y-1.5 pr-2 overflow-y-auto pb-6">
+                    <NavItem icon={LayoutDashboard} label="DASHBOARD" to="/" onClose={onClose} />
+
+                    <NavGroup icon={Package} label="STOCK & ORDERS" paths={['/inventory', '/ink-toner', '/purchase-orders', '/receive']}>
+                        <NavItem icon={Database} label="INVENTORY" to="/inventory" isSubItem onClose={onClose} />
+                        <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" isSubItem onClose={onClose} />
+                        <NavItem icon={ShoppingCart} label="PR & ORDERS" to="/purchase-orders" isSubItem onClose={onClose} />
+                        <NavItem icon={ArrowDownToLine} label="RECEIVE ITEMS" to="/receive" isSubItem onClose={onClose} />
+
+                    </NavGroup>
+
+                    <NavItem icon={FileKey} label="MA / LICENSE" to="/ma-license" onClose={onClose} />
+                    <NavItem icon={Shield} label="BITLOCKER KEY " to="/bitlocker" onClose={onClose} />
 
                     {user?.role === 'Staff' && (
                         <>
                             <div className="pt-6 pb-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider pl-3">
                                 Staff Controls
                             </div>
-                            <NavItem icon={Plus} label="Manual Import" to="/manual-import" />
-                            <NavItem icon={Shield} label="Management" to="/management" />
+                            <NavItem icon={Plus} label="MANUAL IMPORT" to="/manual-import" onClose={onClose} />
+                            <NavItem icon={Shield} label="MANAGEMENT" to="/management" onClose={onClose} />
                         </>
                     )}
 
                     <div className="pt-6 pb-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider pl-3">
                         ทั่วไป (General)
                     </div>
-                    {/* <NavItem icon={ArrowUpFromLine} label="Withdraw Items" to="/withdraw" /> */}
-                    <NavItem icon={History} label="History Log" to="/history" />
-                    <NavItem icon={FileSpreadsheet} label="Reports" to="/reports" />
-                   
+                    {/* <NavItem icon={ArrowUpFromLine} label="Withdraw Items" to="/withdraw" onClose={onClose} /> */}
+                    <NavItem icon={History} label="HISTORY LOG" to="/history" onClose={onClose} />
+                    <NavItem icon={FileSpreadsheet} label="REPORTS" to="/reports" onClose={onClose} />
+
                 </nav>
 
                 <div className="relative z-10 pt-6 border-t border-white/5 mt-2">
@@ -154,7 +216,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                             <LogOut size={18} />
                         </button>
                     </div>
-                    <p className="text-[9px] text-center mt-5 text-center text-[13px] text-gray-500">© 2026 by: Natthawut.Y <span className="font-bold text-indigo-400">All rights reserved. </span></p>
+                    <p className="text-[10px] text-center mt-5 text-slate-500">© 2026 by: Natthawut.Y <span className="font-bold text-indigo-400">All rights reserved. </span></p>
                 </div>
             </aside>
         </>

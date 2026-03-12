@@ -6,7 +6,7 @@ export const sendDailyReport = async () => {
         const pool = getPool();
 
         // 1. Low Stock Items
-        const lowStockResult = await pool.request().query("SELECT ProductID, ProductName, CurrentStock, MinStock FROM dbo.Stock_Products WHERE CurrentStock <= MinStock AND IsActive = 1");
+        const lowStockResult = await pool.request().query("SELECT ProductID, ProductName, CurrentStock, MinStock FROM dbo.Stock_Products WHERE CurrentStock <= MinStock AND MinStock >= 1 AND IsActive = 1");
 
         // 2. Pending POs
         const pendingPoResult = await pool.request().query(`
