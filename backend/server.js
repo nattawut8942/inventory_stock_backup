@@ -24,7 +24,6 @@ import maRoutes from './src/routes/maRoutes.js';
 import inkTonerRoutes from './src/routes/inkTonerRoutes.js';
 import stockCountRoutes from './src/routes/stockCountRoutes.js';
 import budgetRoutes from './src/routes/budgetRoutes.js'; // Added Budget Routes
-import bitlockerRoutes from './src/routes/bitlockerRoutes.js'; // BitLocker Management
 
 // Setup Environment
 dotenv.config();
@@ -63,7 +62,6 @@ const startServer = async () => {
         app.use('/ITinventory/api', inkTonerRoutes);      // /api/ink-toner
         app.use('/ITinventory/api', stockCountRoutes);    // /api/stock-count
         app.use('/ITinventory/api', budgetRoutes);        // /api/budget
-        app.use('/ITinventory/api', bitlockerRoutes);     // /api/bitlocker
 
         // Cron Job (Daily Low Stock Report at 07:00 AM)
         cron.schedule('20 18 * * *', async () => {

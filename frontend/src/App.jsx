@@ -20,7 +20,6 @@ import ReportPage from './pages/ReportPage';
 import ManagementPage from './pages/ManagementPage';
 import MALicensePage from './pages/MALicensePage';
 import InkTonerStockPage from './pages/InkTonerStockPage';
-import BitLockerPage from './pages/BitLockerPage';
 
 
 // App Routes Component
@@ -54,7 +53,6 @@ const AppRoutes = () => {
                 {/* PO and Receive - viewable by all, actions restricted in components */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
                 <Route path="receive" element={<ReceivePage />} />
-                <Route path="bitlocker" element={<BitLockerPage />} />
 
                 <Route
                     path="manual-import"

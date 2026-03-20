@@ -47,7 +47,6 @@ const Header = ({ onMenuClick }) => {
             case '/manual-import': return { title: 'MANUAL STOCK IMPORT', icon: Plus, color: 'text-cyan-600' };
             case '/ma-license': return { title: 'MA / LICENSE MANAGEMENT', icon: FileKey, color: 'text-amber-600' };
             case '/ink-toner': return { title: 'INK & TONER STOCK', icon: Printer, color: 'text-cyan-600' };
-            case '/bitlocker': return { title: 'BITLOCKER MANAGEMENT', icon: Shield, color: 'text-indigo-600' };
             default: return { title: 'IT STOCK MANAGEMENT', icon: Package, color: 'text-slate-600' };
         }
     };

@@ -726,7 +726,7 @@ const DashboardPage = () => {
                                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm ${isIn
                                     ? 'bg-gradient-to-br from-emerald-100 to-emerald-50 text-emerald-600'
                                     : 'bg-gradient-to-br from-red-100 to-red-50 text-red-600'
-                                    }`}>
+                                    }`}>                
                                     {isIn ? <Package className="w-5 h-5" /> : <ShoppingCart className="w-5 h-5" />}
                                 </div>
                                 <div className="flex-1 min-w-0">

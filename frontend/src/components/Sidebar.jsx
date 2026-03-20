@@ -173,7 +173,6 @@ const Sidebar = ({ isOpen, onClose }) => {
                     </NavGroup>
 
                     <NavItem icon={FileKey} label="MA / LICENSE" to="/ma-license" onClose={onClose} />
-                    <NavItem icon={Shield} label="BITLOCKER KEY " to="/bitlocker" onClose={onClose} />
 
                     {user?.role === 'Staff' && (
                         <>
