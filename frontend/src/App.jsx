@@ -20,7 +20,10 @@ import ReportPage from './pages/ReportPage';
 import ManagementPage from './pages/ManagementPage';
 import MALicensePage from './pages/MALicensePage';
 import InkTonerStockPage from './pages/InkTonerStockPage';
+<<<<<<< HEAD
 import PCInventoryPage from './pages/PCInventoryPage';
+=======
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
 
 
 // App Routes Component
@@ -56,7 +59,11 @@ const AppRoutes = () => {
                 {/* PO and Receive - viewable by all, actions restricted in components */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
                 <Route path="receive" element={<ReceivePage />} />
+<<<<<<< HEAD
                 
+=======
+
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
                 <Route
                     path="manual-import"
                     element={
@@ -83,7 +90,11 @@ const AppRoutes = () => {
 
 const App = () => {
     return (
+<<<<<<< HEAD
         <BrowserRouter basename={import.meta.env.BASE_URL}>
+=======
+        <BrowserRouter basename="/ITinventory">
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
             <AuthProvider>
                 <DataProvider>
                     <AppRoutes />

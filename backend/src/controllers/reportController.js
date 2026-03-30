@@ -321,6 +321,7 @@ export const exportReport = async (req, res) => {
                     }));
                     break;
                 }
+<<<<<<< HEAD
                 case 'pcinventory': {
                     sheetName = '💻 PC Inventory';
                     console.log('📋 Fetching PC Inventory data...');
@@ -406,6 +407,8 @@ export const exportReport = async (req, res) => {
                     sheetName = '❓ ไม่รู้จักประเภท';
                     break;
                 }
+=======
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
             }
 
             if (data.length > 0) {

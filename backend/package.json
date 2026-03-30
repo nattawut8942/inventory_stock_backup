@@ -8,10 +8,12 @@
         "dev": "node --watch server.js"
     },
     "dependencies": {
+        "@mermaid-js/mermaid-cli": "^11.12.0",
         "axios": "^1.13.5",
         "cors": "^2.8.6",
         "dotenv": "^17.2.3",
         "express": "^5.2.1",
+        "html-to-docx": "^1.8.0",
         "mssql": "^12.2.0",
         "multer": "^2.0.2",
         "node-cron": "^3.0.3",

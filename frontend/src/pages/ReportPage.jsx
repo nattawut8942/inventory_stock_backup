@@ -410,9 +410,13 @@ const ReportPage = () => {
         { id: 'topwithdrawn', label: '🔥 อุปกรณ์เบิกมากสุด', description: 'อันดับอุปกรณ์ที่ถูกเบิกมากที่สุด', icon: TrendingUp, color: 'from-rose-500 to-rose-600' },
         { id: 'topconsumers', label: '👤 ผู้เบิกมากสุด', description: 'อันดับผู้ใช้ที่เบิกมากที่สุด', icon: User, color: 'from-cyan-500 to-cyan-600' },
         { id: 'bycategory', label: '📂 เบิกตามประเภท', description: 'สรุปยอดเบิกแยกตามประเภทอุปกรณ์', icon: PieChart, color: 'from-emerald-500 to-emerald-600' },
+<<<<<<< HEAD
         { id: 'pcinventory', label: '💻 PC Inventory ทั้งหมด', description: 'รายละเอียด PC/อุปกรณ์ IT ทั้งหมด', icon: Package, color: 'from-indigo-500 to-purple-600' },
         { id: 'expiringma', label: '⏰ สัญญาที่ใกล้หมดอายุ', description: 'MA & License ที่หมดอายุในอีก 30-90 วัน', icon: AlertCircle, color: 'from-red-500 to-orange-600' },
         { id: 'ma', label: '🛡️ สัญญาบริการ (MA & License) ทั้งหมด', description: 'ส่งออกข้อมูลสัญญา ค่าใช้จ่ายรายสัปดาห์/รายปี', icon: Shield, color: 'from-blue-600 to-indigo-600' }
+=======
+        { id: 'ma', label: '🛡️ สัญญาบริการ (MA & License)', description: 'ส่งออกข้อมูลสัญญา ค่าใช้จ่ายรายสัปดาห์/รายปี', icon: Shield, color: 'from-blue-600 to-indigo-600' }
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
     ];
 
     const toggleType = (typeId) => {

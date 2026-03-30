@@ -173,7 +173,10 @@ const Sidebar = ({ isOpen, onClose }) => {
                     </NavGroup>
 
                     <NavItem icon={FileKey} label="MA / LICENSE" to="/ma-license" onClose={onClose} />
+<<<<<<< HEAD
                     <NavItem icon={Monitor} label="PC INVENTORY" to="/pc-inventory" onClose={onClose} />
+=======
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
 
                     {user?.role === 'Staff' && (
                         <>

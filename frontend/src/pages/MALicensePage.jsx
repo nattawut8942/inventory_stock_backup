@@ -5,7 +5,11 @@ import {
     Plus, Edit2, Trash2, X, Search, ChevronDown, Eye, FileText, Calendar,
     MapPin, Tag, Hash, Building, CreditCard, RefreshCw, CheckCircle, XCircle,
     HardDrive, Globe, Wrench, Printer, ChevronLeft, ChevronRight,
+<<<<<<< HEAD
     ChevronUp, ArrowUpDown, User
+=======
+    ChevronUp, ArrowUpDown
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AlertModal from '../components/AlertModal';
@@ -320,7 +324,10 @@ const MALicensePage = () => {
                     { key: 'EndDate', label: 'หมดประกัน', width: 'whitespace-nowrap min-w-[90px]' },
                     { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
                     { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+<<<<<<< HEAD
                     ...trackingCols,
+=======
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
                 ];
             case 'SOFTWARE':
                 return [
@@ -332,7 +339,10 @@ const MALicensePage = () => {
                     { key: 'EndDate', label: 'หมดอายุ', width: 'whitespace-nowrap min-w-[90px]' },
                     { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
                     { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+<<<<<<< HEAD
                     ...trackingCols,
+=======
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
                 ];
             case 'SERVICE':
                 return [
@@ -345,7 +355,10 @@ const MALicensePage = () => {
                     { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
                     { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
                     { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+<<<<<<< HEAD
                     ...trackingCols,
+=======
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
                 ];
             case 'RENTAL':
                 return [
@@ -358,7 +371,10 @@ const MALicensePage = () => {
                     { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
                     { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
                     { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+<<<<<<< HEAD
                     ...trackingCols,
+=======
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
                 ];
             default:
                 return [];
@@ -820,7 +836,11 @@ const DetailField = ({ icon: Icon, label, value }) => (
         <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0 flex items-center gap-2">
             <Icon size={14} className="text-indigo-400" /> {label}
         </span>
+<<<<<<< HEAD
         <span className="text-base font-medium text-slate-800">{value}</span>
+=======
+        <span className="text-sm font-bold text-slate-800">{value}</span>
+>>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
     </div>
 );
 
