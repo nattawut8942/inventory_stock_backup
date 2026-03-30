@@ -18,7 +18,10 @@ const ManagementPage = () => {
     const [adminUsers, setAdminUsers] = useState([]);
     const [isLoadingAdmins, setIsLoadingAdmins] = useState(false);
     const [newAdmin, setNewAdmin] = useState('');
+    const [newAdminEmpCode, setNewAdminEmpCode] = useState('');
     const [isAddAdminOpen, setIsAddAdminOpen] = useState(false);
+    const [editingAdmin, setEditingAdmin] = useState(null);
+    const [editAdminForm, setEditAdminForm] = useState({ Username: '', EmpCode: '' });
 
     // Vendors State
     const [isAddVendorOpen, setIsAddVendorOpen] = useState(false);
@@ -95,12 +98,13 @@ const ManagementPage = () => {
             const res = await fetch(`${API_BASE}/admin-users`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: newAdmin, createdBy: user?.username })
+                body: JSON.stringify({ username: newAdmin, empCode: newAdminEmpCode, createdBy: user?.username })
             });
             const data = await res.json();
             if (data.success) {
                 setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ (Success)', message: 'เพิ่มผู้ดูแลระบบสำเร็จ (Admin added successfully)' });
                 setNewAdmin('');
+                setNewAdminEmpCode('');
                 setIsAddAdminOpen(false);
                 fetchAdminUsers();
             } else {
@@ -135,6 +139,35 @@ const ManagementPage = () => {
             },
             onCancel: () => setAlertModal(prev => ({ ...prev, isOpen: false }))
         });
+    };
+
+    const handleEditAdmin = (admin) => {
+        setEditingAdmin(admin);
+        setEditAdminForm({ Username: admin.Username, EmpCode: admin.EmpCode || '' });
+        setIsAddAdminOpen(true);
+    };
+
+    const handleSaveEditAdmin = async (e) => {
+        e.preventDefault();
+        try {
+            const res = await fetch(`${API_BASE}/admin-users/${editingAdmin.ID}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(editAdminForm)
+            });
+            const data = await res.json();
+            if (data.success) {
+                setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ (Success)', message: 'อัปเดตผู้ดูแลระบบสำเร็จ (Admin updated successfully)' });
+                setEditingAdmin(null);
+                setEditAdminForm({ Username: '', EmpCode: '' });
+                setIsAddAdminOpen(false);
+                fetchAdminUsers();
+            } else {
+                setAlertModal({ isOpen: true, type: 'error', title: 'เกิดข้อผิดพลาด (Error)', message: data.error || 'ไม่สามารถอัปเดตผู้ดูแลได้ (Failed to update admin)' });
+            }
+        } catch (err) {
+            setAlertModal({ isOpen: true, type: 'error', title: 'เกิดข้อผิดพลาด (Error)', message: err.message });
+        }
     };
 
     // --- Vendors Logic ---
@@ -538,6 +571,7 @@ const ManagementPage = () => {
                                             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
                                                 <th className="p-4 font-bold">ID</th>
                                                 <th className="p-4 font-bold">Username</th>
+                                                <th className="p-4 font-bold">EmpCode</th>
                                                 <th className="p-4 font-bold">เพิ่มโดย (Created By)</th>
                                                 <th className="p-4 font-bold text-right">จัดการ</th>
                                             </tr>
@@ -553,9 +587,16 @@ const ManagementPage = () => {
                                                                 {admin.Username}
                                                             </div>
                                                         </td>
+                                                        <td className="p-4 text-slate-600 text-sm font-mono">{admin.EmpCode || '-'}</td>
                                                         <td className="p-4 text-slate-600 text-sm">{admin.CreatedBy || 'System'}</td>
                                                         <td className="p-4 text-right">
                                                             <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button
+                                                                    onClick={() => handleEditAdmin(admin)}
+                                                                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                                                >
+                                                                    <Edit2 size={16} />
+                                                                </button>
                                                                 {admin.Username.toLowerCase() !== 'admin' && (
                                                                     <button
                                                                         onClick={() => handleDeleteAdmin(admin.Username)}
@@ -564,13 +605,14 @@ const ManagementPage = () => {
                                                                         <Trash2 size={16} />
                                                                     </button>
                                                                 )}
+                                                                
                                                             </div>
                                                         </td>
                                                     </tr>
                                                 ))
                                             ) : (
                                                 <tr>
-                                                    <td colSpan="4" className="p-12 text-center">
+                                                    <td colSpan="5" className="p-12 text-center">
                                                         <div className="flex flex-col items-center justify-center text-slate-400">
                                                             <Shield className="w-12 h-12 mb-4 text-slate-200" />
                                                             <p className="font-medium text-lg text-slate-500">ไม่พบผู้ดูแลระบบ (No admins found)</p>
@@ -1072,15 +1114,23 @@ const ManagementPage = () => {
                                                 <Shield size={16} />
                                                 <span className="text-xs font-bold uppercase tracking-wider">ผู้ดูแลระบบ (Admin)</span>
                                             </div>
-                                            <h3 className="font-black text-xl md:text-2xl tracking-tight">เพิ่มผู้ดูแลใหม่</h3>
+                                            <h3 className="font-black text-xl md:text-2xl tracking-tight">{editingAdmin ? 'แก้ไขผู้ดูแล' : 'เพิ่มผู้ดูแลใหม่'}</h3>
                                         </div>
-                                        <button onClick={() => setIsAddAdminOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                                        <button 
+                                            onClick={() => {
+                                                setIsAddAdminOpen(false);
+                                                setEditingAdmin(null);
+                                                setNewAdmin('');
+                                                setNewAdminEmpCode('');
+                                            }} 
+                                            className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                                        >
                                             <X size={20} />
                                         </button>
                                     </div>
                                 </div>
 
-                                <form onSubmit={handleAddAdmin} className="flex flex-col h-full">
+                                <form onSubmit={editingAdmin ? handleSaveEditAdmin : handleAddAdmin} className="flex flex-col h-full">
                                     <div className="p-4 md:p-5 bg-slate-50/50 space-y-4">
                                         <div>
                                             <label className="block text-sm font-bold text-slate-700 mb-2">ชื่อผู้ใช้งาน (Username)</label>
@@ -1089,26 +1139,42 @@ const ManagementPage = () => {
                                                 type="text"
                                                 placeholder="e.g. jdoe"
                                                 className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium text-slate-700"
-                                                value={newAdmin}
-                                                onChange={(e) => setNewAdmin(e.target.value)}
+                                                value={editingAdmin ? editAdminForm.Username : newAdmin}
+                                                onChange={(e) => editingAdmin ? setEditAdminForm({...editAdminForm, Username: e.target.value}) : setNewAdmin(e.target.value)}
                                             />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">รหัสพนักงาน (EmpCode) <span className="text-slate-400">(ถ้ามี)</span></label>
+                                            <input
+                                                type="text"
+                                                placeholder="e.g. E12345"
+                                                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium text-slate-700 font-mono"
+                                                value={editingAdmin ? editAdminForm.EmpCode : newAdminEmpCode}
+                                                onChange={(e) => editingAdmin ? setEditAdminForm({...editAdminForm, EmpCode: e.target.value}) : setNewAdminEmpCode(e.target.value)}
+                                            />
+                                            
                                         </div>
                                     </div>
 
                                     <div className="p-4 bg-white border-t border-slate-100 flex gap-3">
                                         <button
                                             type="button"
-                                            onClick={() => setIsAddAdminOpen(false)}
+                                            onClick={() => {
+                                                setIsAddAdminOpen(false);
+                                                setEditingAdmin(null);
+                                                setNewAdmin('');
+                                                setNewAdminEmpCode('');
+                                            }}
                                             className="flex-1 bg-white border border-slate-200 text-slate-600 text-sm font-bold py-2.5 rounded-lg hover:bg-slate-50 hover:text-slate-800 transition-all"
                                         >
                                             ยกเลิก
                                         </button>
                                         <button
                                             type="submit"
-                                            disabled={!newAdmin}
+                                            disabled={editingAdmin ? !editAdminForm.Username : !newAdmin}
                                             className="flex-[2] bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-bold py-2.5 rounded-lg hover:from-violet-700 hover:to-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:shadow-none"
                                         >
-                                            เพิ่ม Admin
+                                            {editingAdmin ? 'บันทึกการแก้ไข' : 'เพิ่ม Admin'}
                                         </button>
                                     </div>
                                 </form>

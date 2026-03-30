@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Package, TrendingUp, TrendingDown, AlertTriangle, DollarSign, ShoppingCart, Clock, ArrowRight, Flame, Activity } from 'lucide-react';
+import { Package, TrendingUp, TrendingDown, AlertTriangle, Monitor, HardDrive, Tag, DollarSign, ShoppingCart, Clock, ArrowRight, Flame, Activity } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useData } from '../context/DataContext';
 import { API_BASE } from '../config/api';
@@ -16,11 +16,24 @@ const DashboardPage = () => {
     const [maItems, setMaItems] = useState([]);
 
     const [isAnimating, setIsAnimating] = useState(true);
+    const [pcSummary, setPcSummary] = useState(null);
 
     React.useEffect(() => {
-        // Let the route transition & Sidebar animation finish before rendering heavy charts
         const timer = setTimeout(() => setIsAnimating(false), 800);
         return () => clearTimeout(timer);
+    }, []);
+
+    React.useEffect(() => {
+        const fetchPcSum = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/pc-inventory/summary`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.success) setPcSummary(data);
+                }
+            } catch (err) {}
+        };
+        fetchPcSum();
     }, []);
 
     React.useEffect(() => {
@@ -689,6 +702,75 @@ const DashboardPage = () => {
                     </div>
                 </motion.div>
             </div>
+            {/* PC Inventory Insights Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Battery Health < 70% */}
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+                className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl transition-shadow flex flex-col h-[320px]"
+            >
+                <SectionHeader icon={AlertTriangle} gradient="from-amber-400 to-orange-500" title={`Battery Health < 70% (${pcSummary?.lowBatteryHealth?.length || 0})`} actionText="ดูทั้งหมด" onAction={() => navigate('/pc-inventory', { state: { filterKey: 'lowBatteryHealth', filterLabel: 'Battery Health < 70%' } })} />
+                <div className="overflow-y-auto flex-1 pr-1 space-y-2.5 custom-scrollbar">
+                     {Array.isArray(pcSummary?.lowBatteryHealth) && pcSummary.lowBatteryHealth.length > 0 ? pcSummary.lowBatteryHealth.slice(0, 5).map((host, idx) => (
+                         <div key={idx} className="flex items-center justify-between p-3.5 bg-amber-50/50 border border-amber-100 hover:border-amber-200 hover:bg-amber-50 rounded-xl transition-colors">
+                             <div className="flex items-center gap-3">
+                                 <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                                     <AlertTriangle className="w-4 h-4 text-amber-500" />
+                                 </div>
+                                 <p className="font-bold text-sm text-slate-800">{host}</p>
+                             </div>
+                         </div>
+                     )) : <div className="text-center py-8 text-slate-400"><div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center mx-auto mb-2"><AlertTriangle className="w-5 h-5 text-amber-300" /></div><p className="text-xs font-medium">ไม่มีเครื่องที่เข้าข่าย</p></div>}
+                </div>
+            </motion.div>
+
+            {/* Disk C > 80% Used */}
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl transition-shadow flex flex-col h-[320px]"
+            >
+                <SectionHeader icon={HardDrive} gradient="from-red-500 to-rose-600" title={`Disk C > 80% (${pcSummary?.lowDiskCSpace?.length || 0})`} actionText="ดูทั้งหมด" onAction={() => navigate('/pc-inventory', { state: { filterKey: 'lowDiskCSpace', filterLabel: 'Disk C > 80% Used' } })} />
+                <div className="overflow-y-auto flex-1 pr-1 space-y-2.5 custom-scrollbar">
+                     {Array.isArray(pcSummary?.lowDiskCSpace) && pcSummary.lowDiskCSpace.length > 0 ? pcSummary.lowDiskCSpace.slice(0, 5).map((host, idx) => (
+                         <div key={idx} className="flex items-center justify-between p-3.5 bg-red-50/50 border border-red-100 hover:border-red-200 hover:bg-red-50 rounded-xl transition-colors">
+                             <div className="flex items-center gap-3">
+                                 <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
+                                     <HardDrive className="w-4 h-4 text-red-500" />
+                                 </div>
+                                 <p className="font-bold text-sm text-slate-800">{host}</p>
+                             </div>
+                         </div>
+                     )) : <div className="text-center py-8 text-slate-400"><div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center mx-auto mb-2"><HardDrive className="w-5 h-5 text-red-300" /></div><p className="text-xs font-medium">ไม่มีเครื่องที่เข้าข่าย</p></div>}
+                </div>
+            </motion.div>
+
+            {/* Old Fix Assets */}
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.25 }}
+                className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl transition-shadow flex flex-col h-[320px]"
+            >
+                <SectionHeader icon={Clock} gradient="from-indigo-500 to-blue-600" title={`Old Fix Assets (${pcSummary?.oldFixAssets?.length || 0})`} actionText="ดูทั้งหมด" onAction={() => navigate('/pc-inventory', { state: { filterKey: 'oldFixAssets', filterLabel: 'Old Fix Assets' } })} />
+                <div className="overflow-y-auto flex-1 pr-1 space-y-2.5 custom-scrollbar">
+                     {Array.isArray(pcSummary?.oldFixAssets) && pcSummary.oldFixAssets.length > 0 ? pcSummary.oldFixAssets.slice(0, 5).map((host, idx) => (
+                         <div key={idx} className="flex items-center justify-between p-3.5 bg-indigo-50/50 border border-indigo-100 hover:border-indigo-200 hover:bg-indigo-50 rounded-xl transition-colors">
+                             <div className="flex items-center gap-3">
+                                 <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                                     <Clock className="w-4 h-4 text-indigo-500" />
+                                 </div>
+                                 <p className="font-bold text-sm text-slate-800">{host}</p>
+                             </div>
+                         </div>
+                     )) : <div className="text-center py-8 text-slate-400"><div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center mx-auto mb-2"><Clock className="w-5 h-5 text-indigo-300" /></div><p className="text-xs font-medium">ไม่มีเครื่องที่เข้าข่าย</p></div>}
+                </div>
+            </motion.div>
+        </div>
+
 
             {/* Recent Activities */}
             <motion.div
@@ -726,7 +808,7 @@ const DashboardPage = () => {
                                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm ${isIn
                                     ? 'bg-gradient-to-br from-emerald-100 to-emerald-50 text-emerald-600'
                                     : 'bg-gradient-to-br from-red-100 to-red-50 text-red-600'
-                                    }`}>
+                                    }`}>                
                                     {isIn ? <Package className="w-5 h-5" /> : <ShoppingCart className="w-5 h-5" />}
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -766,7 +848,9 @@ const DashboardPage = () => {
                     )}
                 </div>
             </motion.div>
-        </div>
+
+        
+      </div>
     );
 };
 

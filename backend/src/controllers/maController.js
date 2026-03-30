@@ -100,7 +100,6 @@ export const createMAItem = async (req, res) => {
     }
 };
 
-// UPDATE MA Item
 export const updateMAItem = async (req, res) => {
     const { id } = req.params;
     const {

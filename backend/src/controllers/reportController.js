@@ -15,8 +15,8 @@ export const exportReport = async (req, res) => {
             let data = [];
             let sheetName = dataType;
 
-            // ... (Logic from server.js lines 1112-1382) -> Copied below
-            switch (dataType) {
+            try {
+                switch (dataType) {
                 case 'products': {
                     sheetName = '📦 สินค้าทั้งหมด';
                     const prodResult = await pool.request().query(`
@@ -321,6 +321,91 @@ export const exportReport = async (req, res) => {
                     }));
                     break;
                 }
+                case 'pcinventory': {
+                    sheetName = '💻 PC Inventory';
+                    console.log('📋 Fetching PC Inventory data...');
+                    const pcResult = await pool.request().query(`
+                        SELECT p.id, p.hostname, p.serial_number, p.fix_asset,
+                               p.manufacturer, p.model, p.cpu_name, p.cpu_cores, p.ram_gb, p.disk_info, p.resolution,
+                               p.os_name, p.os_release, p.os_build, p.bitlocker, p.crowdstrike_ver,
+                               p.ip_address, p.mac_address, p.computer_type, p.collected_at, p.updated_at,
+                               p.wifi_ssid, p.adapter_type, p.domain, p.bios_version, p.user_count, p.local_admin_users
+                        FROM dbo.info_pc_inventory p
+                        ORDER BY p.hostname
+                    `);
+                    console.log(`✅ PC Inventory Query Result: ${pcResult.recordset.length} rows found`);
+                    data = pcResult.recordset.map((row, idx) => ({
+                        'ลำดับ': idx + 1,
+                        'Fix Asset': row.fix_asset || '-',
+                        'Host Name': row.hostname || '-',
+                        'Serial Number': row.serial_number || '-',
+                        'Manufacturer': row.manufacturer || '-',
+                        'Model': row.model || '-',
+                        'CPU': row.cpu_name || '-',
+                        'CPU Cores': row.cpu_cores || '-',
+                        'RAM (GB)': row.ram_gb || '-',
+                        'Storage': row.disk_info || '-',
+                        'Resolution': row.resolution || '-',
+                        'OS': row.os_name || '-',
+                        'OS Release': row.os_release || '-',
+                        'OS Build': row.os_build || '-',  
+                        'BitLocker': row.bitlocker || '-',
+                        'CrowdStrike Ver': row.crowdstrike_ver || '-',
+                        'IP Address': row.ip_address || '-',
+                        'MAC Address': row.mac_address || '-',
+                        'Computer Type': row.computer_type || '-',
+                        'Domain': row.domain || '-',
+                        'WiFi SSID': row.wifi_ssid || '-',
+                        'Adapter Type': row.adapter_type || '-',
+                        'BIOS Version': row.bios_version || '-',
+                        'จำนวนผู้ใช้': row.user_count || 0,
+                        'Local Admin Users': row.local_admin_users || '-',
+                        'วันรวบรวม': row.collected_at ? new Date(row.collected_at).toLocaleDateString('th-TH') : '-',
+                        'วันปรับปรุง': row.updated_at ? new Date(row.updated_at).toLocaleDateString('th-TH') : '-'
+                    }));
+                    break;
+                }
+                case 'expiringma': {
+                    sheetName = '⏰ สัญญาใกล้หมดอายุ';
+                    console.log('📋 Fetching Expiring MA data...');
+                    const expmaRequest = pool.request();
+                    expmaRequest.input('startDate', sql.DateTime, new Date());
+                    expmaRequest.input('endDate', sql.DateTime, new Date(new Date().setDate(new Date().getDate() + 90)));
+
+                    const expmaQuery = `
+                        SELECT m.ItemID, m.Category, m.ItemName, m.SubType, m.Brand, m.SerialNumber, 
+                               m.PONumber, v.VendorName, m.ServiceNumber, m.StartDate, m.EndDate, m.Price, m.Status,
+                               DATEDIFF(day, GETDATE(), m.EndDate) as DaysLeft
+                        FROM dbo.MA_Items m
+                        LEFT JOIN dbo.Stock_Vendors v ON m.VendorID = v.VendorID
+                        WHERE m.EndDate >= @startDate AND m.EndDate <= @endDate AND m.Status = 'Active'
+                        ORDER BY m.EndDate ASC
+                    `;
+
+                    const expmaResult = await expmaRequest.query(expmaQuery);
+                    console.log(`✅ Expiring MA Query Result: ${expmaResult.recordset.length} rows found`);
+                    data = expmaResult.recordset.map((row, idx) => ({
+                        'ลำดับ': idx + 1,
+                        'วันที่หมดอายุ': row.EndDate ? new Date(row.EndDate).toLocaleDateString('th-TH') : '-',
+                        'คนเหลือ (วัน)': row.DaysLeft >= 0 ? row.DaysLeft : 0,
+                        'ชื่อระบบ/อุปกรณ์': row.ItemName || '-',
+                        'หมวดหมู่': row.Category || '-',
+                        'ประเภท': row.SubType || '-',
+                        'ยี่ห้อ': row.Brand || '-',
+                        'S/N': row.SerialNumber || '-',
+                        'ผู้รับเหมา': row.VendorName || '-',
+                        'วันเริ่มสัญญา': row.StartDate ? new Date(row.StartDate).toLocaleDateString('th-TH') : '-',
+                        'เลขที่สัญญา': row.ServiceNumber || '-',
+                        'เลขที่ PO': row.PONumber || '-',
+                        'มูลค่า (฿)': row.Price || 0
+                    }));
+                    break;
+                }
+                default: {
+                    console.warn(`⚠️ Unknown report type: ${dataType}`);
+                    sheetName = '❓ ไม่รู้จักประเภท';
+                    break;
+                }
             }
 
             if (data.length > 0) {
@@ -329,6 +414,19 @@ export const exportReport = async (req, res) => {
                     wch: Math.max(key.length, ...data.map(row => String(row[key] || '').length)) + 2
                 }));
                 ws['!cols'] = colWidths;
+                XLSX.utils.book_append_sheet(workbook, ws, sheetName.substring(0, 31));
+            } else {
+                // ถ้าไม่มีข้อมูล ให้สร้าง empty sheet แทน
+                const emptyData = [{ 'ข้อมูล': 'ไม่พบข้อมูลที่ตรงตามเงื่อนไข' }];
+                const ws = XLSX.utils.json_to_sheet(emptyData);
+                XLSX.utils.book_append_sheet(workbook, ws, sheetName.substring(0, 31));
+            }
+            } catch (typeErr) {
+                console.error(`❌ Error processing ${dataType}:`, typeErr.message);
+                console.error('Stack:', typeErr.stack);
+                // สร้าง error sheet แทน
+                const errorData = [{ 'ข้อมูล': `เกิดข้อผิดพลาด: ${typeErr.message}` }];
+                const ws = XLSX.utils.json_to_sheet(errorData);
                 XLSX.utils.book_append_sheet(workbook, ws, sheetName.substring(0, 31));
             }
         }
@@ -351,7 +449,8 @@ export const exportReport = async (req, res) => {
         res.send(buffer);
     } catch (err) {
         console.error('Export Error:', err);
-        res.status(500).json({ error: 'Failed to export report' });
+        console.error('Stack:', err.stack);
+        res.status(500).json({ error: 'Failed to export report', details: err.message });
     }
 };
 

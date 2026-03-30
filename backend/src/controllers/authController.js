@@ -67,11 +67,11 @@ export const login = async (req, res) => {
                 });
             }
 
-            // Check if user is admin from database
+            // Check if user is admin from database using empCode (prefer empCode, fallback to username for legacy)
             const pool = getPool();
             const adminCheck = await pool.request()
-                .input('username', sql.NVarChar, username.toLowerCase())
-                .query('SELECT 1 FROM dbo.Stock_UserRole WHERE LOWER(Username) = @username');
+                .input('empCode', sql.NVarChar, empCode)
+                .query('SELECT 1 FROM dbo.Stock_UserRole WHERE EmpCode = @empCode');
 
             const isAdmin = adminCheck.recordset.length > 0;
             const role = isAdmin ? 'Staff' : 'User';

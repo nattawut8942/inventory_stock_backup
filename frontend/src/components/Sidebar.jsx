@@ -16,7 +16,7 @@ import {
     ChevronDown,
     ClipboardList
 } from 'lucide-react';
-import { FileKey } from 'lucide-react';
+import { FileKey, Monitor } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import logodaikin from '../../public/DAIKIN_logo.svg.png';
 
@@ -173,7 +173,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                     </NavGroup>
 
                     <NavItem icon={FileKey} label="MA / LICENSE" to="/ma-license" onClose={onClose} />
-                    <NavItem icon={Shield} label="BITLOCKER KEY " to="/bitlocker" onClose={onClose} />
+                    <NavItem icon={Monitor} label="PC INVENTORY" to="/pc-inventory" onClose={onClose} />
 
                     {user?.role === 'Staff' && (
                         <>

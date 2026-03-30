@@ -20,7 +20,8 @@ import ReportPage from './pages/ReportPage';
 import ManagementPage from './pages/ManagementPage';
 import MALicensePage from './pages/MALicensePage';
 import InkTonerStockPage from './pages/InkTonerStockPage';
-import BitLockerPage from './pages/BitLockerPage';
+import PCInventoryPage from './pages/PCInventoryPage';
+
 
 // App Routes Component
 const AppRoutes = () => {
@@ -49,7 +50,8 @@ const AppRoutes = () => {
                 <Route path="history" element={<HistoryPage />} />
                 <Route path="reports" element={<ReportPage />} />
                 <Route path="ma-license" element={<MALicensePage />} />
-                <Route path="bitlocker" element={<BitLockerPage />} />
+                <Route path="pc-inventory" element={<PCInventoryPage />} />
+               
 
                 {/* PO and Receive - viewable by all, actions restricted in components */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />

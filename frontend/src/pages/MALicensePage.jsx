@@ -5,7 +5,7 @@ import {
     Plus, Edit2, Trash2, X, Search, ChevronDown, Eye, FileText, Calendar,
     MapPin, Tag, Hash, Building, CreditCard, RefreshCw, CheckCircle, XCircle,
     HardDrive, Globe, Wrench, Printer, ChevronLeft, ChevronRight,
-    ChevronUp, ArrowUpDown
+    ChevronUp, ArrowUpDown, User
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AlertModal from '../components/AlertModal';
@@ -303,6 +303,11 @@ const MALicensePage = () => {
 
     // ─── GET COLUMNS BY CATEGORY ─────────
     const getColumns = (cat) => {
+        const trackingCols = [
+            { key: 'CreatedBy', label: 'ผู้บันทึก', width: 'min-w-[100px]' },
+            { key: 'CreatedAt', label: 'วันบันทึก', width: 'whitespace-nowrap min-w-[120px]' },
+        ];
+
         switch (cat) {
             case 'HARDWARE':
                 return [
@@ -315,6 +320,7 @@ const MALicensePage = () => {
                     { key: 'EndDate', label: 'หมดประกัน', width: 'whitespace-nowrap min-w-[90px]' },
                     { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
                     { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+                    ...trackingCols,
                 ];
             case 'SOFTWARE':
                 return [
@@ -326,6 +332,7 @@ const MALicensePage = () => {
                     { key: 'EndDate', label: 'หมดอายุ', width: 'whitespace-nowrap min-w-[90px]' },
                     { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
                     { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+                    ...trackingCols,
                 ];
             case 'SERVICE':
                 return [
@@ -338,6 +345,7 @@ const MALicensePage = () => {
                     { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
                     { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
                     { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+                    ...trackingCols,
                 ];
             case 'RENTAL':
                 return [
@@ -350,6 +358,7 @@ const MALicensePage = () => {
                     { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
                     { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
                     { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+                    ...trackingCols,
                 ];
             default:
                 return [];
@@ -384,6 +393,8 @@ const MALicensePage = () => {
         }
         if (col.key === 'Price') return `฿${(item.Price || 0).toLocaleString()}`;
         if (col.key === 'LicenseQty') return item.LicenseQty || '-';
+        if (col.key === 'CreatedAt' || col.key === 'UpdatedAt') return formatDate(item[col.key]);
+        if (col.key === 'CreatedBy') return item.CreatedBy || '-';
         return item[col.key] || '-';
     };
 
@@ -724,6 +735,13 @@ const MALicensePage = () => {
                                     <DetailField icon={Clock} label="ระยะเวลา" value={formatDuration(detailItem.StartDate, detailItem.EndDate)} />
                                 </div>
 
+                                {/* Tracking Information */}
+                                <div className="bg-blue-50 rounded-xl overflow-hidden divide-y divide-blue-100 border border-blue-100 shadow-sm">
+                                    <DetailField icon={User} label="ผู้บันทึก" value={detailItem.CreatedBy || '-'} />
+                                    <DetailField icon={Calendar} label="วันบันทึก" value={formatDate(detailItem.CreatedAt)} />
+                                    <DetailField icon={Clock} label="แก้ไขล่าสุด" value={formatDate(detailItem.UpdatedAt)} />
+                                </div>
+
                                 {detailItem.Remark && (
                                     <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                                         <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">หมายเหตุ</p>
@@ -802,12 +820,13 @@ const DetailField = ({ icon: Icon, label, value }) => (
         <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0 flex items-center gap-2">
             <Icon size={14} className="text-indigo-400" /> {label}
         </span>
-        <span className="text-sm font-bold text-slate-800">{value}</span>
+        <span className="text-base font-medium text-slate-800">{value}</span>
     </div>
 );
 
 // ─── FORM MODAL COMPONENT ────────────────
 const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClose }) => {
+    const { user } = useAuth();
     const isEdit = !!item;
     const [form, setForm] = useState({
         Category: item?.Category || category,
@@ -825,6 +844,9 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
         EndDate: item?.EndDate ? new Date(item.EndDate).toISOString().split('T')[0] : '',
         Status: item?.Status || 'Active',
         Remark: item?.Remark || '',
+        CreatedBy: item?.CreatedBy || user?.username || '',
+        CreatedAt: item?.CreatedAt || '',
+        UpdatedAt: item?.UpdatedAt || '',
         ...(isEdit ? { ItemID: item.ItemID } : {}),
     });
 
@@ -971,6 +993,31 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                         <FormField label="หมายเหตุ (Remark)">
                             <textarea rows={2} value={form.Remark} onChange={(e) => handleChange('Remark', e.target.value)} className="form-input resize-none" placeholder="ข้อมูลเพิ่มเติม..." />
                         </FormField>
+
+                        {/* Tracking Information - Locked */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+                            <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-3">📋 ข้อมูลการบันทึก</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                                <div>
+                                    <label className="block text-blue-600 font-bold uppercase tracking-wider mb-1 text-[11px]">ผู้บันทึก</label>
+                                    <input type="text" value={form.CreatedBy || user?.username} disabled className="form-input bg-white text-slate-600 cursor-not-allowed border-blue-100" />
+                                </div>
+                                {isEdit && (
+                                    <div>
+                                        <label className="block text-blue-600 font-bold uppercase tracking-wider mb-1 text-[11px]">วันบันทึก</label>
+                                        <input type="text" value={formatDate(form.CreatedAt)} disabled className="form-input bg-white text-slate-600 cursor-not-allowed border-blue-100" />
+                                    </div>
+                                )}
+                            </div>
+                            {isEdit && (
+                                <div className="mt-3 pt-3 border-t border-blue-100">
+                                    <div>
+                                        <label className="block text-blue-600 font-bold uppercase tracking-wider mb-1 text-[11px]">แก้ไขล่าสุด</label>
+                                        <input type="text" value={formatDate(form.UpdatedAt)} disabled className="form-input bg-white text-slate-600 cursor-not-allowed border-blue-100" />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </form>
 
                     {/* Footer */}
