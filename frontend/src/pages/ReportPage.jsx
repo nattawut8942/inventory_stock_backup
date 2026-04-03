@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { FileSpreadsheet, Calendar, Download, CheckSquare, Square, Package, TrendingUp, TrendingDown, BarChart3, PieChart, FileText, Receipt, DollarSign, Clock, User, AlertCircle, Shield, SlidersHorizontal, X, Filter } from 'lucide-react';
+import { FileSpreadsheet, Calendar, Download, CheckSquare, Square, Package, TrendingUp, TrendingDown, BarChart3, PieChart, FileText, Receipt, DollarSign, Clock, User, AlertCircle, Shield, SlidersHorizontal, X, Filter, Monitor } from 'lucide-react';
 import { BarChart, Bar, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, LabelList } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { useData } from '../context/DataContext';
@@ -289,58 +289,79 @@ const ReportPage = () => {
 
     // NEW: Top Consumers (Users who withdraw the most)
     const topConsumers = useMemo(() => {
-        const userMap = {};
+    const userMap = {};
 
-        filteredTransactions.forEach(t => {
-            const type = (t.TransType || '').toUpperCase().trim();
-            if (type === 'OUT' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) {
-                const userId = t.UserID || 'Unknown';
-                if (!userMap[userId]) {
-                    userMap[userId] = { userId, totalQty: 0, totalValue: 0, transactionCount: 0 };
-                }
-                const qty = Math.abs(t.Qty);
-                const price = products.find(p => p.ProductID === t.ProductID)?.LastPrice || 0;
+    const priceMap = {};
+    products.forEach(p => { priceMap[p.ProductID] = p.LastPrice || 0; });
 
-                userMap[userId].totalQty += qty;
-                userMap[userId].totalValue += qty * price;
-                userMap[userId].transactionCount += 1;
+    filteredTransactions.forEach(t => {
+        const type = (t.TransType || '').toUpperCase().trim();
+        const refInfo = t.RefInfo || '';
+
+        if (
+            type === 'OUT' &&
+            !refInfo.includes('ยกเลิก Invoice') &&
+            !refInfo.includes('Stock Count Adjust')
+        ) {
+            const userId = t.UserID || 'Unknown';
+            if (!userMap[userId]) {
+                userMap[userId] = { userId, totalQty: 0, totalValue: 0, transactionCount: 0 };
             }
-        });
+            const qty = Math.abs(t.Qty);
+            const price = priceMap[t.ProductID] || 0;
 
-        return Object.values(userMap)
-            .sort((a, b) => b.totalValue - a.totalValue)
-            .slice(0, 5);
-    }, [filteredTransactions, products]);
+            userMap[userId].totalQty += qty;
+            userMap[userId].totalValue += qty * price;
+            userMap[userId].transactionCount += 1;
+        }
+    });
+
+         return Object.values(userMap)
+        .sort((a, b) => b.totalValue - a.totalValue)
+        .slice(0, 5);
+        }, [filteredTransactions, products]);
 
     // NEW: Top Withdrawn Items (Most withdrawn products)
     const topWithdrawnItems = useMemo(() => {
-        const itemMap = {};
-        filteredTransactions.forEach(t => {
-            const type = (t.TransType || '').toUpperCase().trim();
-            if (type === 'OUT' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) {
-                const productId = t.ProductID;
-                const product = products.find(p => p.ProductID === productId);
-                if (!itemMap[productId]) {
-                    itemMap[productId] = {
-                        productId,
-                        productName: product?.ProductName || `ID: ${productId}`,
-                        deviceType: product?.DeviceType || '-',
-                        totalQty: 0,
-                        totalValue: 0,
-                        transactionCount: 0
-                    };
-                }
-                const qty = Math.abs(t.Qty);
-                const price = product?.LastPrice || 0;
-                itemMap[productId].totalQty += qty;
-                itemMap[productId].totalValue += qty * price;
-                itemMap[productId].transactionCount += 1;
+    const itemMap = {};
+
+    const productMap = {};
+    products.forEach(p => { productMap[p.ProductID] = p; });
+
+    filteredTransactions.forEach(t => {
+        const type = (t.TransType || '').toUpperCase().trim();
+        const refInfo = t.RefInfo || '';
+
+        if (
+            type === 'OUT' &&
+            !refInfo.includes('ยกเลิก Invoice') &&
+            !refInfo.includes('Stock Count Adjust')
+        ) {
+            const productId = t.ProductID;
+            const product = productMap[productId];
+
+            if (!itemMap[productId]) {
+                itemMap[productId] = {
+                    productId,
+                    productName: product?.ProductName || `ID: ${productId}`,
+                    deviceType: product?.DeviceType || '-',
+                    totalQty: 0,
+                    totalValue: 0,
+                    transactionCount: 0
+                };
             }
-        });
+            const qty = Math.abs(t.Qty);
+            const price = product?.LastPrice || 0;
+            itemMap[productId].totalQty += qty;
+            itemMap[productId].totalValue += qty * price;
+            itemMap[productId].transactionCount += 1;
+        }
+    });
+
         return Object.values(itemMap)
-            .sort((a, b) => b.totalQty - a.totalQty)
-            .slice(0, 10);
-    }, [filteredTransactions, products]);
+        .sort((a, b) => b.totalQty - a.totalQty)
+        .slice(0, 10);
+        }, [filteredTransactions, products]);
 
     // NEW: Withdrawals By Category
     const withdrawalsByCategory = useMemo(() => {
@@ -410,13 +431,10 @@ const ReportPage = () => {
         { id: 'topwithdrawn', label: '🔥 อุปกรณ์เบิกมากสุด', description: 'อันดับอุปกรณ์ที่ถูกเบิกมากที่สุด', icon: TrendingUp, color: 'from-rose-500 to-rose-600' },
         { id: 'topconsumers', label: '👤 ผู้เบิกมากสุด', description: 'อันดับผู้ใช้ที่เบิกมากที่สุด', icon: User, color: 'from-cyan-500 to-cyan-600' },
         { id: 'bycategory', label: '📂 เบิกตามประเภท', description: 'สรุปยอดเบิกแยกตามประเภทอุปกรณ์', icon: PieChart, color: 'from-emerald-500 to-emerald-600' },
-<<<<<<< HEAD
         { id: 'pcinventory', label: '💻 PC Inventory ทั้งหมด', description: 'รายละเอียด PC/อุปกรณ์ IT ทั้งหมด', icon: Package, color: 'from-indigo-500 to-purple-600' },
+        { id: 'moinventory', label: '🖥️ Monitor Inventory ทั้งหมด', description: 'รายละเอียด Monitor/อุปกรณ์ IT ทั้งหมด', icon: Monitor, color: 'from-teal-500 to-cyan-600' },
         { id: 'expiringma', label: '⏰ สัญญาที่ใกล้หมดอายุ', description: 'MA & License ที่หมดอายุในอีก 30-90 วัน', icon: AlertCircle, color: 'from-red-500 to-orange-600' },
         { id: 'ma', label: '🛡️ สัญญาบริการ (MA & License) ทั้งหมด', description: 'ส่งออกข้อมูลสัญญา ค่าใช้จ่ายรายสัปดาห์/รายปี', icon: Shield, color: 'from-blue-600 to-indigo-600' }
-=======
-        { id: 'ma', label: '🛡️ สัญญาบริการ (MA & License)', description: 'ส่งออกข้อมูลสัญญา ค่าใช้จ่ายรายสัปดาห์/รายปี', icon: Shield, color: 'from-blue-600 to-indigo-600' }
->>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
     ];
 
     const toggleType = (typeId) => {

@@ -5,13 +5,16 @@ import { sendDailyReport } from '../services/emailService.js';
 // EXPORT REPORT
 export const exportReport = async (req, res) => {
     const { types, startDate, endDate } = req.query;
+    console.log('📊 Export Report called with types:', types);
 
     try {
         const pool = getPool();
         const dataTypes = types ? types.split(',') : ['products'];
+        console.log('📊 Processing dataTypes:', dataTypes);
         const workbook = XLSX.utils.book_new();
 
         for (const dataType of dataTypes) {
+            console.log('📋 Processing dataType:', dataType);
             let data = [];
             let sheetName = dataType;
 
@@ -238,7 +241,7 @@ export const exportReport = async (req, res) => {
                                COUNT(*) as TransactionCount,
                                COUNT(DISTINCT t.ProductID) as UniqueProducts
                         FROM dbo.Stock_Transactions t
-                        WHERE t.TransType = 'OUT' AND t.UserID IS NOT NULL
+                        WHERE t.TransType = 'OUT' AND t.UserID IS NOT NULL AND NOT (t.RefInfo LIKE '%ยกเลิก Invoice%')
                     `;
                     if (startDate) consQuery += ' AND t.TransDate >= @startDate';
                     if (endDate) consQuery += ' AND t.TransDate <= @endDate';
@@ -321,7 +324,6 @@ export const exportReport = async (req, res) => {
                     }));
                     break;
                 }
-<<<<<<< HEAD
                 case 'pcinventory': {
                     sheetName = '💻 PC Inventory';
                     console.log('📋 Fetching PC Inventory data...');
@@ -361,6 +363,42 @@ export const exportReport = async (req, res) => {
                         'BIOS Version': row.bios_version || '-',
                         'จำนวนผู้ใช้': row.user_count || 0,
                         'Local Admin Users': row.local_admin_users || '-',
+                        'วันรวบรวม': row.collected_at ? new Date(row.collected_at).toLocaleDateString('th-TH') : '-',
+                        'วันปรับปรุง': row.updated_at ? new Date(row.updated_at).toLocaleDateString('th-TH') : '-'
+                    }));
+                    break;
+                }
+                case 'moinventory': {
+                    sheetName = '🖥️ Monitor Inventory';
+                    console.log('📋 Fetching Monitor Inventory data...');
+                    const moResult = await pool.request().query(`
+                        SELECT * FROM dbo.info_mo_inventory
+                        ORDER BY hostname
+                    `);
+                    console.log(`✅ Monitor Inventory Query Result: ${moResult.recordset.length} rows found`);
+                    if (moResult.recordset.length > 0) {
+                        console.log('Sample row keys:', Object.keys(moResult.recordset[0]));
+                        console.log('Sample row:', moResult.recordset[0]);
+                    }
+                    data = moResult.recordset.map((row, idx) => ({
+                        'ลำดับ': idx + 1,
+                        'Fix Asset': row.fix_asset || '-',
+                        'Host Name': row.hostname || '-',
+                        'IP Address': row.ip_address || '-',
+                        'Manufacturer': row.manufacturer || '-',
+                        'Model': row.model || '-',
+                        'Serial Number': row.serial_number || '-',
+                        'OS': row.os_name || '-',
+                        'OS Release': row.os_release || '-',
+                        'OS Build': row.os_build || '-',
+                        'Architecture': row.os_arch || '-',
+                        'Activation Status': row.os_activation || '-',
+                        'Local Admin Users': row.local_admin_users || '-',
+                        'WiFi SSID': row.wifi_ssid || '-',
+                        'Adapter Type': row.adapter_type || '-',
+                        'CrowdStrike Ver': row.crowdstrike_ver || '-',
+                        'Tanium Ver': row.tanium_ver || '-',
+                        'UEMS Ver': row.uems_ver || '-',
                         'วันรวบรวม': row.collected_at ? new Date(row.collected_at).toLocaleDateString('th-TH') : '-',
                         'วันปรับปรุง': row.updated_at ? new Date(row.updated_at).toLocaleDateString('th-TH') : '-'
                     }));
@@ -407,8 +445,6 @@ export const exportReport = async (req, res) => {
                     sheetName = '❓ ไม่รู้จักประเภท';
                     break;
                 }
-=======
->>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
             }
 
             if (data.length > 0) {

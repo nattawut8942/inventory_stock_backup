@@ -17,7 +17,8 @@ export const updateBitlocker = async (req, res) => {
             WHERE hostname = @hostname
         `);
         res.json({ success: true });
-    } catch (err) {a
+    } catch (err) {
+        
         res.status(500).json({ success: false, error: err.message });
     }
 };
@@ -329,6 +330,43 @@ export const getSummary = async (req, res) => {
         });
 
         res.json({ success: true, total: data.length, noEdr, noTanium, noUems, blDisabled, noAsset, noBlNotebook, noBlKeyNotebook, inactivePC, lowBatteryHealth, lowDiskCSpace, oldFixAssets, osVersionMap, osBuildMap, computerTypeMap, crowdstrikeVerMap, taniumVerMap });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+export const getMultiLoginUsers = async (req, res) => {
+    try {
+        const db = await getPool();
+        const result = await db.request().query(`
+    SELECT 
+        au.[username],
+        COUNT(au.[username]) as machine_count,
+        STRING_AGG(au.[hostname], ', ') WITHIN GROUP (ORDER BY au.[hostname]) as hostnames,
+        STRING_AGG(
+            au.[hostname] + ' (' + ISNULL(au.[state], '-') + ', ' + 
+            ISNULL(CONVERT(VARCHAR, au.[logon_time], 120), '-') + ')',
+            ' | '
+        ) WITHIN GROUP (ORDER BY au.[hostname]) as hostname_details,
+        MAX(au.[logon_time]) as latest_logon
+    FROM [dbo].[info_pc_active_users] au
+    WHERE au.[username] IS NOT NULL 
+      AND au.[username] != ''
+      AND au.[username] NOT LIKE '%ANONYMOUS%'
+    GROUP BY au.[username]
+    HAVING COUNT(au.[username]) > 1
+    ORDER BY machine_count DESC
+`);
+        const users = result.recordset.map(r => ({
+            ...r,
+            hostnameList: r.hostnames ? r.hostnames.split(', ') : [],
+            hostnameDetailList: r.hostname_details ? r.hostname_details.split(' | ').map(d => {
+                const match = d.match(/^(.+?)\s\((.+?),\s(.+?)\)$/);
+                return match ? { hostname: match[1], state: match[2], logon_time: match[3] } : { hostname: d, state: '-', logon_time: '-' };
+            }) : []
+        }));
+        const allHostnames = [...new Set(users.flatMap(u => u.hostnameList))];
+        res.json({ success: true, data: users, allHostnames });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }

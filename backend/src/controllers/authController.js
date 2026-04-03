@@ -67,11 +67,7 @@ export const login = async (req, res) => {
                 });
             }
 
-<<<<<<< HEAD
             // Check if user is admin from database using empCode (prefer empCode, fallback to username for legacy)
-=======
-            // Check if user is admin from database
->>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
             const pool = getPool();
             const adminCheck = await pool.request()
                 .input('empCode', sql.NVarChar, empCode)

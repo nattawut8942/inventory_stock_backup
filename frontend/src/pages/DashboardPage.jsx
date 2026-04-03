@@ -1,11 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-<<<<<<< HEAD
 import { Package, TrendingUp, TrendingDown, AlertTriangle, Monitor, HardDrive, Tag, DollarSign, ShoppingCart, Clock, ArrowRight, Flame, Activity } from 'lucide-react';
-=======
-import { Package, TrendingUp, TrendingDown, AlertTriangle, DollarSign, ShoppingCart, Clock, ArrowRight, Flame, Activity } from 'lucide-react';
->>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
 import { motion } from 'motion/react';
 import { useData } from '../context/DataContext';
 import { API_BASE } from '../config/api';
@@ -20,20 +16,13 @@ const DashboardPage = () => {
     const [maItems, setMaItems] = useState([]);
 
     const [isAnimating, setIsAnimating] = useState(true);
-<<<<<<< HEAD
     const [pcSummary, setPcSummary] = useState(null);
 
     React.useEffect(() => {
-=======
-
-    React.useEffect(() => {
-        // Let the route transition & Sidebar animation finish before rendering heavy charts
->>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
         const timer = setTimeout(() => setIsAnimating(false), 800);
         return () => clearTimeout(timer);
     }, []);
 
-<<<<<<< HEAD
     React.useEffect(() => {
         const fetchPcSum = async () => {
             try {
@@ -47,8 +36,6 @@ const DashboardPage = () => {
         fetchPcSum();
     }, []);
 
-=======
->>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
     React.useEffect(() => {
         const fetchMa = async () => {
             try {
@@ -715,7 +702,6 @@ const DashboardPage = () => {
                     </div>
                 </motion.div>
             </div>
-<<<<<<< HEAD
             {/* PC Inventory Insights Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Battery Health < 70% */}
@@ -792,15 +778,6 @@ const DashboardPage = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="relative bg-white rounded-2xl p-8 shadow-lg border border-slate-100 overflow-hidden hover:shadow-xl transition-shadow duration-300"
             >
-=======
-
-            {/* Recent Activities */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="relative bg-white rounded-2xl p-8 shadow-lg border border-slate-100 overflow-hidden hover:shadow-xl transition-shadow duration-300"
-            >
->>>>>>> 77615768bdbbc8ad8f8bb8b22a299390e6e93bd3
                 <div className="absolute top-0 left-0 w-60 h-40 bg-gradient-to-br from-indigo-50 to-transparent rounded-br-[60px] opacity-50 pointer-events-none" />
                 <div className="relative flex justify-between items-center mb-6">
                     <div className="flex items-center gap-3">
