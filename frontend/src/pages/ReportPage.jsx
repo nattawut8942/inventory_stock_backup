@@ -6,7 +6,7 @@ import { useData } from '../context/DataContext';
 import AlertModal from '../components/AlertModal';
 import { getChartColor, getBadgeStyle } from '../utils/styleHelpers';
 import { formatThaiDateShort } from '../utils/formatDate';
-import { API_BASE } from '../config/api';
+import { API_BASE, API_URL } from '../config/api';
 
 // ─── Helper: check if date falls in range ────────────────────────────────────
 const isInDateRange = (dateStr, preset, customStart, customEnd) => {
@@ -87,6 +87,7 @@ const ReportPage = () => {
     const [clickedCategory, setClickedCategory] = useState(null);         // chart click-to-filter
     const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
+    const [expandedMonth, setExpandedMonth] = useState(null);
 
     useEffect(() => {
         const timer = setTimeout(() => setIsMounted(true), 500);
@@ -138,6 +139,15 @@ const ReportPage = () => {
             .then(res => res.json())
             .then(data => setMaItems(data))
             .catch(err => console.error("Failed to load MA data in reports", err));
+    }, []);
+
+    const [forecastItems, setForecastItems] = useState([]);
+
+    useEffect(() => {
+        fetch(`${API_BASE}/forecast`)
+            .then(res => res.json())
+            .then(data => setForecastItems(data))
+            .catch(err => console.error('Failed to load forecast', err));
     }, []);
 
     // Calculate stats from real data
@@ -267,101 +277,193 @@ const ReportPage = () => {
         const threeMonthsAgo = new Date();
         threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
-        // Get all ProductIDs that had OUT transactions in last 3 months
         const activeProductIds = new Set();
         (transactions || []).forEach(t => {
             const date = new Date(t.TransDate);
             const type = (t.TransType || '').toUpperCase().trim();
-            if (type === 'OUT' && date >= threeMonthsAgo && !(t.RefInfo || '').includes('ยกเลิก Invoice')) {
+            const refInfo = t.RefInfo || '';
+            if (type === 'OUT' &&
+                date >= threeMonthsAgo &&
+                !refInfo.includes('ยกเลิก Invoice') &&
+                !refInfo.includes('Stock Count Adjust')
+            ) {
                 activeProductIds.add(t.ProductID);
             }
         });
 
-        // Filter products that are NOT in the active set and have stock > 0
         return filteredProducts
             .filter(p => !activeProductIds.has(p.ProductID) && p.CurrentStock > 0)
             .sort((a, b) => (b.CurrentStock * (b.LastPrice || 0)) - (a.CurrentStock * (a.LastPrice || 0)))
             .slice(0, 10);
     }, [transactions, filteredProducts]);
+    const outOfStockItems = useMemo(() => {
+        return products
+            .filter(p => p.CurrentStock === 0 && p.IsActive !== 0)
+            .sort((a, b) => (a.business_priority || 3) - (b.business_priority || 3));
+    }, [products]);
+
+    // 2. สรุปมูลค่าเบิกใช้รายเดือน
+    const monthlyConsumptionSummary = useMemo(() => {
+        const now = new Date();
+        const thisMonth = now.getMonth();
+        const thisYear = now.getFullYear();
+        const lastMonth = thisMonth === 0 ? 11 : thisMonth - 1;
+        const lastMonthYear = thisMonth === 0 ? thisYear - 1 : thisYear;
+
+        const priceMap = {};
+        products.forEach(p => { priceMap[p.ProductID] = p.LastPrice || 0; });
+
+        let thisMonthQty = 0, thisMonthValue = 0;
+        let lastMonthQty = 0, lastMonthValue = 0;
+        let thisMonthIn = 0, lastMonthIn = 0;
+
+        (transactions || []).forEach(t => {
+            const d = new Date(t.TransDate);
+            const type = (t.TransType || '').toUpperCase().trim();
+            const refInfo = t.RefInfo || '';
+            if (refInfo.includes('ยกเลิก Invoice')) return;
+            if (refInfo.includes('Stock Count Adjust')) return;
+
+            const qty = Math.abs(t.Qty);
+            const value = qty * (priceMap[t.ProductID] || 0);
+            const isThis = d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+            const isLast = d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear;
+
+            if (type === 'OUT') {
+                if (isThis) { thisMonthQty += qty; thisMonthValue += value; }
+                if (isLast) { lastMonthQty += qty; lastMonthValue += value; }
+            }
+            if (type === 'IN') {
+                if (isThis) thisMonthIn += value;
+                if (isLast) lastMonthIn += value;
+            }
+        });
+
+        const qtyChange = lastMonthQty > 0
+            ? ((thisMonthQty - lastMonthQty) / lastMonthQty * 100).toFixed(1)
+            : null;
+        const valueChange = lastMonthValue > 0
+            ? ((thisMonthValue - lastMonthValue) / lastMonthValue * 100).toFixed(1)
+            : null;
+
+        return {
+            thisMonthQty, thisMonthValue, thisMonthIn,
+            lastMonthQty, lastMonthValue, lastMonthIn,
+            qtyChange, valueChange
+        };
+    }, [transactions, products]);
+
+    // 3. MoM comparison (เดือนนี้ vs เดือนก่อน)
+    const momData = useMemo(() => {
+        const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+            'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+        const now = new Date();
+        const priceMap = {};
+        products.forEach(p => { priceMap[p.ProductID] = p.LastPrice || 0; });
+
+        const result = [];
+        for (let i = 2; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const m = d.getMonth();   // ← เพิ่ม
+            const y = d.getFullYear(); // ← เพิ่ม
+            let inQty = 0, outQty = 0, inValue = 0, outValue = 0;
+
+            (transactions || []).forEach(t => {
+                const td = new Date(t.TransDate);
+                if (td.getMonth() !== m || td.getFullYear() !== y) return;
+                const type = (t.TransType || '').toUpperCase().trim();
+                const refInfo = t.RefInfo || '';
+                if (refInfo.includes('ยกเลิก Invoice')) return;
+                if (refInfo.includes('Stock Count Adjust')) return;
+                const qty = Math.abs(t.Qty);
+                const val = qty * (priceMap[t.ProductID] || 0);
+                if (type === 'IN') { inQty += qty; inValue += val; }
+                if (type === 'OUT') { outQty += qty; outValue += val; }
+            });
+
+            result.push({ month: months[m], inQty, outQty, inValue, outValue });
+        }
+        return result;
+    }, [transactions, products]);
 
     // Calculate total dead stock value
     const deadStockValue = slowMovingItems.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
 
     // NEW: Top Consumers (Users who withdraw the most)
     const topConsumers = useMemo(() => {
-    const userMap = {};
+        const userMap = {};
 
-    const priceMap = {};
-    products.forEach(p => { priceMap[p.ProductID] = p.LastPrice || 0; });
+        const priceMap = {};
+        products.forEach(p => { priceMap[p.ProductID] = p.LastPrice || 0; });
 
-    filteredTransactions.forEach(t => {
-        const type = (t.TransType || '').toUpperCase().trim();
-        const refInfo = t.RefInfo || '';
+        filteredTransactions.forEach(t => {
+            const type = (t.TransType || '').toUpperCase().trim();
+            const refInfo = t.RefInfo || '';
 
-        if (
-            type === 'OUT' &&
-            !refInfo.includes('ยกเลิก Invoice') &&
-            !refInfo.includes('Stock Count Adjust')
-        ) {
-            const userId = t.UserID || 'Unknown';
-            if (!userMap[userId]) {
-                userMap[userId] = { userId, totalQty: 0, totalValue: 0, transactionCount: 0 };
+            if (
+                type === 'OUT' &&
+                !refInfo.includes('ยกเลิก Invoice') &&
+                !refInfo.includes('Stock Count Adjust')
+            ) {
+                const userId = t.UserID || 'Unknown';
+                if (!userMap[userId]) {
+                    userMap[userId] = { userId, totalQty: 0, totalValue: 0, transactionCount: 0 };
+                }
+                const qty = Math.abs(t.Qty);
+                const price = priceMap[t.ProductID] || 0;
+
+                userMap[userId].totalQty += qty;
+                userMap[userId].totalValue += qty * price;
+                userMap[userId].transactionCount += 1;
             }
-            const qty = Math.abs(t.Qty);
-            const price = priceMap[t.ProductID] || 0;
+        });
 
-            userMap[userId].totalQty += qty;
-            userMap[userId].totalValue += qty * price;
-            userMap[userId].transactionCount += 1;
-        }
-    });
-
-         return Object.values(userMap)
-        .sort((a, b) => b.totalValue - a.totalValue)
-        .slice(0, 5);
-        }, [filteredTransactions, products]);
+        return Object.values(userMap)
+            .sort((a, b) => b.totalValue - a.totalValue)
+            .slice(0, 5);
+    }, [filteredTransactions, products]);
 
     // NEW: Top Withdrawn Items (Most withdrawn products)
     const topWithdrawnItems = useMemo(() => {
-    const itemMap = {};
+        const itemMap = {};
 
-    const productMap = {};
-    products.forEach(p => { productMap[p.ProductID] = p; });
+        const productMap = {};
+        products.forEach(p => { productMap[p.ProductID] = p; });
 
-    filteredTransactions.forEach(t => {
-        const type = (t.TransType || '').toUpperCase().trim();
-        const refInfo = t.RefInfo || '';
+        filteredTransactions.forEach(t => {
+            const type = (t.TransType || '').toUpperCase().trim();
+            const refInfo = t.RefInfo || '';
 
-        if (
-            type === 'OUT' &&
-            !refInfo.includes('ยกเลิก Invoice') &&
-            !refInfo.includes('Stock Count Adjust')
-        ) {
-            const productId = t.ProductID;
-            const product = productMap[productId];
+            if (
+                type === 'OUT' &&
+                !refInfo.includes('ยกเลิก Invoice') &&
+                !refInfo.includes('Stock Count Adjust')
+            ) {
+                const productId = t.ProductID;
+                const product = productMap[productId];
 
-            if (!itemMap[productId]) {
-                itemMap[productId] = {
-                    productId,
-                    productName: product?.ProductName || `ID: ${productId}`,
-                    deviceType: product?.DeviceType || '-',
-                    totalQty: 0,
-                    totalValue: 0,
-                    transactionCount: 0
-                };
+                if (!itemMap[productId]) {
+                    itemMap[productId] = {
+                        productId,
+                        productName: product?.ProductName || `ID: ${productId}`,
+                        deviceType: product?.DeviceType || '-',
+                        totalQty: 0,
+                        totalValue: 0,
+                        transactionCount: 0
+                    };
+                }
+                const qty = Math.abs(t.Qty);
+                const price = product?.LastPrice || 0;
+                itemMap[productId].totalQty += qty;
+                itemMap[productId].totalValue += qty * price;
+                itemMap[productId].transactionCount += 1;
             }
-            const qty = Math.abs(t.Qty);
-            const price = product?.LastPrice || 0;
-            itemMap[productId].totalQty += qty;
-            itemMap[productId].totalValue += qty * price;
-            itemMap[productId].transactionCount += 1;
-        }
-    });
+        });
 
         return Object.values(itemMap)
-        .sort((a, b) => b.totalQty - a.totalQty)
-        .slice(0, 10);
-        }, [filteredTransactions, products]);
+            .sort((a, b) => b.totalQty - a.totalQty)
+            .slice(0, 10);
+    }, [filteredTransactions, products]);
 
     // NEW: Withdrawals By Category
     const withdrawalsByCategory = useMemo(() => {
@@ -627,7 +729,7 @@ const ReportPage = () => {
                 <StatCard
                     icon={BarChart3}
                     title="มูลค่าสต็อค"
-                    value={`฿${(totalValue / 1000).toFixed(1)}K`}
+                    value={`฿${totalValue.toLocaleString('th-TH')}`}
                     subtitle="มูลค่ารวม"
                     color="from-purple-500 to-purple-600"
                 />
@@ -667,7 +769,381 @@ const ReportPage = () => {
                     color={expiringMACount > 0 ? "from-rose-500 to-rose-600" : "from-blue-500 to-indigo-600"}
                 />
             </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
+                {/* สรุปมูลค่าเดือนนี้ */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-2xl p-5 shadow-lg border border-slate-200 lg:col-span-2"
+                >
+                    <div className="flex items-center gap-2 mb-4">
+                        <BarChart3 className="w-4 h-4 text-indigo-500" />
+                        <h3 className="font-bold text-slate-800 text-sm">สรุปการเคลื่อนไหวรายเดือน</h3>
+                    </div>
+
+                    {/* ตัวเลขเดือนนี้ vs เดือนก่อน */}
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                        {[
+                            {
+                                label: 'รับเข้าเดือนนี้',
+                                value: `฿${monthlyConsumptionSummary.thisMonthIn.toLocaleString('th-TH')}`,
+                                sub: 'มูลค่าสต็อคที่รับ',
+                                change: null,
+                                color: 'text-emerald-600',
+                                bg: 'bg-emerald-50 border-emerald-100'
+                            },
+                            {
+                                label: 'เบิกใช้เดือนนี้',
+                                value: `฿${monthlyConsumptionSummary.thisMonthValue.toLocaleString('th-TH')}`,
+                                sub: `${monthlyConsumptionSummary.thisMonthQty} ชิ้น`,
+                                change: monthlyConsumptionSummary.valueChange,
+                                color: 'text-rose-600',
+                                bg: 'bg-rose-50 border-rose-100'
+                            }
+                        ].map((card, i) => (
+                            <div key={i} className={`rounded-xl p-3 border ${card.bg}`}>
+                                <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">{card.label}</p>
+                                <p className={`text-xl font-black ${card.color}`}>{card.value}</p>
+                                <div className="flex items-center justify-between mt-1">
+                                    <p className="text-[10px] text-slate-400">{card.sub}</p>
+                                    {card.change !== null && (
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${parseFloat(card.change) >= 0
+                                            ? 'bg-rose-100 text-rose-600'
+                                            : 'bg-emerald-100 text-emerald-600'
+                                            }`}>
+                                            {parseFloat(card.change) >= 0 ? '▲ เพิ่มขึ้น' : '▼ ลดลง'} {Math.abs(card.change)}% vs เดือนก่อน
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* MoM Table 3 เดือน */}
+                    <table className="w-full text-xs">
+                        <thead>
+                            <tr className="border-b border-slate-100">
+                                <th className="text-left py-1.5 text-slate-400 font-bold text-[10px] uppercase">เดือน</th>
+                                <th className="text-right py-1.5 text-slate-400 font-bold text-[10px] uppercase">รับเข้า (฿)</th>
+                                <th className="text-right py-1.5 text-slate-400 font-bold text-[10px] uppercase">เบิกออก (฿)</th>
+                                <th className="text-right py-1.5 text-slate-400 font-bold text-[10px] uppercase">เบิกออก (ชิ้น)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {momData.map((row, i) => {
+                                const isExpanded = expandedMonth === row.month;
+                                const isCurrentMonth = i === momData.length - 1;
+
+                                // หา transactions ของเดือนนี้
+                                const monthTransactions = (transactions || []).filter(t => {
+                                    const td = new Date(t.TransDate);
+                                    const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+                                    return months[td.getMonth()] === row.month &&
+                                        !(t.RefInfo || '').includes('ยกเลิก Invoice') &&
+                                        !(t.RefInfo || '').includes('Stock Count Adjust');
+                                });
+
+                                const inItems = monthTransactions
+                                    .filter(t => (t.TransType || '').toUpperCase().trim() === 'IN')
+                                    .slice(0, 10);
+                                const outItems = monthTransactions
+                                    .filter(t => (t.TransType || '').toUpperCase().trim() === 'OUT')
+                                    .slice(0, 10);
+
+                                const priceMap = {};
+                                products.forEach(p => { priceMap[p.ProductID] = p.LastPrice || 0; });
+
+                                return (
+                                    <React.Fragment key={i}>
+                                        <tr
+                                            className={`cursor-pointer transition-colors ${isCurrentMonth ? 'font-bold bg-slate-50' : ''} ${isExpanded ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
+                                            onClick={() => setExpandedMonth(isExpanded ? null : row.month)}
+                                        >
+                                            <td className="py-1.5 text-slate-700">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className={`text-[9px] transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                                                    {row.month}
+                                                    {isCurrentMonth && (
+                                                        <span className="text-[9px] bg-indigo-100 text-indigo-600 px-1 rounded font-bold">เดือนนี้</span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="py-1.5 text-right font-mono text-emerald-600">
+                                                {row.inValue > 0 ? `฿${row.inValue.toLocaleString('th-TH')}` : <span className="text-slate-300">—</span>}
+                                            </td>
+                                            <td className="py-1.5 text-right font-mono text-rose-500">
+                                                {row.outValue > 0 ? `฿${row.outValue.toLocaleString('th-TH')}` : <span className="text-slate-300">—</span>}
+                                            </td>
+                                            <td className="py-1.5 text-right font-mono text-slate-500">
+                                                {row.outQty > 0 ? `${row.outQty} ชิ้น` : <span className="text-slate-300">—</span>}
+                                            </td>
+                                        </tr>
+
+                                        {/* Expand row */}
+                                        {isExpanded && (
+                                            <tr>
+                                                <td colSpan={4} className="pb-3 px-0">
+                                                    <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden mx-1">
+                                                        <div className="grid grid-cols-2 divide-x divide-slate-200">
+                                                            {/* รับเข้า */}
+                                                            <div className="p-3">
+                                                                <p className="text-[10px] font-bold text-emerald-600 uppercase mb-2">⬇ รับเข้า ({inItems.length} รายการ)</p>
+                                                                {inItems.length === 0 ? (
+                                                                    <p className="text-[10px] text-slate-400">ไม่มีรายการ</p>
+                                                                ) : inItems.map((t, idx) => {
+                                                                    const product = products.find(p => p.ProductID === t.ProductID);
+                                                                    const val = Math.abs(t.Qty) * (priceMap[t.ProductID] || 0);
+                                                                    return (
+                                                                        <div key={idx} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
+                                                                            <div className="flex-1 min-w-0 pr-2">
+                                                                                <p className="text-[10px] font-medium text-slate-700 truncate">{product?.ProductName || `ID: ${t.ProductID}`}</p>
+                                                                                <p className="text-[9px] text-slate-400">{t.RefInfo || '-'}</p>
+                                                                            </div>
+                                                                            <div className="text-right shrink-0">
+                                                                                <p className="text-[10px] font-bold text-emerald-600">+{Math.abs(t.Qty)} ชิ้น</p>
+                                                                                <p className="text-[9px] text-slate-400 font-mono">฿{val.toLocaleString()}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+
+                                                            {/* เบิกออก */}
+                                                            <div className="p-3">
+                                                                <p className="text-[10px] font-bold text-rose-600 uppercase mb-2">⬆ เบิกออก ({outItems.length} รายการ)</p>
+                                                                {outItems.length === 0 ? (
+                                                                    <p className="text-[10px] text-slate-400">ไม่มีรายการ</p>
+                                                                ) : outItems.map((t, idx) => {
+                                                                    const product = products.find(p => p.ProductID === t.ProductID);
+                                                                    const val = Math.abs(t.Qty) * (priceMap[t.ProductID] || 0);
+                                                                    return (
+                                                                        <div key={idx} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
+                                                                            <div className="flex-1 min-w-0 pr-2">
+                                                                                <p className="text-[10px] font-medium text-slate-700 truncate">{product?.ProductName || `ID: ${t.ProductID}`}</p>
+                                                                                <p className="text-[9px] text-slate-400">{t.RefInfo || '-'}</p>
+                                                                            </div>
+                                                                            <div className="text-right shrink-0">
+                                                                                <p className="text-[10px] font-bold text-rose-500">-{Math.abs(t.Qty)} ชิ้น</p>
+                                                                                <p className="text-[9px] text-slate-400 font-mono">฿{val.toLocaleString()}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </motion.div>
+
+                {/* Stock = 0 */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-2xl p-5 shadow-lg border border-red-100 overflow-hidden"
+                >
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-red-500 flex items-center justify-center">
+                                <AlertCircle className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-slate-800 text-sm">Stock หมดแล้ว</h3>
+                                <p className="text-[10px] text-slate-400">CurrentStock = 0</p>
+                            </div>
+                        </div>
+                        <span className="text-2xl font-black text-red-500">{outOfStockItems.length}</span>
+                    </div>
+
+                    {outOfStockItems.length === 0 ? (
+                        <div className="text-center py-6 text-slate-400">
+                            <Package className="w-8 h-8 mx-auto mb-1 opacity-30" />
+                            <p className="text-xs">ไม่มีรายการ 👍</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-1.5 max-h-[220px] overflow-y-auto">
+                            {outOfStockItems.map((item, idx) => {
+                                const priorityColor = {
+                                    1: 'bg-red-500', 2: 'bg-orange-500',
+                                    3: 'bg-yellow-500', 4: 'bg-green-500'
+                                }[item.business_priority] || 'bg-slate-400';
+                                const priorityLabel = {
+                                    1: 'CRITICAL', 2: 'HIGH', 3: 'MEDIUM', 4: 'LOW'
+                                }[item.business_priority] || 'MEDIUM';
+
+                                return (
+                                    <div key={item.ProductID}
+                                        className="flex items-center gap-2 p-2 rounded-lg bg-red-50 border border-red-100">
+
+                                        {/* ✅ รูปเพิ่มตรงนี้ */}
+                                        <div className="w-7 h-7 rounded-md overflow-hidden shrink-0 bg-gradient-to-br from-slate-300 to-slate-500 flex items-center justify-center">
+                                            {item.ImageURL ? (
+                                                <img
+                                                    src={`${API_URL}${item.ImageURL}`}
+                                                    alt=""
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <Package size={11} className="text-white" />
+                                            )}
+                                        </div>
+
+                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityColor}`} />
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[11px] font-bold text-slate-700 truncate">{item.ProductName}</p>
+                                            <p className="text-[9px] text-slate-400">{priorityLabel} • {item.DeviceType}</p>
+                                        </div>
+                                        <span className="text-[10px] font-black text-red-500 shrink-0">0</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </motion.div>
+            </div>
+            {/* ═══ Priority Order List ════════════════════════════════════════ */}
+            {forecastItems.length > 0 && (
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden"
+                >
+                    {/* Header */}
+                    <div className="px-4 py-3 bg-gradient-to-r from-rose-500 to-orange-500 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <TrendingDown className="w-4 h-4 text-white" />
+                            <div>
+                                <h3 className="font-bold text-white text-sm">รายการที่ต้องสั่งซื้อ</h3>
+                                <p className="text-rose-100 text-xs">เรียงตามลำดับความสำคัญ</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            {/* ✅ เพิ่มตรงนี้ */}
+                            <div className="text-center">
+                                <p className="text-white font-black text-2xl leading-none">{forecastItems.length}</p>
+                                <p className="text-rose-100 text-[10px]">รายการ</p>
+                            </div>
+                            <div className="w-px h-8 bg-white/30" />
+                            <div className="text-right">
+                                <p className="text-rose-100 text-[10px]">มูลค่ารวม</p>
+                                <p className="text-white font-black text-base">
+                                    ฿{forecastItems.reduce((sum, item) => sum + (item.EstimatedCost || 0), 0).toLocaleString()}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Priority Legend — ย่อลง */}
+                    <div className="flex gap-4 px-4 py-2 bg-slate-50 border-b border-slate-100">
+                        {[
+                            { label: 'CRITICAL', color: 'bg-red-500' },
+                            { label: 'HIGH', color: 'bg-orange-500' },
+                            { label: 'MEDIUM', color: 'bg-yellow-500' },
+                            { label: 'LOW', color: 'bg-green-500' },
+                        ].map(p => (
+                            <div key={p.label} className="flex items-center gap-1">
+                                <span className={`w-2 h-2 rounded-full ${p.color}`} />
+                                <span className="text-[10px] font-bold text-slate-500">{p.label}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Table */}
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                            <thead className="bg-slate-50 border-b border-slate-200">
+                                <tr>
+                                    <th className="py-2 px-3 w-8"></th>
+                                    <th className="text-left py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">Priority</th>
+                                    <th className="text-left py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">ชื่อสินค้า</th>
+                                    <th className="text-center py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">ประเภท</th>
+                                    <th className="text-center py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">คงเหลือ</th>
+                                    <th className="text-center py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">Min</th>
+                                    <th className="text-center py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">ต้องสั่ง</th>
+                                    <th className="text-right py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">ราคา/หน่วย</th>
+                                    <th className="text-right py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">รวม</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {forecastItems.map((item, idx) => {
+                                    const priorityConfig = {
+                                        CRITICAL: { color: 'bg-red-100 text-red-700 border-red-200', dot: 'bg-red-500', row: 'bg-red-50/30' },
+                                        HIGH: { color: 'bg-orange-100 text-orange-700 border-orange-200', dot: 'bg-orange-500', row: 'bg-orange-50/20' },
+                                        MEDIUM: { color: 'bg-yellow-100 text-yellow-700 border-yellow-200', dot: 'bg-yellow-500', row: '' },
+                                        LOW: { color: 'bg-green-100 text-green-700 border-green-200', dot: 'bg-green-500', row: '' },
+                                    };
+                                    const label = item.priority_label || 'MEDIUM';
+                                    const cfg = priorityConfig[label] || priorityConfig.MEDIUM;
+
+                                    return (
+                                        <tr key={item.ProductID} className={`hover:bg-slate-50 transition-colors ${cfg.row}`}>
+
+
+                                            <td className="py-1.5 px-3">
+                                                <div className="w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center shrink-0 bg-gradient-to-br from-slate-400 to-slate-600">
+                                                    {item.ImageURL ? (
+                                                        <img src={`${API_URL}${item.ImageURL}`} alt="" className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <Package size={12} className="text-white" />
+                                                    )}
+                                                </div>
+                                            </td>
+
+
+                                            <td className="py-1.5 px-3">
+                                                <span className={`flex items-center gap-1 w-fit px-2 py-0.5 rounded-full text-[10px] font-bold border ${cfg.color}`}>
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                                                    {label}
+                                                </span>
+                                            </td>
+                                            <td className="py-1.5 px-3 font-medium text-slate-800 max-w-[180px] truncate">
+                                                {item.ProductName}
+                                            </td>
+                                            <td className="py-1.5 px-3 text-center">
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getBadgeStyle(item.DeviceType)}`}>
+                                                    {item.DeviceType}
+                                                </span>
+                                            </td>
+                                            <td className="py-1.5 px-3 text-center font-mono font-bold text-red-500">
+                                                {item.CurrentStock}
+                                            </td>
+                                            <td className="py-1.5 px-3 text-center font-mono text-slate-400">
+                                                {item.MinStock}
+                                            </td>
+                                            <td className="py-1.5 px-3 text-center font-mono font-bold text-indigo-600">
+                                                +{item.OrderQty}
+                                            </td>
+                                            <td className="py-1.5 px-3 text-right font-mono text-slate-500">
+                                                ฿{(item.LastPrice || 0).toLocaleString()}
+                                            </td>
+                                            <td className="py-1.5 px-3 text-right font-mono font-bold text-slate-800">
+                                                ฿{(item.EstimatedCost || 0).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                            <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+                                <tr>
+                                    <td colSpan={8} className="py-2 px-3 text-right font-bold text-slate-600 text-xs">
+                                        รวมทั้งหมด {forecastItems.length} รายการ
+                                    </td>
+                                    <td className="py-2 px-3 text-right font-black text-rose-600 text-sm">
+                                        ฿{forecastItems.reduce((sum, i) => sum + (i.EstimatedCost || 0), 0).toLocaleString()}
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </motion.div>
+            )}
             {/* Charts Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Stock Movement Chart (Quantity) */}
@@ -680,24 +1156,24 @@ const ReportPage = () => {
                     <div className="h-[250px] w-full">
                         {isMounted && (
                             <ResponsiveContainer width="100%" height={250} minWidth={0} minHeight={0} debounce={50}>
-                            <BarChart data={stockMovementData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                <XAxis dataKey="month" stroke="#64748b" />
-                                <YAxis stroke="#64748b" />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: 'white',
-                                        border: '1px solid #e2e8f0',
-                                        borderRadius: '8px',
-                                    }}
-                                />
-                                <Legend />
-                                <Bar dataKey="inbound" fill="#3b82f6" name="อุปกรณ์เข้า" radius={[8, 8, 0, 0]} />
-                                <Bar dataKey="outbound" fill="#8b5cf6" name="อุปกรณ์ออก" radius={[8, 8, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    )}
-                </div>
+                                <BarChart data={stockMovementData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                    <XAxis dataKey="month" stroke="#64748b" />
+                                    <YAxis stroke="#64748b" />
+                                    <Tooltip
+                                        contentStyle={{
+                                            backgroundColor: 'white',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: '8px',
+                                        }}
+                                    />
+                                    <Legend />
+                                    <Bar dataKey="inbound" fill="#3b82f6" name="อุปกรณ์เข้า" radius={[8, 8, 0, 0]} />
+                                    <Bar dataKey="outbound" fill="#8b5cf6" name="อุปกรณ์ออก" radius={[8, 8, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )}
+                    </div>
                 </motion.div>
 
                 {/* NEW: Cost & Usage Chart (Money) */}
@@ -711,26 +1187,30 @@ const ReportPage = () => {
                         <h3 className="text-lg font-semibold text-slate-900">วิเคราะห์ค่าใช้จ่าย (บาท)</h3>
                     </div>
                     <div className="h-[250px] w-full">
-                    {isMounted && (
-                        <ResponsiveContainer width="100%" height={250} minWidth={0} minHeight={0} debounce={50}>
-                        <LineChart data={costAnalysisData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                            <XAxis dataKey="month" stroke="#64748b" />
-                            <YAxis stroke="#64748b" tickFormatter={(v) => `฿${(v / 1000).toFixed(0)}K`} />
-                            <Tooltip
-                                formatter={(value) => `฿${value.toLocaleString()}`}
-                                contentStyle={{
-                                    backgroundColor: 'white',
-                                    border: '1px solid #e2e8f0',
-                                    borderRadius: '8px',
-                                }}
-                            />
-                            <Legend />
-                            <Line type="monotone" dataKey="spending" stroke="#10b981" strokeWidth={3} name="ซื้อเข้า (Spending)" dot={{ fill: '#10b981' }} />
-                            <Line type="monotone" dataKey="consumption" stroke="#f59e0b" strokeWidth={3} name="เบิกใช้ (Usage)" dot={{ fill: '#f59e0b' }} />
-                        </LineChart>
-                    </ResponsiveContainer>
-                    )}
+                        {isMounted && (
+                            <ResponsiveContainer width="100%" height={250} minWidth={0} minHeight={0} debounce={50}>
+                                <LineChart data={costAnalysisData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                    <XAxis dataKey="month" stroke="#64748b" />
+                                    <YAxis stroke="#64748b" tickFormatter={(v) => v >= 1000000
+                                        ? `฿${(v / 1000000).toFixed(1)}M`
+                                        : v >= 1000
+                                            ? `฿${(v / 1000).toFixed(0)}K`
+                                            : `฿${v}`} />
+                                    <Tooltip
+                                        formatter={(value) => `฿${value.toLocaleString()}`}
+                                        contentStyle={{
+                                            backgroundColor: 'white',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: '8px',
+                                        }}
+                                    />
+                                    <Legend />
+                                    <Line type="monotone" dataKey="spending" stroke="#10b981" strokeWidth={3} name="ซื้อเข้า (Spending)" dot={{ fill: '#10b981' }} />
+                                    <Line type="monotone" dataKey="consumption" stroke="#f59e0b" strokeWidth={3} name="เบิกใช้ (Usage)" dot={{ fill: '#f59e0b' }} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        )}
                     </div>
                 </motion.div>
             </div>
@@ -815,29 +1295,29 @@ const ReportPage = () => {
                     </div>
                     <p className="text-xs text-slate-400 mb-4">Net = รับเข้า − เบิกออก (ค่า+ = สต็อกเพิ่ม, ค่า− = สต็อกลด)</p>
                     <div className="h-[280px] w-full">
-                    {isMounted && (
-                        <ResponsiveContainer width="100%" height={280} minWidth={0} minHeight={0} debounce={50}>
-                            <BarChart data={netMovementTrend}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                <XAxis dataKey="month" stroke="#64748b" />
-                                <YAxis stroke="#64748b" />
-                                <Tooltip
-                                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
-                                    formatter={(value, name) => {
-                                        const labels = { inbound: 'รับเข้า', outbound: 'เบิกออก', net: 'Net' };
-                                        return [`${value} ชิ้น`, labels[name] || name];
-                                    }}
-                                />
-                                <Legend formatter={(value) => {
-                                    const labels = { inbound: 'รับเข้า', outbound: 'เบิกออก', net: 'Net (สุทธิ)' };
-                                    return labels[value] || value;
-                                }} />
-                                <Bar dataKey="inbound" fill="#3b82f6" radius={[4, 4, 0, 0]} opacity={0.35} barSize={20} />
-                                <Bar dataKey="outbound" fill="#8b5cf6" radius={[4, 4, 0, 0]} opacity={0.35} barSize={20} />
-                                <Line type="monotone" dataKey="net" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981', r: 5 }} name="net" />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    )}
+                        {isMounted && (
+                            <ResponsiveContainer width="100%" height={280} minWidth={0} minHeight={0} debounce={50}>
+                                <BarChart data={netMovementTrend}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                    <XAxis dataKey="month" stroke="#64748b" />
+                                    <YAxis stroke="#64748b" />
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+                                        formatter={(value, name) => {
+                                            const labels = { inbound: 'รับเข้า', outbound: 'เบิกออก', net: 'Net' };
+                                            return [`${value} ชิ้น`, labels[name] || name];
+                                        }}
+                                    />
+                                    <Legend formatter={(value) => {
+                                        const labels = { inbound: 'รับเข้า', outbound: 'เบิกออก', net: 'Net (สุทธิ)' };
+                                        return labels[value] || value;
+                                    }} />
+                                    <Bar dataKey="inbound" fill="#3b82f6" radius={[4, 4, 0, 0]} opacity={0.35} barSize={20} />
+                                    <Bar dataKey="outbound" fill="#8b5cf6" radius={[4, 4, 0, 0]} opacity={0.35} barSize={20} />
+                                    <Line type="monotone" dataKey="net" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981', r: 5 }} name="net" />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )}
                     </div>
                 </motion.div>
             </div>
@@ -942,7 +1422,7 @@ const ReportPage = () => {
                                     <p className="text-xs text-slate-500">{user.transactionCount} ครั้ง • {user.totalQty} ชิ้น</p>
                                 </div>
                                 <span className="text-sm font-bold text-indigo-600 font-mono">
-                                    ฿{(user.totalValue / 1000).toFixed(1)}K
+                                    ฿{user.totalValue.toLocaleString('th-TH')}
                                 </span>
                             </motion.div>
                         )) : (
@@ -1102,7 +1582,8 @@ const ReportPage = () => {
                                 {topWithdrawnItems.length > 0 ? topWithdrawnItems.slice(0, 5).map((item, idx) => (
                                     <tr key={item.productId} className="border-b border-slate-100 hover:bg-slate-50">
                                         <td className="py-2 px-2">
-                                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold ${idx === 0 ? 'bg-rose-500' : idx === 1 ? 'bg-rose-400' : idx === 2 ? 'bg-rose-300' : 'bg-slate-300'}`}>
+                                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold
+                                                ${idx === 0 ? 'bg-rose-500' : idx === 1 ? 'bg-rose-400' : idx === 2 ? 'bg-rose-300' : 'bg-slate-300'}`}>
                                                 {idx + 1}
                                             </span>
                                         </td>
@@ -1150,55 +1631,55 @@ const ReportPage = () => {
                         <div className="h-[300px] w-full">
                             {isMounted && (
                                 <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={0} debounce={50}>
-                                <BarChart
-                                    layout="vertical"
-                                    data={withdrawalsByCategory.slice(0, 10).map((item) => ({
-                                        ...item,
-                                        fill: getChartColor(item.name)
-                                    }))}
-                                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                                    onClick={(data) => {
-                                        if (data?.activePayload?.[0]?.payload?.name) {
-                                            handleChartCategoryClick(data.activePayload[0].payload.name);
-                                        }
-                                    }}
-                                    style={{ cursor: 'pointer' }}
-                                >
-                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                                    <XAxis type="number" stroke="#64748b" />
-                                    <YAxis
-                                        type="category"
-                                        dataKey="name"
-                                        width={100}
-                                        stroke="#475569"
-                                        tick={{ fontSize: 12 }}
-                                    />
-                                    <Tooltip
-                                        cursor={{ fill: '#f1f5f9' }}
-                                        contentStyle={{
-                                            backgroundColor: 'white',
-                                            border: '1px solid #e2e8f0',
-                                            borderRadius: '8px',
-                                            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                                    <BarChart
+                                        layout="vertical"
+                                        data={withdrawalsByCategory.slice(0, 10).map((item) => ({
+                                            ...item,
+                                            fill: getChartColor(item.name)
+                                        }))}
+                                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                                        onClick={(data) => {
+                                            if (data?.activePayload?.[0]?.payload?.name) {
+                                                handleChartCategoryClick(data.activePayload[0].payload.name);
+                                            }
                                         }}
-                                        formatter={(value, name, props) => [`${value} ชิ้น — คลิกเพื่อ Filter`, props.payload.name]}
-                                    />
-                                    <Bar
-                                        dataKey="value"
-                                        radius={[0, 4, 4, 0]}
-                                        barSize={24}
-                                        name="จำนวนที่เบิก"
+                                        style={{ cursor: 'pointer' }}
                                     >
-                                        {withdrawalsByCategory.slice(0, 10).map((item, index) => (
-                                            <Cell
-                                                key={`bar-cell-${index}`}
-                                                fill={getChartColor(item.name)}
-                                                opacity={clickedCategory && clickedCategory !== item.name ? 0.25 : 1}
-                                            />
-                                        ))}
-                                        <LabelList dataKey="value" position="right" style={{ fill: '#64748b', fontSize: 12, fontWeight: 'bold' }} formatter={(val) => `${val} ชิ้น`} />
-                                    </Bar>
-                                </BarChart>
+                                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                                        <XAxis type="number" stroke="#64748b" />
+                                        <YAxis
+                                            type="category"
+                                            dataKey="name"
+                                            width={100}
+                                            stroke="#475569"
+                                            tick={{ fontSize: 12 }}
+                                        />
+                                        <Tooltip
+                                            cursor={{ fill: '#f1f5f9' }}
+                                            contentStyle={{
+                                                backgroundColor: 'white',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '8px',
+                                                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                                            }}
+                                            formatter={(value, name, props) => [`${value} ชิ้น — คลิกเพื่อ Filter`, props.payload.name]}
+                                        />
+                                        <Bar
+                                            dataKey="value"
+                                            radius={[0, 4, 4, 0]}
+                                            barSize={24}
+                                            name="จำนวนที่เบิก"
+                                        >
+                                            {withdrawalsByCategory.slice(0, 10).map((item, index) => (
+                                                <Cell
+                                                    key={`bar-cell-${index}`}
+                                                    fill={getChartColor(item.name)}
+                                                    opacity={clickedCategory && clickedCategory !== item.name ? 0.25 : 1}
+                                                />
+                                            ))}
+                                            <LabelList dataKey="value" position="right" style={{ fill: '#64748b', fontSize: 12, fontWeight: 'bold' }} formatter={(val) => `${val} ชิ้น`} />
+                                        </Bar>
+                                    </BarChart>
                                 </ResponsiveContainer>
                             )}
                         </div>

@@ -153,8 +153,6 @@ const MALicensePage = () => {
 
     // ─── COMPUTED DATA ───────────────────
     const filteredItems = useMemo(() => {
-        // Reset to page 1 when filters change
-        setCurrentPage(1);
         return items
             .filter(i => i.Category === activeTab)
             .filter(i => statusFilter === 'all' || i.Status === statusFilter)
@@ -180,6 +178,9 @@ const MALicensePage = () => {
                 );
             });
     }, [items, activeTab, statusFilter, cardFilter, searchTerm]);
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [activeTab, statusFilter, cardFilter, searchTerm]);
 
     const sortedItems = useMemo(() => {
         let sortableItems = [...filteredItems];
@@ -189,19 +190,12 @@ const MALicensePage = () => {
                 let bValue = b[sortConfig.key] || '';
 
                 if (sortConfig.key === '_duration') {
-                    // Sort by EndDate for duration
                     aValue = new Date(a.EndDate || 0).getTime();
                     bValue = new Date(b.EndDate || 0).getTime();
-                } else if (sortConfig.key === 'Status') {
-                    // Custom order could be implemented here, string comparison suffices usually
                 }
 
-                if (aValue < bValue) {
-                    return sortConfig.direction === 'asc' ? -1 : 1;
-                }
-                if (aValue > bValue) {
-                    return sortConfig.direction === 'asc' ? 1 : -1;
-                }
+                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
                 return 0;
             });
         }

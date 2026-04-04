@@ -84,16 +84,26 @@ const DashboardPage = () => {
         }
 
         transactions.forEach(t => {
-            const date = new Date(t.TransDate);
-            const monthKey = months[date.getMonth()];
+    const date = new Date(t.TransDate);
+    const monthKey = months[date.getMonth()];
 
-            if (dataMap[monthKey]) {
-                const type = (t.TransType || '').toUpperCase().trim();
-                const qty = Math.abs(t.Qty);
-                if (type === 'IN' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].inbound += qty;
-                if (type === 'OUT' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].outbound += qty;
-            }
-        });
+    if (dataMap[monthKey]) {
+        const type = (t.TransType || '').toUpperCase().trim();
+        const qty = Math.abs(t.Qty);
+        const refInfo = t.RefInfo || '';
+
+        if (type === 'IN'
+            && !refInfo.includes('ยกเลิก Invoice')
+            && !refInfo.includes('Stock Count Adjust')) {
+            dataMap[monthKey].inbound += qty;  // ← เพิ่ม body
+        }
+        if (type === 'OUT'
+            && !refInfo.includes('ยกเลิก Invoice')
+            && !refInfo.includes('Stock Count Adjust')) {
+            dataMap[monthKey].outbound += qty; // ← เพิ่ม body
+        }
+    }
+});
 
         return Object.values(dataMap);
     }, [transactions]);
@@ -101,9 +111,13 @@ const DashboardPage = () => {
     // 4. Critical Low Stock Items (Top 5)
     const lowStockItems = useMemo(() => {
         return products
-            .filter(p => p.CurrentStock <= p.MinStock && p.MinStock > 0)
-            .sort((a, b) => (a.CurrentStock - a.MinStock) - (b.CurrentStock - b.MinStock))
-            .slice(0, 5);
+    .filter(p => p.CurrentStock <= p.MinStock && p.MinStock > 0)
+    .sort((a, b) => {
+        const priorityDiff = (a.business_priority || 3) - (b.business_priority || 3);
+        if (priorityDiff !== 0) return priorityDiff;
+        return (a.CurrentStock - a.MinStock) - (b.CurrentStock - b.MinStock);
+    })
+    .slice(0, 5);
     }, [products]);
 
     // 5. Top 5 Most Withdrawn (Current Month)
@@ -123,7 +137,7 @@ const DashboardPage = () => {
                     const product = products.find(p => p.ProductID === productId);
                     withdrawMap[productId] = {
                         ProductID: productId,
-                        ProductName: t.ProductName || `ID: ${productId}`,
+                        ProductName: product?.ProductName || `ID: ${productId}`,
                         DeviceType: product ? product.DeviceType : 'Unknown',
                         totalQty: 0
                     };

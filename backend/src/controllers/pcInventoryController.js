@@ -18,7 +18,7 @@ export const updateBitlocker = async (req, res) => {
         `);
         res.json({ success: true });
     } catch (err) {
-        
+
         res.status(500).json({ success: false, error: err.message });
     }
 };
@@ -277,10 +277,8 @@ export const getSummary = async (req, res) => {
             if (!r.disk_info) return false;
             const cMatch = r.disk_info.match(/C:\s*Total:\s*([0-9.]+)\s*GB\s*Free:\s*([0-9.]+)\s*GB/);
             if (!cMatch) return false;
-            const total = parseFloat(cMatch[1]);
-            const free = parseFloat(cMatch[2]);
-            const usagePercent = ((total - free) / total) * 100;
-            return usagePercent > 80;
+            const free = parseFloat(cMatch[2]);  // ดึงแค่ free
+            return free < 20;                    // ✅ เปลี่ยนจาก usagePercent > 80
         }).map(r => r.hostname);
         const currentYear = new Date().getFullYear();
         const oldFixAssets = data.filter(r => {

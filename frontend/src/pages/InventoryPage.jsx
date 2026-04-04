@@ -399,6 +399,7 @@ const InventoryPage = () => {
         payload.MaxStock = parseInt(payload.MaxStock, 10) || 0;
         payload.CurrentStock = parseInt(payload.CurrentStock, 10) || 0;
         payload.LastPrice = parseFloat(payload.LastPrice) || 0;
+        payload.business_priority = parseInt(payload.business_priority) || 3;
 
 
         try {
@@ -599,6 +600,7 @@ const InventoryPage = () => {
                                     <th className="p-4 text-center">ขั้นต่ำ </th>
                                     <th className="p-4">ที่เก็บ </th>
                                     <th className="p-4">สถานะ </th>
+                                    <th className="p-4">Priority</th>
                                     <th className="p-4 text-center">เบิกจ่าย </th>
                                     <th className="p-4 text-center">ประวัติอุปกรณ์ </th>
                                     {isAdmin && <th className="p-4 text-center">จัดการ </th>}
@@ -648,6 +650,15 @@ const InventoryPage = () => {
                                                         <AlertTriangle size={12} /> ต่ำ                                                 </span> :
                                                     <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">ปกติ </span>
                                                 }
+                                            </td>
+                                            <td className="p-4">
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
+                                                        p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                                                            p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
+                                                                'bg-yellow-100 text-yellow-700 border-yellow-200'
+                                                    }`}>
+                                                    {{ 1: 'CRITICAL', 2: 'HIGH', 3: 'MEDIUM', 4: 'LOW' }[p.business_priority] || 'MEDIUM'}
+                                                </span>
                                             </td>
                                             <td className="p-4 text-center">
                                                 <div className="flex justify-center gap-1">
@@ -989,6 +1000,21 @@ const InventoryPage = () => {
                                                         </div>
                                                     </div>
                                                     <div className="col-span-2">
+                                                        <label className="block text-sm font-bold text-slate-700 mb-2">
+                                                            ระดับความสำคัญ
+                                                        </label>
+                                                        <select
+                                                            name="business_priority"
+                                                            defaultValue={editItem.business_priority ?? 3}
+                                                            className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium text-slate-700"
+                                                        >
+                                                            <option value={1}>🔴 CRITICAL — หยุดสายการผลิต</option>
+                                                            <option value={2}>🟠 HIGH — งานสะดุด</option>
+                                                            <option value={3}>🟡 MEDIUM — ไม่สะดวก</option>
+                                                            <option value={4}>🟢 LOW — ไม่กระทบ</option>
+                                                        </select>
+                                                    </div>
+                                                    <div className="col-span-2">
                                                         <label className="block text-sm font-bold text-slate-700 mb-2">บาร์โค้ดจริง (Barcode ID)</label>
                                                         <div className="relative">
                                                             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
@@ -1214,7 +1240,18 @@ const InventoryPage = () => {
                                             </div>
                                         </div>
                                     </div>
-
+                                    <div className="flex items-center p-3 sm:px-4">
+                                        <span className="text-xs text-slate-500 font-bold uppercase w-48 shrink-0 flex items-center gap-2">
+                                            <AlertTriangle size={14} className="text-rose-500" /> ความสำคัญ
+                                        </span>
+                                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${detailItem.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
+                                            detailItem.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                                                detailItem.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
+                                                    'bg-yellow-100 text-yellow-700 border-yellow-200'
+                                            }`}>
+                                            {{ 1: '🔴 CRITICAL', 2: '🟠 HIGH', 3: '🟡 MEDIUM', 4: '🟢 LOW' }[detailItem.business_priority] || '🟡 MEDIUM'}
+                                        </span>
+                                    </div>
                                     <div className="p-4 bg-white border-t border-slate-100 bg-slate-50/50">
                                         <button
                                             onClick={() => setDetailItem(null)}

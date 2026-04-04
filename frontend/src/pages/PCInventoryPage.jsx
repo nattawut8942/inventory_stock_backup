@@ -478,7 +478,7 @@ const PCInventoryPage = () => {
                     <StatBox id="noBlKeyNotebook" label="No BitLocker Key" list={sumData?.noBlKeyNotebook} textClass="text-amber-600" bgClass="bg-amber-50" ringClass="ring-amber-500" />
                     <StatBox id="inactivePC" label="Inactive > 1 Month" list={sumData?.inactivePC} textClass="text-amber-600" bgClass="bg-amber-50" ringClass="ring-amber-500" />
                     <StatBox id="lowBatteryHealth" label="Battery Health < 70%" list={sumData?.lowBatteryHealth} textClass="text-amber-600" bgClass="bg-amber-50" ringClass="ring-amber-500" />
-                    <StatBox id="lowDiskCSpace" label="Disk C > 80% Used" list={sumData?.lowDiskCSpace} textClass="text-red-600" bgClass="bg-red-50" ringClass="ring-red-500" />
+                    <StatBox id="lowDiskCSpace" label="Disk C Free < 20GB" list={sumData?.lowDiskCSpace} textClass="text-red-600" bgClass="bg-red-50" ringClass="ring-red-500" />
                     <StatBox id="oldFixAssets" label="Old Fix Assets" list={sumData?.oldFixAssets} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" />
                     <StatBox id="multiLogin" label="Multi-Login Users" list={multiLoginData.allHostnames} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" onSecondaryClick={() => setShowMultiLoginModal(true)} />
                   </div>

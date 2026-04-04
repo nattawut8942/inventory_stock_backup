@@ -152,11 +152,13 @@ export const getSummary = async (req, res) => {
         })
         .map(d => d.hostname),
 
-      // ใช้ updated_at ถ้าเกิน 30 วัน
+      // ใช้ MAX(logon_time) จาก info_mo_active_users
+      // นับเฉพาะ host ที่มี session แต่ logon ครั้งล่าสุดเกิน 30 วัน
       notUpdated: data
         .filter(d => {
-          if (!d.updated_at) return false;
-          const t = new Date(d.updated_at).getTime();
+          const lastLogon = logonMap[d.hostname];
+          if (!lastLogon) return false; // ไม่มี session — ไม่นับ
+          const t = new Date(lastLogon).getTime();
           if (isNaN(t)) return false;
           return (now - t) > MS_30_DAYS;
         })
@@ -174,7 +176,11 @@ export const getSummary = async (req, res) => {
           return (currentYear - year) > 5;
         })
         .map(d => d.hostname),
-
+      notDomainJoined: data
+        .filter(d => !d.domain || d.domain.trim() === '' ||
+          d.domain.toLowerCase() === 'workgroup')
+        .map(d => d.hostname),
+        
       // ── Distribution maps ───────────────────────────────────────
       crowdstrikeVerMap: {},
       taniumVerMap: {},
@@ -192,16 +198,16 @@ export const getSummary = async (req, res) => {
 
     data.forEach(d => {
       push(summary.crowdstrikeVerMap, d.crowdstrike_ver || 'Not Installed', d.hostname);
-      push(summary.taniumVerMap,      d.tanium_ver      || 'Not Installed', d.hostname);
-      push(summary.uemsVerMap,        d.uems_ver        || 'Not Installed', d.hostname);
-      push(summary.manufacturerMap,   d.manufacturer    || 'Unknown',       d.hostname);
-      push(summary.modelMap,          d.model           || 'Unknown',       d.hostname);
-      push(summary.osNameMap,         d.os_name         || 'Unknown',       d.hostname);
-      push(summary.osReleaseMap,      d.os_release      || 'Unknown',       d.hostname);
-      push(summary.osBuildMap,        d.os_build        || 'Unknown',       d.hostname);
-      push(summary.osArchMap,         d.os_arch         || 'Unknown',       d.hostname);
-      push(summary.wifiMap,           d.wifi_ssid       || 'Not Connected', d.hostname);
-      push(summary.adapterMap,        d.adapter_type    || 'Unknown',       d.hostname);
+      push(summary.taniumVerMap, d.tanium_ver || 'Not Installed', d.hostname);
+      push(summary.uemsVerMap, d.uems_ver || 'Not Installed', d.hostname);
+      push(summary.manufacturerMap, d.manufacturer || 'Unknown', d.hostname);
+      push(summary.modelMap, d.model || 'Unknown', d.hostname);
+      push(summary.osNameMap, d.os_name || 'Unknown', d.hostname);
+      push(summary.osReleaseMap, d.os_release || 'Unknown', d.hostname);
+      push(summary.osBuildMap, d.os_build || 'Unknown', d.hostname);
+      push(summary.osArchMap, d.os_arch || 'Unknown', d.hostname);
+      push(summary.wifiMap, d.wifi_ssid || 'Not Connected', d.hostname);
+      push(summary.adapterMap, d.adapter_type || 'Unknown', d.hostname);
 
       // subnet: ตัด octet สุดท้ายออก → "10.194.46"
       if (d.ip_address) {

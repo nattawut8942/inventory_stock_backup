@@ -18,9 +18,11 @@ export const getProducts = async (req, res) => {
     try {
         const pool = getPool();
         const result = await pool.request().query(`
-            SELECT ProductID, ProductName, DeviceType, MinStock, MaxStock, CurrentStock, LastPrice, UnitOfMeasure, IsActive, ImageURL, Location, BarcodeID
-            FROM dbo.Stock_Products
-            WHERE IsActive = 1
+            SELECT ProductID, ProductName, DeviceType, MinStock, MaxStock, 
+                CurrentStock, LastPrice, UnitOfMeasure, IsActive, ImageURL, 
+                Location, BarcodeID, business_priority  
+                FROM dbo.Stock_Products
+                WHERE IsActive = 1
         `);
         res.json(result.recordset);
     } catch (err) {
@@ -32,25 +34,31 @@ export const getProducts = async (req, res) => {
 // UPDATE Product
 export const updateProduct = async (req, res) => {
     const { id } = req.params;
-    const { ProductName, DeviceType, LastPrice, CurrentStock, MinStock, MaxStock, ImageURL, Location, BarcodeID } = req.body;
+    const { ProductName, DeviceType, LastPrice, CurrentStock,
+        MinStock, MaxStock, ImageURL, Location, BarcodeID,
+        business_priority } = req.body;
 
     try {
         const pool = getPool();
         const request = pool.request();
 
-        request.input('ProductID', sql.Int, id)
+        request
+            .input('ProductID', sql.Int, id)
             .input('ProductName', sql.NVarChar, ProductName)
             .input('DeviceType', sql.VarChar, DeviceType)
             .input('MinStock', sql.Int, MinStock)
             .input('MaxStock', sql.Int, MaxStock || 0)
             .input('CurrentStock', sql.Int, CurrentStock)
-            .input('LastPrice', sql.Decimal(18, 2), LastPrice);
+            .input('LastPrice', sql.Decimal(18, 2), LastPrice)
+            .input('business_priority', sql.TinyInt, business_priority ?? 3); // ✅ ย้ายมาต่อท้ายตรงนี้
 
         let query = `
             UPDATE dbo.Stock_Products 
             SET ProductName = @ProductName, DeviceType = @DeviceType, 
-                MinStock = @MinStock, MaxStock = @MaxStock, CurrentStock = @CurrentStock, LastPrice = @LastPrice
-        `;
+                MinStock = @MinStock, MaxStock = @MaxStock, 
+                CurrentStock = @CurrentStock, LastPrice = @LastPrice,
+                business_priority = @business_priority
+        `; // ✅ เพิ่ม business_priority ใน SET
 
         if (ImageURL !== undefined) {
             request.input('ImageURL', sql.NVarChar, ImageURL);
@@ -316,11 +324,24 @@ export const getForecast = async (req, res) => {
         const pool = getPool();
         const result = await pool.request().query(`
             SELECT 
-                ProductID, ProductName, DeviceType, MinStock, MaxStock, CurrentStock, LastPrice,
-                CASE WHEN CurrentStock <= MinStock THEN ISNULL(MaxStock, MinStock) - CurrentStock ELSE 0 END as OrderQty,
-                CASE WHEN CurrentStock <= MinStock THEN (ISNULL(MaxStock, MinStock) - CurrentStock) * ISNULL(LastPrice, 0) ELSE 0 END as EstimatedCost
+                ProductID, ProductName, DeviceType, MinStock, MaxStock, 
+                CurrentStock, LastPrice, ImageURL,  -- ✅ เพิ่มตรงนี้
+                business_priority,
+                CASE business_priority
+                    WHEN 1 THEN 'CRITICAL'
+                    WHEN 2 THEN 'HIGH'
+                    WHEN 3 THEN 'MEDIUM'
+                    ELSE        'LOW'
+                END AS priority_label,
+                CASE WHEN CurrentStock <= MinStock 
+                     THEN ISNULL(MaxStock, MinStock) - CurrentStock ELSE 0 
+                END AS OrderQty,
+                CASE WHEN CurrentStock <= MinStock 
+                     THEN (ISNULL(MaxStock, MinStock) - CurrentStock) * ISNULL(LastPrice, 0) ELSE 0 
+                END AS EstimatedCost
             FROM dbo.Stock_Products
             WHERE IsActive = 1 AND CurrentStock <= MinStock
+            ORDER BY business_priority ASC, CurrentStock ASC
         `);
         res.json(result.recordset);
     } catch (err) {
