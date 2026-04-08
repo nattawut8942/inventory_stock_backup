@@ -175,7 +175,7 @@ const HistoryPage = () => {
                                             {t.TransType}
                                         </span>
                                     </td>
-                                    <td className="p-4 font-bold text-slate-700 whitespace-nowrap">
+                                    <td className="p-4 font-bold text-slate-700 whitespace-nowrap text-xs">
                                         {t.ProductName}
                                     </td>
                                     <td
@@ -185,15 +185,20 @@ const HistoryPage = () => {
                                         {isIn ? "+" : "-"}
                                         {Math.abs(t.Qty)}
                                     </td>
-                                    <td className="p-4 text-slate-500 text-xs whitespace-nowrap">
-                                        {t.RefInfo}
+                                    <td className="p-4 text-slate-500 text-xs max-w-[200px]p">
+                                        {(t.RefInfo || '').split(':').map((part, idx) => (
+                                         <span key={idx}>
+                                            {idx > 0 && <br />}
+                                            {idx > 0 ? `: ${part.trim()}` : part}
+                                        </span>
+                                        ))}
                                     </td>
                                     <td className="p-4 whitespace-nowrap">
                                         <span className="flex items-center gap-2 text-xs text-slate-600 font-medium">
                                             <div className="w-6 h-6 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500">
-                                                {t.UserID?.[0]}
+                                                {t.UserID?.[0]?.toUpperCase()}
                                             </div>
-                                            {t.UserID}
+                                            {(t.UserID || '').toUpperCase()}
                                         </span>
                                     </td>
                                 </tr>

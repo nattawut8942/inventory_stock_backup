@@ -18,12 +18,13 @@ export const getProducts = async (req, res) => {
     try {
         const pool = getPool();
         const result = await pool.request().query(`
-            SELECT ProductID, ProductName, DeviceType, MinStock, MaxStock, 
-                CurrentStock, LastPrice, UnitOfMeasure, IsActive, ImageURL, 
-                Location, BarcodeID, business_priority  
-                FROM dbo.Stock_Products
-                WHERE IsActive = 1
-        `);
+    SELECT ProductID, ProductName, DeviceType, MinStock, MaxStock, 
+        CurrentStock, LastPrice, UnitOfMeasure, IsActive, ImageURL, 
+        Location, BarcodeID, business_priority,
+        lead_time_days, VendorID
+    FROM dbo.Stock_Products
+    WHERE IsActive = 1
+`);
         res.json(result.recordset);
     } catch (err) {
         console.error('Get Products Error:', err);
@@ -34,9 +35,16 @@ export const getProducts = async (req, res) => {
 // UPDATE Product
 export const updateProduct = async (req, res) => {
     const { id } = req.params;
+    console.log('=== updateProduct ===');
+    console.log('ID:', id);
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+
     const { ProductName, DeviceType, LastPrice, CurrentStock,
         MinStock, MaxStock, ImageURL, Location, BarcodeID,
-        business_priority } = req.body;
+        business_priority, VendorID, lead_time_days } = req.body;
+
+    console.log('VendorID:', VendorID, typeof VendorID);
+    console.log('lead_time_days:', lead_time_days, typeof lead_time_days);
 
     try {
         const pool = getPool();
@@ -50,15 +58,19 @@ export const updateProduct = async (req, res) => {
             .input('MaxStock', sql.Int, MaxStock || 0)
             .input('CurrentStock', sql.Int, CurrentStock)
             .input('LastPrice', sql.Decimal(18, 2), LastPrice)
-            .input('business_priority', sql.TinyInt, business_priority ?? 3); // ✅ ย้ายมาต่อท้ายตรงนี้
+            .input('business_priority', sql.TinyInt, business_priority ?? 3)
+            .input('lead_time_days', sql.Int, lead_time_days || 7)
+            .input('VendorID', sql.Int, VendorID || null);
 
         let query = `
             UPDATE dbo.Stock_Products 
             SET ProductName = @ProductName, DeviceType = @DeviceType, 
                 MinStock = @MinStock, MaxStock = @MaxStock, 
                 CurrentStock = @CurrentStock, LastPrice = @LastPrice,
-                business_priority = @business_priority
-        `; // ✅ เพิ่ม business_priority ใน SET
+                business_priority = @business_priority,
+                lead_time_days = @lead_time_days,
+                VendorID = @VendorID
+        `;
 
         if (ImageURL !== undefined) {
             request.input('ImageURL', sql.NVarChar, ImageURL);
@@ -324,28 +336,56 @@ export const getForecast = async (req, res) => {
         const pool = getPool();
         const result = await pool.request().query(`
             SELECT 
-                ProductID, ProductName, DeviceType, MinStock, MaxStock, 
-                CurrentStock, LastPrice, ImageURL,  -- ✅ เพิ่มตรงนี้
-                business_priority,
-                CASE business_priority
-                    WHEN 1 THEN 'CRITICAL'
-                    WHEN 2 THEN 'HIGH'
-                    WHEN 3 THEN 'MEDIUM'
-                    ELSE        'LOW'
-                END AS priority_label,
-                CASE WHEN CurrentStock <= MinStock 
-                     THEN ISNULL(MaxStock, MinStock) - CurrentStock ELSE 0 
-                END AS OrderQty,
-                CASE WHEN CurrentStock <= MinStock 
-                     THEN (ISNULL(MaxStock, MinStock) - CurrentStock) * ISNULL(LastPrice, 0) ELSE 0 
-                END AS EstimatedCost
-            FROM dbo.Stock_Products
-            WHERE IsActive = 1 AND CurrentStock <= MinStock
-            ORDER BY business_priority ASC, CurrentStock ASC
+                p.ProductID,
+                p.ProductName,
+                p.DeviceType,
+                p.CurrentStock,
+                p.MinStock,
+                p.MaxStock,
+                p.LastPrice,
+                p.business_priority,
+                p.priority_label,
+                p.ImageURL,
+                ISNULL(p.lead_time_days, 7) AS lead_time_days,
+                ISNULL(v.VendorName, '-') AS VendorName
+            FROM Stock_Products p
+            LEFT JOIN Stock_Vendors v ON p.VendorID = v.VendorID
+            WHERE p.CurrentStock <= p.MinStock
+              AND p.IsActive = 1
+        `);
+
+        const items = result.recordset.map(item => {
+            const leadTime = item.lead_time_days || 7;
+            const orderQty = Math.max(0, (item.MaxStock || 0) - item.CurrentStock);
+            const estimatedCost = orderQty * (item.LastPrice || 0);
+            return { ...item, lead_time_days: leadTime, OrderQty: orderQty, EstimatedCost: estimatedCost };
+        });
+
+        items.sort((a, b) => {
+            if (a.business_priority !== b.business_priority)
+                return (a.business_priority || 3) - (b.business_priority || 3);
+            return (b.lead_time_days || 7) - (a.lead_time_days || 7);
+        });
+
+        res.json(items);
+    } catch (err) {
+        console.error('getForecast error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+export const getVendors = async (req, res) => {
+    try {
+        const pool = getPool();  // ✅ แก้จาก poolPromise
+        const result = await pool.request().query(`
+            SELECT VendorID, VendorName
+            FROM Stock_Vendors
+            WHERE IsActive = 1
+            ORDER BY VendorName ASC
         `);
         res.json(result.recordset);
     } catch (err) {
-        console.error('Get Forecast Error:', err);
-        res.status(500).json({ error: 'Database error' });
+        res.status(500).json({ error: err.message });
     }
 };
+

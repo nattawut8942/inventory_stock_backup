@@ -123,7 +123,14 @@ const InventoryPage = () => {
 
     const [selectedReason, setSelectedReason] = useState('');
     const [reasonDetail, setReasonDetail] = useState('');
+    const [vendors, setVendors] = useState([]);
 
+    useEffect(() => {
+        fetch(`${API_BASE}/vendors`)
+            .then(res => res.json())
+            .then(data => setVendors(data))
+            .catch(err => console.error('Failed to load vendors', err));
+    }, []);
     // Scan Modal
     const [scanModal, setScanModal] = useState({ isOpen: false, scannedCode: '', foundProduct: null, error: '' });
     const [scanQty, setScanQty] = useState(1);
@@ -400,6 +407,8 @@ const InventoryPage = () => {
         payload.CurrentStock = parseInt(payload.CurrentStock, 10) || 0;
         payload.LastPrice = parseFloat(payload.LastPrice) || 0;
         payload.business_priority = parseInt(payload.business_priority) || 3;
+        payload.lead_time_days = parseInt(payload.lead_time_days, 10) || 7;
+        payload.VendorID = payload.VendorID ? parseInt(payload.VendorID, 10) : null;
 
 
         try {
@@ -653,9 +662,9 @@ const InventoryPage = () => {
                                             </td>
                                             <td className="p-4">
                                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
-                                                        p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
-                                                            p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
-                                                                'bg-yellow-100 text-yellow-700 border-yellow-200'
+                                                    p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                                                        p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
+                                                            'bg-yellow-100 text-yellow-700 border-yellow-200'
                                                     }`}>
                                                     {{ 1: 'CRITICAL', 2: 'HIGH', 3: 'MEDIUM', 4: 'LOW' }[p.business_priority] || 'MEDIUM'}
                                                 </span>
@@ -680,6 +689,7 @@ const InventoryPage = () => {
                                                     </button>
                                                 </div>
                                             </td>
+
                                             <td className="p-4 text-center">
                                                 <div className="flex justify-center gap-1">
                                                     <button onClick={() => viewHistory(p)} className="text-slate-400 hover:text-indigo-600 transition-colors p-1.5 hover:bg-indigo-50 rounded-lg" title="ดูประวัติ (History)">
@@ -1028,6 +1038,38 @@ const InventoryPage = () => {
                                                             />
                                                         </div>
                                                     </div>
+
+                                                    {/* ✅ Vendor + Lead Time แยกออกมาเป็น col-span-2 ของตัวเอง */}
+                                                    <div className="col-span-2">
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <div>
+                                                                <label className="block text-sm font-bold text-slate-700 mb-2">Vendor</label>
+                                                                <select
+                                                                    name="VendorID"
+                                                                    defaultValue={editItem.VendorID || ''}
+                                                                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium text-slate-700"
+                                                                >
+                                                                    <option value="">-- ไม่ระบุ --</option>
+                                                                    {vendors.map(v => (
+                                                                        <option key={v.VendorID} value={v.VendorID}>
+                                                                            {v.VendorName} ({v.lead_time_days ?? 7} วัน)
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-bold text-slate-700 mb-2">Lead Time (วัน)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    name="lead_time_days"
+                                                                    defaultValue={editItem.lead_time_days ?? 7}
+                                                                    min={1}
+                                                                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-mono font-medium text-slate-700"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
                                                 </div>
                                             </div>
                                         </div>
