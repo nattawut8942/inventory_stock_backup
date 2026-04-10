@@ -18,7 +18,6 @@ export const updateBitlocker = async (req, res) => {
         `);
         res.json({ success: true });
     } catch (err) {
-
         res.status(500).json({ success: false, error: err.message });
     }
 };
@@ -70,19 +69,32 @@ export const getInventory = async (req, res) => {
                 i.[os_install_date],i.[last_boot],i.[uptime],i.[bios_version],
                 i.[gpu],i.[resolution],i.[user_count],i.[collected_at],i.[updated_at],
                 i.[fix_asset],i.[bitlocker],i.[bitlocker_key_c],i.[crowdstrike_ver],i.[tanium_ver],i.[uems_ver],
-                ISNULL(COUNT(DISTINCT au.[username]), 0) as active_users,
-                ISNULL(STRING_AGG(au.[username], ', ') WITHIN GROUP (ORDER BY au.[username]), '') as active_usernames,
-                ISNULL((SELECT TOP 1 au2.[logon_time] FROM [dbo].[info_pc_active_users] au2 WHERE au2.[hostname] = i.[hostname] ORDER BY au2.[logon_time] DESC), NULL) as logon_time
+                -- ✅ FIX: include battery/type fields that were missing from GROUP BY
+                i.[battery_status],i.[battery_percent],i.[battery_health],i.[battery_wear],
+                i.[battery_charging],i.[battery_cycle],i.[battery_name],i.[battery_voltage],
+                i.[battery_type],i.[battery_manufacturer],
+                ISNULL(COUNT(DISTINCT au.[username]), 0) AS active_users,
+                ISNULL(STRING_AGG(au.[username], ', ') WITHIN GROUP (ORDER BY au.[username]), '') AS active_usernames,
+                ISNULL(
+                    (SELECT TOP 1 au2.[logon_time]
+                     FROM [dbo].[info_pc_active_users] au2
+                     WHERE au2.[hostname] = i.[hostname]
+                     ORDER BY au2.[logon_time] DESC),
+                    NULL
+                ) AS logon_time
             FROM [dbo].[info_pc_inventory] i
             LEFT JOIN [dbo].[info_pc_active_users] au ON i.[hostname] = au.[hostname]
-            GROUP BY i.[id],i.[hostname],i.[domain],i.[ip_address],i.[mac_address],
+            GROUP BY
+                i.[id],i.[hostname],i.[domain],i.[ip_address],i.[mac_address],
                 i.[computer_type],i.[manufacturer],i.[model],i.[serial_number],
                 i.[cpu_name],i.[cpu_cores],i.[cpu_threads],i.[ram_gb],i.[disk_info],
                 i.[os_name],i.[os_release],i.[os_build],i.[os_full_version],i.[os_arch],
                 i.[os_install_date],i.[last_boot],i.[uptime],i.[bios_version],
                 i.[gpu],i.[resolution],i.[user_count],i.[collected_at],i.[updated_at],
                 i.[fix_asset],i.[bitlocker],i.[bitlocker_key_c],i.[crowdstrike_ver],i.[tanium_ver],i.[uems_ver],
-                i.[battery_status],i.[battery_percent],i.[battery_health],i.[battery_wear],i.[battery_charging],i.[battery_cycle],i.[battery_name],i.[battery_voltage]
+                i.[battery_status],i.[battery_percent],i.[battery_health],i.[battery_wear],
+                i.[battery_charging],i.[battery_cycle],i.[battery_name],i.[battery_voltage],
+                i.[battery_type],i.[battery_manufacturer]
             ORDER BY i.[updated_at] DESC
         `);
         res.json({ success: true, data: result.recordset });
@@ -124,10 +136,16 @@ export const getInventoryByHostname = async (req, res) => {
 
 export const updateAsset = async (req, res) => {
     try {
+        // ✅ FIX: validate fix_asset format on backend too
+        const fixAsset = (req.body.fix_asset || '').trim();
+        if (fixAsset && !/^[A-Za-z0-9\-_.]+$/.test(fixAsset)) {
+            return res.status(400).json({ success: false, error: 'รูปแบบ Fix Asset ไม่ถูกต้อง' });
+        }
+
         const db = await getPool();
         const request = db.request();
         request.input('hostname', sql.NVarChar, req.params.hostname);
-        request.input('fix_asset', sql.NVarChar, req.body.fix_asset || '');
+        request.input('fix_asset', sql.NVarChar, fixAsset);
         await request.query(`UPDATE dbo.info_pc_inventory SET fix_asset=@fix_asset WHERE hostname=@hostname`);
         res.json({ success: true });
     } catch (err) {
@@ -154,11 +172,13 @@ export const getSoftwareByHostname = async (req, res) => {
     }
 };
 
+// ✅ FIX: also delete software records when deleting a PC
 export const deleteInventory = async (req, res) => {
     try {
         const db = await getPool();
         const request = db.request();
         request.input('hostname', sql.NVarChar, req.params.hostname);
+        await request.query(`DELETE FROM dbo.info_pc_software WHERE hostname=@hostname`);
         await request.query(`DELETE FROM dbo.info_pc_active_users WHERE hostname=@hostname`);
         await request.query(`DELETE FROM dbo.info_pc_inventory WHERE hostname=@hostname`);
         res.json({ success: true });
@@ -215,11 +235,18 @@ export const searchInventory = async (req, res) => {
                 m.[computer_type],m.[manufacturer],m.[model],
                 m.[os_name],m.[os_release],m.[os_build],m.[os_full_version],m.[os_arch],
                 m.[collected_at],m.[updated_at],
-                ISNULL(STRING_AGG(au.[username], ', ') WITHIN GROUP (ORDER BY au.[username]), '') as active_usernames,
-                ISNULL((SELECT TOP 1 au2.[logon_time] FROM [dbo].[info_pc_active_users] au2 WHERE au2.[hostname] = m.[hostname] ORDER BY au2.[logon_time] DESC), NULL) as logon_time
+                ISNULL(STRING_AGG(au.[username], ', ') WITHIN GROUP (ORDER BY au.[username]), '') AS active_usernames,
+                ISNULL(
+                    (SELECT TOP 1 au2.[logon_time]
+                     FROM [dbo].[info_pc_active_users] au2
+                     WHERE au2.[hostname] = m.[hostname]
+                     ORDER BY au2.[logon_time] DESC),
+                    NULL
+                ) AS logon_time
             FROM MatchedPC m
             LEFT JOIN [dbo].[info_pc_active_users] au ON m.[hostname] = au.[hostname]
-            GROUP BY m.[id],m.[hostname],m.[domain],m.[ip_address],m.[mac_address],m.[serial_number],
+            GROUP BY
+                m.[id],m.[hostname],m.[domain],m.[ip_address],m.[mac_address],m.[serial_number],
                 m.[cpu_name],m.[cpu_cores],m.[cpu_threads],m.[ram_gb],m.[gpu],m.[bios_version],
                 m.[fix_asset],m.[bitlocker],m.[bitlocker_key_c],m.[crowdstrike_ver],m.[tanium_ver],m.[uems_ver],
                 m.[computer_type],m.[manufacturer],m.[model],
@@ -233,53 +260,71 @@ export const searchInventory = async (req, res) => {
     }
 };
 
+// ✅ PERFORMANCE: move heavy filtering to SQL instead of pulling all rows to JS
 export const getSummary = async (req, res) => {
     try {
         const db = await getPool();
-        const result = await db.request().query(`
+
+        // Base data for maps (lightweight — only needed columns)
+        const baseResult = await db.request().query(`
             SELECT hostname, bitlocker, crowdstrike_ver, tanium_ver, uems_ver,
-             os_release, os_build, computer_type, manufacturer, fix_asset, updated_at, bitlocker_key_c, battery_health, disk_info
+                   os_release, os_build, computer_type, manufacturer, fix_asset,
+                   updated_at, bitlocker_key_c, battery_health, disk_info
             FROM dbo.info_pc_inventory
         `);
-        const data = result.recordset;
+        const data = baseResult.recordset;
+
+        // ✅ PERFORMANCE: compute flag lists in SQL for expensive date/disk/battery checks
+        const [inactivePCRes, lowDiskRes, lowBatteryRes, oldFixAssetsRes] = await Promise.all([
+            // Inactive > 1 month
+            db.request().query(`
+                SELECT hostname FROM dbo.info_pc_inventory
+                WHERE updated_at < DATEADD(MONTH, -1, GETDATE())
+            `),
+            // Disk C free < 20 GB
+            db.request().query(`
+                SELECT hostname FROM dbo.info_pc_inventory
+                WHERE disk_info LIKE '%C:%'
+                  AND TRY_CAST(
+                        SUBSTRING(
+                            disk_info,
+                            CHARINDEX('Free:', disk_info) + 5,
+                            CHARINDEX('GB', disk_info, CHARINDEX('Free:', disk_info)) - CHARINDEX('Free:', disk_info) - 5
+                        ) AS FLOAT
+                      ) < 20
+            `),
+            // Battery health < 70%
+            db.request().query(`
+                SELECT hostname FROM dbo.info_pc_inventory
+                WHERE battery_health LIKE '%(%)%'
+                  AND TRY_CAST(
+                        SUBSTRING(
+                            battery_health,
+                            CHARINDEX('(', battery_health) + 1,
+                            CHARINDEX('%', battery_health, CHARINDEX('(', battery_health)) - CHARINDEX('(', battery_health) - 1
+                        ) AS FLOAT
+                      ) < 70
+            `),
+            // Old fix assets (notebook > 3yr, desktop > 5yr) — kept in JS since logic is complex
+            Promise.resolve(null),
+        ]);
+
+        const notebookTypes = ['notebook', 'laptop', 'portable', 'sub notebook', 'convertible', 'detachable'];
+        const isNotebook = (r) => notebookTypes.some(t => (r.computer_type || '').toLowerCase().includes(t));
 
         const noEdr = data.filter(r => !r.crowdstrike_ver || r.crowdstrike_ver === 'Not Installed').map(r => r.hostname);
         const noTanium = data.filter(r => !r.tanium_ver || r.tanium_ver === 'Not Installed').map(r => r.hostname);
         const noUems = data.filter(r => !r.uems_ver || r.uems_ver === 'Not Installed').map(r => r.hostname);
-        const notebookTypes = ['notebook', 'laptop', 'portable', 'sub notebook', 'convertible', 'detachable'];
-        const blDisabled = data.filter(r =>
-            notebookTypes.some(t => (r.computer_type || '').toLowerCase().includes(t)) &&
-            (r.bitlocker === 'Disabled' || r.bitlocker === 'Unknown')
-        ).map(r => r.hostname);
+        const blDisabled = data.filter(r => isNotebook(r) && (r.bitlocker === 'Disabled' || r.bitlocker === 'Unknown')).map(r => r.hostname);
         const noAsset = data.filter(r => !r.fix_asset || r.fix_asset.trim() === '').map(r => r.hostname);
-        const noBlNotebook = data.filter(r =>
-            notebookTypes.some(t => (r.computer_type || '').toLowerCase().includes(t)) &&
-            (r.bitlocker === 'Disabled' || r.bitlocker === 'Unknown' || !r.bitlocker)
-        ).map(r => r.hostname);
-        const noBlKeyNotebook = data.filter(r =>
-            notebookTypes.some(t => (r.computer_type || '').toLowerCase().includes(t)) &&
-            (!r.bitlocker_key_c || r.bitlocker_key_c.trim() === '')
-        ).map(r => r.hostname);
+        const noBlKeyNotebook = data.filter(r => isNotebook(r) && (!r.bitlocker_key_c || r.bitlocker_key_c.trim() === '')).map(r => r.hostname);
 
-        const oneMonthAgo = new Date();
-        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-        const inactivePC = data.filter(r =>
-            r.updated_at && new Date(r.updated_at) < oneMonthAgo
-        ).map(r => r.hostname);
-        const lowBatteryHealth = data.filter(r => {
-            if (!r.battery_health) {
-                return false;
-            }
-            const match = r.battery_health.match(/\(([0-9.]+)%\)/);
-            return match && parseFloat(match[1]) < 70;
-        }).map(r => r.hostname);
-        const lowDiskCSpace = data.filter(r => {
-            if (!r.disk_info) return false;
-            const cMatch = r.disk_info.match(/C:\s*Total:\s*([0-9.]+)\s*GB\s*Free:\s*([0-9.]+)\s*GB/);
-            if (!cMatch) return false;
-            const free = parseFloat(cMatch[2]);  // ดึงแค่ free
-            return free < 20;                    // ✅ เปลี่ยนจาก usagePercent > 80
-        }).map(r => r.hostname);
+        // Use SQL results for performance-sensitive checks
+        const inactivePC = inactivePCRes.recordset.map(r => r.hostname);
+        const lowBatteryHealth = lowBatteryRes.recordset.map(r => r.hostname);
+        const lowDiskCSpace = lowDiskRes.recordset.map(r => r.hostname);
+
+        // Old fix assets — JS logic retained (complex regex + conditional by type)
         const currentYear = new Date().getFullYear();
         const oldFixAssets = data.filter(r => {
             if (!r.fix_asset || r.fix_asset.trim() === '') return false;
@@ -288,46 +333,45 @@ export const getSummary = async (req, res) => {
             const assetYear = parseInt(yearMatch[1]);
             const year = assetYear > 50 ? 1900 + assetYear : 2000 + assetYear;
             const age = currentYear - year;
-            const isNotebook = notebookTypes.some(t => (r.computer_type || '').toLowerCase().includes(t));
-            return isNotebook ? age > 3 : age > 5;
+            return isNotebook(r) ? age > 3 : age > 5;
         }).map(r => r.hostname);
 
+        // Distribution maps
         const osVersionMap = {};
+        const osBuildMap = {};
+        const computerTypeMap = {};
+        const crowdstrikeVerMap = {};
+        const taniumVerMap = {};
+
         data.forEach(r => {
             const v = r.os_release || 'Unknown';
             if (!osVersionMap[v]) osVersionMap[v] = [];
             osVersionMap[v].push(r.hostname);
-        });
 
-        const osBuildMap = {};
-        data.forEach(r => {
             const b = r.os_build || 'Unknown';
             if (!osBuildMap[b]) osBuildMap[b] = [];
             osBuildMap[b].push(r.hostname);
-        });
 
-        const computerTypeMap = {};
-        data.forEach(r => {
             const t = r.computer_type || 'Unknown';
             if (!computerTypeMap[t]) computerTypeMap[t] = [];
             computerTypeMap[t].push(r.hostname);
+
+            const cs = r.crowdstrike_ver || 'Not Installed';
+            if (!crowdstrikeVerMap[cs]) crowdstrikeVerMap[cs] = [];
+            crowdstrikeVerMap[cs].push(r.hostname);
+
+            const ta = r.tanium_ver || 'Not Installed';
+            if (!taniumVerMap[ta]) taniumVerMap[ta] = [];
+            taniumVerMap[ta].push(r.hostname);
         });
 
-        const crowdstrikeVerMap = {};
-        data.forEach(r => {
-            const v = r.crowdstrike_ver || 'Not Installed';
-            if (!crowdstrikeVerMap[v]) crowdstrikeVerMap[v] = [];
-            crowdstrikeVerMap[v].push(r.hostname);
+        res.json({
+            success: true,
+            total: data.length,
+            noEdr, noTanium, noUems, blDisabled, noAsset,
+            noBlKeyNotebook, inactivePC, lowBatteryHealth, lowDiskCSpace, oldFixAssets,
+            osVersionMap, osBuildMap, computerTypeMap, crowdstrikeVerMap, taniumVerMap,
         });
-
-        const taniumVerMap = {};
-        data.forEach(r => {
-            const v = r.tanium_ver || 'Not Installed';
-            if (!taniumVerMap[v]) taniumVerMap[v] = [];
-            taniumVerMap[v].push(r.hostname);
-        });
-
-        res.json({ success: true, total: data.length, noEdr, noTanium, noUems, blDisabled, noAsset, noBlNotebook, noBlKeyNotebook, inactivePC, lowBatteryHealth, lowDiskCSpace, oldFixAssets, osVersionMap, osBuildMap, computerTypeMap, crowdstrikeVerMap, taniumVerMap });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
@@ -337,31 +381,35 @@ export const getMultiLoginUsers = async (req, res) => {
     try {
         const db = await getPool();
         const result = await db.request().query(`
-    SELECT 
-        au.[username],
-        COUNT(au.[username]) as machine_count,
-        STRING_AGG(au.[hostname], ', ') WITHIN GROUP (ORDER BY au.[hostname]) as hostnames,
-        STRING_AGG(
-            au.[hostname] + ' (' + ISNULL(au.[state], '-') + ', ' + 
-            ISNULL(CONVERT(VARCHAR, au.[logon_time], 120), '-') + ')',
-            ' | '
-        ) WITHIN GROUP (ORDER BY au.[hostname]) as hostname_details,
-        MAX(au.[logon_time]) as latest_logon
-    FROM [dbo].[info_pc_active_users] au
-    WHERE au.[username] IS NOT NULL 
-      AND au.[username] != ''
-      AND au.[username] NOT LIKE '%ANONYMOUS%'
-    GROUP BY au.[username]
-    HAVING COUNT(au.[username]) > 1
-    ORDER BY machine_count DESC
-`);
+            SELECT 
+                au.[username],
+                COUNT(au.[username]) AS machine_count,
+                STRING_AGG(au.[hostname], ', ') WITHIN GROUP (ORDER BY au.[hostname]) AS hostnames,
+                STRING_AGG(
+                    au.[hostname] + ' (' + ISNULL(au.[state], '-') + ', ' + 
+                    ISNULL(CONVERT(VARCHAR, au.[logon_time], 120), '-') + ')',
+                    ' | '
+                ) WITHIN GROUP (ORDER BY au.[hostname]) AS hostname_details,
+                MAX(au.[logon_time]) AS latest_logon
+            FROM [dbo].[info_pc_active_users] au
+            WHERE au.[username] IS NOT NULL 
+              AND au.[username] != ''
+              AND au.[username] NOT LIKE '%ANONYMOUS%'
+            GROUP BY au.[username]
+            HAVING COUNT(au.[username]) > 1
+            ORDER BY machine_count DESC
+        `);
         const users = result.recordset.map(r => ({
             ...r,
             hostnameList: r.hostnames ? r.hostnames.split(', ') : [],
-            hostnameDetailList: r.hostname_details ? r.hostname_details.split(' | ').map(d => {
-                const match = d.match(/^(.+?)\s\((.+?),\s(.+?)\)$/);
-                return match ? { hostname: match[1], state: match[2], logon_time: match[3] } : { hostname: d, state: '-', logon_time: '-' };
-            }) : []
+            hostnameDetailList: r.hostname_details
+                ? r.hostname_details.split(' | ').map(d => {
+                    const match = d.match(/^(.+?)\s\((.+?),\s(.+?)\)$/);
+                    return match
+                        ? { hostname: match[1], state: match[2], logon_time: match[3] }
+                        : { hostname: d, state: '-', logon_time: '-' };
+                })
+                : [],
         }));
         const allHostnames = [...new Set(users.flatMap(u => u.hostnameList))];
         res.json({ success: true, data: users, allHostnames });

@@ -6,7 +6,12 @@ export const sendDailyReport = async () => {
         const pool = getPool();
 
         // 1. Low Stock Items
-        const lowStockResult = await pool.request().query("SELECT ProductID, ProductName, CurrentStock, MinStock FROM dbo.Stock_Products WHERE CurrentStock <= MinStock AND MinStock >= 1 AND IsActive = 1");
+        const lowStockResult = await pool.request().query(`
+            SELECT ProductID, ProductName, CurrentStock, MinStock, MaxStock, 
+                LastPrice, lead_time_days
+            FROM dbo.Stock_Products 
+            WHERE CurrentStock <= MinStock AND MinStock >= 1 AND IsActive = 1
+        `);
 
         // 2. Pending POs
         const pendingPoResult = await pool.request().query(`
@@ -31,44 +36,73 @@ export const sendDailyReport = async () => {
 
         // 3. MA / Licenses
         const maResult = await pool.request().query(`
-            SELECT m.ItemID, m.Category, m.SubType, m.ItemName, m.SerialNumber, m.EndDate, m.Status, v.VendorName
+            SELECT m.ItemID, m.Category, m.SubType, m.ItemName, m.SerialNumber, 
+                m.ServiceNumber, m.StartDate, m.EndDate, m.Price, m.Status, 
+                v.VendorName
             FROM dbo.MA_Items m
             LEFT JOIN dbo.Stock_Vendors v ON m.VendorID = v.VendorID
             WHERE m.Status != 'Cancelled'
-              AND m.EndDate IS NOT NULL
-              AND DATEDIFF(day, GETDATE(), m.EndDate) <= 90
+            AND m.EndDate IS NOT NULL
+            AND DATEDIFF(day, GETDATE(), m.EndDate) <= 60
             ORDER BY m.EndDate ASC
         `);
 
         // --- กำหนดค่ากลางเพื่อให้ทั้งสองตารางเท่ากันพอดี ---
-        const thStyle = `padding: 8px 12px; border: 1px solid #ddd; text-align: left; font-size: 13px; background-color: #f8fafc; color: #475569; white-space: nowrap;`;
-        const tdStyle = `padding: 8px 12px; border: 1px solid #ddd; font-size: 13px;`;
+        const thStyle = `padding: 3px 14px; border: 1px solid #ddd; text-align: left; font-size: 12px; background-color: #f8fafc; color: #475569; white-space: nowrap;`;
+        const tdStyle = `padding: 3px 14px; border: 1px solid #ddd; font-size: 11px;`;
 
         // Prepare Low Stock HTML
         let lowStockHtml = '';
         if (lowStockResult.recordset.length > 0) {
-            const items = lowStockResult.recordset.map(item =>
-                `<tr>
-                    <td style="${tdStyle}">${item.ProductName}</td>
-                    <td style="${tdStyle} text-align: center;">${item.CurrentStock}</td>
-                    <td style="${tdStyle} text-align: center; color: red;">${item.MinStock}</td>
-                 </tr>`
-            ).join('');
+                const items = lowStockResult.recordset.map(item => {
+                const reorderQty = Math.max((item.MaxStock || 0) - (item.CurrentStock || 0), 0);
+                const price = item.LastPrice || 0;
+                const total = reorderQty * price;
+                const fmtPrice = price ? price.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-';
+                const fmtTotal = total ? total.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-';
+                const leadTime = item.lead_time_days ? `${item.lead_time_days} days` : '-';
+
+                return `<tr>
+                <td style="${tdStyle}">${item.ProductName}</td>
+                <td style="${tdStyle} text-align: center;">${item.CurrentStock}</td>
+                <td style="${tdStyle} text-align: center; color: red;">${item.MinStock}</td>
+                <td style="${tdStyle} text-align: center; color: #d97706; font-weight: bold;">${reorderQty > 0 ? '+' + reorderQty : '-'}</td>
+                <td style="${tdStyle} text-align: center;">${leadTime}</td>
+                <td style="${tdStyle} text-align: right;">${fmtPrice}</td>
+                <td style="${tdStyle} text-align: right; font-weight: bold; color: #0284c7;">${fmtTotal}</td>
+            </tr>`;
+            }).join('');
+
+            const grandTotal = lowStockResult.recordset.reduce((sum, item) => {
+                const reorderQty = Math.max((item.MaxStock || 0) - (item.CurrentStock || 0), 0);
+                return sum + (reorderQty * (item.LastPrice || 0));
+            }, 0);
 
             lowStockHtml = `
-                <h3 style="color: #d9534f;">⚠️ Low Stock Alert</h3>
-                <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 20px;">
-                    <thead>
-                        <tr style="background-color: #f8fafc; color: #475569;">
-                            <th style="${thStyle}">Product</th> <th style="${thStyle} text-align: center; width: 80px;">Current</th>
-                            <th style="${thStyle} text-align: center; width: 80px;">Min</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${items}
-                    </tbody>
-                </table>
-            `;
+    <h3 style="color: #d9534f; font-size: 13px; margin-bottom: 6px;">⚠️ Low Stock Alert</h3>
+    <table style="width: auto; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 4px;">
+        <thead>
+            <tr>
+                <th style="${thStyle} min-width: 150px;">Product</th>
+                <th style="${thStyle} text-align: center; width: 55px;">Current</th>
+                <th style="${thStyle} text-align: center; width: 45px;">Min</th>
+                <th style="${thStyle} text-align: center; width: 80px;">To Order</th>
+                <th style="${thStyle} text-align: center; width: 90px;">Lead Time</th>
+                <th style="${thStyle} text-align: right; width: 90px;">Unit Price</th>
+                <th style="${thStyle} text-align: right; width: 80px;">Total</th>
+            </tr>
+        </thead>
+        <tbody>${items}</tbody>
+        <tfoot>
+            <tr style="background-color: #f1f5f9;">
+                <td colspan="6" style="${tdStyle} text-align: right; font-size: 13px; font-weight: bold;">Total Amount to Order</td>
+                <td style="${tdStyle} text-align: right; font-weight: bold; color: #d9534f;">
+                    ${grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                </td>
+            </tr>
+        </tfoot>
+    </table>
+`;
         }
 
         // Prepare Pending PO HTML (Card-based layout for better email rendering)
@@ -97,10 +131,10 @@ export const sendDailyReport = async () => {
                             <thead>
                                 <tr style="background-color: #f8fafc; color: #475569;">
                                     <th style="${thStyle} text-align: center; width: 30px;">#</th>
-                                    <th style="${thStyle}">รายการสินค้า</th>
-                                    <th style="${thStyle} text-align: center; width: 70px;">สั่งซื้อ</th>
-                                    <th style="${thStyle} text-align: center; width: 70px;">รับแล้ว</th>
-                                    <th style="${thStyle} text-align: center; width: 70px;">คงเหลือ</th>
+                                    <th style="${thStyle}">Item Name</th>
+                                    <th style="${thStyle} text-align: center; width: 70px;">To Order</th>
+                                    <th style="${thStyle} text-align: center; width: 70px;">Received</th>
+                                    <th style="${thStyle} text-align: center; width: 70px;">Remaining</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -136,8 +170,8 @@ export const sendDailyReport = async () => {
                                     </tr>
                                     <tr>
                                         <td style="padding: 2px 0;"><strong>Delivery To:</strong> ${po.DeliveryTo || '-'}</td>
-                                        <td style="padding: 2px 0;"><strong>สั่งทั้งหมด:</strong> ${po.TotalOrdered} ชิ้น</td>
-                                        <td style="padding: 2px 0;"><strong>ค้างรับ:</strong> <span style="color: #d97706; font-weight: bold;">${po.TotalRemaining} ชิ้น</span></td>
+                                        <td style="padding: 2px 0;"><strong>Total Ordered:</strong> ${po.TotalOrdered} units</td>
+                                        <td style="padding: 2px 0;"><strong>Pending Receipt:</strong> <span style="color: #d97706; font-weight: bold;">${po.TotalRemaining} units</span></td>
                                     </tr>
                                 </table>
                             </td>
@@ -163,32 +197,39 @@ export const sendDailyReport = async () => {
         let maHtml = '';
         if (maResult.recordset.length > 0) {
             const maItems = maResult.recordset.map(ma => {
-                const daysRemaining = Math.ceil((new Date(ma.EndDate) - new Date()) / (1000 * 60 * 60 * 24));
-                const isExpired = daysRemaining <= 0;
-                const statusColor = isExpired ? '#ef4444' : '#f59e0b'; // Red for expired, Amber for expiring
-                const statusText = isExpired ? 'Expired' : `${daysRemaining} Days`;
+            const daysRemaining = Math.ceil((new Date(ma.EndDate) - new Date()) / (1000 * 60 * 60 * 24));
+            const isExpired = daysRemaining <= 0;
+            const statusColor = isExpired ? '#ef4444' : '#f59e0b';
+            const statusText = isExpired ? 'Expired' : `${daysRemaining} Days`;
+            const price = ma.Price ? ma.Price.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-';
 
-                return `<tr>
-                    <td style="${tdStyle}">${ma.Category}</td>
-                    <td style="${tdStyle}">${ma.VendorName || '-'}</td>
-                    <td style="${tdStyle}">${ma.ItemName}</td>
-                    <td style="${tdStyle}">${ma.SerialNumber || '-'}</td>
-                    <td style="${tdStyle} text-align: center;">${new Date(ma.EndDate).toLocaleDateString('th-TH')}</td>
-                    <td style="${tdStyle} text-align: center; color: ${statusColor}; font-weight: bold;">${statusText}</td>
-                 </tr>`;
-            }).join('');
+            return `<tr>
+                <td style="${tdStyle}">${ma.Category}</td>
+                <td style="${tdStyle}">${ma.SubType || '-'}</td>
+                <td style="${tdStyle}">${ma.VendorName || '-'}</td>
+                <td style="${tdStyle}">${ma.ItemName}</td>
+                <td style="${tdStyle}">${ma.SerialNumber || '-'}</td>
+                <td style="${tdStyle} text-align: center;">${ma.StartDate ? new Date(ma.StartDate).toLocaleDateString('th-TH') : '-'}</td>
+                <td style="${tdStyle} text-align: center;">${new Date(ma.EndDate).toLocaleDateString('th-TH')}</td>
+                <td style="${tdStyle} text-align: center; color: ${statusColor}; font-weight: bold;">${statusText}</td>
+                <td style="${tdStyle} text-align: right; font-weight: bold;">${price}</td>
+            </tr>`;
+        }).join('');
 
             maHtml = `
-                <h3 style="color: #f59e0b; margin-top: 20px;">⏳ MA & Contracts (Expiring Soon / Expired)</h3>
-                <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 20px;">
+                <h3 style="color: #f59e0b; margin-top: 20px; font-size: 13px;">⏳ MA & Contracts (Expiring Soon / Expired)</h3>
+                <table style="width: auto; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 20px;">
                     <thead>
-                        <tr style="background-color: #f8fafc; color: #475569;">
-                            <th style="${thStyle} width: 100px;">Category</th>
-                            <th style="${thStyle}">Vendor</th>
-                            <th style="${thStyle}">Item Name</th>
-                            <th style="${thStyle} width: 120px;">S/N</th>
-                            <th style="${thStyle} text-align: center; width: 100px;">End Date</th>
+                        <tr>
+                            <th style="${thStyle} width: 80px;">Category</th>
+                            <th style="${thStyle} width: 90px;">SubType</th>
+                            <th style="${thStyle} width: 120px;">Vendor</th>
+                            <th style="${thStyle} min-width: 140px;">Item Name</th>
+                            <th style="${thStyle} width: 100px;">S/N</th>
+                            <th style="${thStyle} text-align: center; width: 90px;">Start Date</th>
+                            <th style="${thStyle} text-align: center; width: 90px;">End Date</th>
                             <th style="${thStyle} text-align: center; width: 80px;">Status</th>
+                            <th style="${thStyle} text-align: right; width: 90px;">Total Value (฿)</th>
                         </tr>
                     </thead>
                     <tbody>${maItems}</tbody>

@@ -177,18 +177,19 @@
         // ─── Filtered Data (affected by Power BI filters) ────────────────────────
         const filteredTransactions = useMemo(() => {
             return (transactions || []).filter(t => {
-                // Date filter
                 if (!isInDateRange(t.TransDate, filterDateRange, filterCustomStart, filterCustomEnd)) return false;
-                // Transaction type filter
                 if (filterTransType !== 'all') {
                     const type = (t.TransType || '').toUpperCase().trim();
                     if (type !== filterTransType) return false;
                 }
-                // Category filter (via product lookup)
                 if (filterCategories.length > 0) {
                     const product = products.find(p => p.ProductID === t.ProductID);
                     if (!filterCategories.includes(product?.DeviceType)) return false;
                 }
+                // ✅ เพิ่มตรงนี้
+                const refInfo = t.RefInfo || '';
+                if (refInfo.includes('ยกเลิก Invoice')) return false;
+                if (refInfo.includes('Stock Count Adjust')) return false;
                 return true;
             });
         }, [transactions, products, filterDateRange, filterCustomStart, filterCustomEnd, filterTransType, filterCategories]);
@@ -227,8 +228,13 @@
                 if (dataMap[monthKey]) {
                     const type = (t.TransType || '').toUpperCase().trim();
                     const qty = Math.abs(t.Qty);
-                    if (type === 'IN' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].inbound += qty;
-                    if (type === 'OUT' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].outbound += qty;
+                    const ref = t.RefInfo || '';
+                    if (type === 'IN' && !ref.includes('ยกเลิก Invoice') && !ref.includes('Stock Count Adjust')) {
+                        dataMap[monthKey].inbound += qty;
+                    }
+                    if (type === 'OUT' && !ref.includes('ยกเลิก Invoice') && !ref.includes('Stock Count Adjust')) {
+                        dataMap[monthKey].outbound += qty;
+                    }
                 }
             });
 

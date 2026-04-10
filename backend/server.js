@@ -67,15 +67,15 @@ const startServer = async () => {
         app.use('/ITinventory/api', monitorInventoryRoutes); // /api/mo-inventory, etc.
         app.use('/ITinventory/api', stockCountRoutes);    // /api/stock-count
         app.use('/ITinventory/api', budgetRoutes);        // /api/budget
-      
+
 
         // Cron Job (Daily Low Stock Report at 07:00 AM)
-        cron.schedule('20 18 * * *', async () => {
+        cron.schedule('0 8 * * 1,5', async () => {
             console.log('Running daily report...');
             await sendDailyReport();
         }, {
             scheduled: true,
-            timezone: "Asia/Bangkok" // บังคับให้เป็นเวลาประเทศไทย
+            timezone: "Asia/Bangkok"
         });
 
         // Error Handling Middleware

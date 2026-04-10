@@ -122,23 +122,23 @@ const InkTonerStockPage = () => {
     // Gradient for card icon & background based on toner color
     const getTonerGradient = (item) => {
         switch (getTonerType(item)) {
-            case 'cyan': return 'from-pink-400 to-pink-600';       // ชมพู
-            case 'black': return 'from-slate-700 to-slate-900';     // ดำ
-            case 'magenta': return 'from-blue-500 to-blue-700';       // น้ำเงิน
-            case 'yellow': return 'from-yellow-400 to-yellow-500';   // เหลือง
-            default: return 'from-indigo-500 to-indigo-600';
+            case 'cyan':    return 'from-cyan-400 to-cyan-600';
+            case 'black':   return 'from-slate-700 to-slate-900';
+            case 'magenta': return 'from-purple-500 to-purple-700';
+            case 'yellow':  return 'from-yellow-400 to-yellow-500';
+            default:        return 'from-indigo-500 to-indigo-600';
         }
     };
 
     // Badge background color
     const getTonerBadgeBg = (item) => {
-        switch (getTonerType(item)) {
-            case 'cyan': return 'bg-pink-500';
-            case 'black': return 'bg-slate-800';
-            case 'magenta': return 'bg-blue-600';
-            case 'yellow': return 'bg-yellow-500';
-            default: return 'bg-indigo-600';
-        }
+    switch (getTonerType(item)) {
+        case 'cyan':    return 'bg-cyan-500';
+        case 'black':   return 'bg-slate-800';
+        case 'magenta': return 'bg-purple-600';
+        case 'yellow':  return 'bg-yellow-500';
+        default:        return 'bg-indigo-600';
+    }
     };
 
     // Icon text color for Droplet (for yellow we use darker text)

@@ -28,7 +28,8 @@ const STATUS_COLORS = {
     Cancelled: 'bg-slate-100 text-slate-500 border-slate-200',
 };
 
-const SW_SERVICE_TYPES = ['Subscription', 'Perpetual', 'Software Service Support (SSS)', 'SaaS', 'Other'];
+// ─── CHANGED: threshold 90 → 60 วัน ─────
+const ALERT_DAYS = 60;
 
 // ─── HELPER: Days remaining ──────────────
 const getDaysRemaining = (endDate) => {
@@ -49,14 +50,23 @@ const formatDuration = (start, end) => {
     if (!start || !end) return '-';
     const s = new Date(start);
     const e = new Date(end);
-    const diffMs = e - s;
-    const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    const days = Math.ceil((e - s) / (1000 * 60 * 60 * 24));
     if (days < 0) return 'หมดอายุแล้ว';
-    if (days <= 30) return `${days} วัน`;
-    if (days <= 365) return `${Math.round(days / 30)} เดือน`;
+
     const years = Math.floor(days / 365);
-    const months = Math.round((days % 365) / 30);
-    return months > 0 ? `${years} ปี ${months} เดือน` : `${years} ปี`;
+    const months = Math.floor((days % 365) / 30);
+    const remainDays = days % 30;
+
+    if (years > 0) {
+        let result = `${years} ปี`;
+        if (months > 0) result += ` ${months} เดือน`;
+        if (remainDays > 0) result += ` ${remainDays} วัน`;
+        return result;
+    }
+    if (months > 0) {
+        return remainDays > 0 ? `${months} เดือน ${remainDays} วัน` : `${months} เดือน`;
+    }
+    return `${days} วัน`;
 };
 
 // ─── STAT CARD ───────────────────────────
@@ -85,42 +95,33 @@ const MALicensePage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'Staff';
 
-    // Data States
     const [items, setItems] = useState([]);
     const [vendors, setVendors] = useState([]);
     const [locations, setLocations] = useState([]);
     const [maTypes, setMaTypes] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // UI States
     const [activeTab, setActiveTab] = useState('HARDWARE');
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
-    const [cardFilter, setCardFilter] = useState('all'); // 'all', 'active', 'expiringSoon', 'expired'
-    const [viewMode, setViewMode] = useState('list'); // 'list' or 'grid'
+    const [cardFilter, setCardFilter] = useState('all');
+    const [viewMode, setViewMode] = useState('list');
     const [detailItem, setDetailItem] = useState(null);
-    const [formModal, setFormModal] = useState({ isOpen: false, item: null }); // null = create, object = edit
+    const [formModal, setFormModal] = useState({ isOpen: false, item: null });
     const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
+    const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
 
-    // Pagination and Sort State
     const [currentPage, setCurrentPage] = useState(1);
     const [sortConfig, setSortConfig] = useState(null);
     const itemsPerPage = 10;
 
-    // ─── FETCH DATA ──────────────────────
     const fetchItems = async () => {
         try {
             setLoading(true);
             const res = await fetch(`${API_BASE}/ma`);
-            if (res.ok) {
-                const data = await res.json();
-                setItems(data);
-            }
-        } catch (err) {
-            console.error('Fetch MA Items Error:', err);
-        } finally {
-            setLoading(false);
-        }
+            if (res.ok) setItems(await res.json());
+        } catch (err) { console.error('Fetch MA Items Error:', err); }
+        finally { setLoading(false); }
     };
 
     const fetchVendors = async () => {
@@ -151,7 +152,6 @@ const MALicensePage = () => {
         fetchMATypes();
     }, []);
 
-    // ─── COMPUTED DATA ───────────────────
     const filteredItems = useMemo(() => {
         return items
             .filter(i => i.Category === activeTab)
@@ -160,7 +160,7 @@ const MALicensePage = () => {
                 if (cardFilter === 'all') return true;
                 const days = getDaysRemaining(i.EndDate);
                 if (cardFilter === 'active') return i.Status === 'Active';
-                if (cardFilter === 'expiringSoon') return days !== null && days > 0 && days <= 90 && i.Status !== 'Cancelled';
+                if (cardFilter === 'expiringSoon') return days !== null && days > 0 && days <= ALERT_DAYS && i.Status !== 'Cancelled';
                 if (cardFilter === 'expired') return days !== null && days <= 0 && i.Status !== 'Cancelled';
                 return true;
             })
@@ -178,9 +178,8 @@ const MALicensePage = () => {
                 );
             });
     }, [items, activeTab, statusFilter, cardFilter, searchTerm]);
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [activeTab, statusFilter, cardFilter, searchTerm]);
+
+    useEffect(() => { setCurrentPage(1); }, [activeTab, statusFilter, cardFilter, searchTerm]);
 
     const sortedItems = useMemo(() => {
         let sortableItems = [...filteredItems];
@@ -188,12 +187,10 @@ const MALicensePage = () => {
             sortableItems.sort((a, b) => {
                 let aValue = a[sortConfig.key] || '';
                 let bValue = b[sortConfig.key] || '';
-
                 if (sortConfig.key === '_duration') {
                     aValue = new Date(a.EndDate || 0).getTime();
                     bValue = new Date(b.EndDate || 0).getTime();
                 }
-
                 if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
                 if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
                 return 0;
@@ -211,9 +208,7 @@ const MALicensePage = () => {
 
     const handleSort = (key) => {
         let direction = 'asc';
-        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
-            direction = 'desc';
-        }
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
         setSortConfig({ key, direction });
     };
 
@@ -221,22 +216,20 @@ const MALicensePage = () => {
         const active = items.filter(i => i.Status === 'Active').length;
         const expiringSoon = items.filter(i => {
             const days = getDaysRemaining(i.EndDate);
-            return days !== null && days > 0 && days <= 90 && i.Status !== 'Cancelled';
+            return days !== null && days > 0 && days <= ALERT_DAYS && i.Status !== 'Cancelled';
         }).length;
         const expired = items.filter(i => {
             const days = getDaysRemaining(i.EndDate);
             return days !== null && days <= 0 && i.Status !== 'Cancelled';
         }).length;
-        const totalValue = items.filter(i => i.Status !== 'Cancelled').reduce((sum, i) => sum + (i.Price || 0), 0);
+        const totalValue = items.filter(i => i.Status === 'Active').reduce((sum, i) => sum + (i.Price || 0), 0);
         return { active, expiringSoon, expired, totalValue };
     }, [items]);
 
-    // ─── ACTIONS ─────────────────────────
     const handleSave = async (formData) => {
         const isEdit = !!formData.ItemID;
         const url = isEdit ? `${API_BASE}/ma/${formData.ItemID}` : `${API_BASE}/ma`;
         const method = isEdit ? 'PUT' : 'POST';
-
         try {
             const res = await fetch(url, {
                 method,
@@ -258,16 +251,13 @@ const MALicensePage = () => {
 
     const handleDelete = (item) => {
         setAlertModal({
-            isOpen: true,
-            type: 'danger',
-            title: 'ลบรายการ?',
+            isOpen: true, type: 'danger', title: 'ลบรายการ?',
             message: `ต้องการลบ "${item.ItemName}" ใช่หรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้`,
             onConfirm: async () => {
                 try {
                     const res = await fetch(`${API_BASE}/ma/${item.ItemID}`, { method: 'DELETE' });
                     if (res.ok) {
-                        fetchItems();
-                        setDetailItem(null);
+                        fetchItems(); setDetailItem(null);
                         setAlertModal({ isOpen: true, type: 'success', title: 'ลบสำเร็จ', message: 'ลบรายการเรียบร้อยแล้ว' });
                     }
                 } catch (err) {
@@ -286,8 +276,7 @@ const MALicensePage = () => {
                 body: JSON.stringify({ Status: newStatus })
             });
             if (res.ok) {
-                fetchItems();
-                setDetailItem(null);
+                fetchItems(); setDetailItem(null); setStatusDropdownOpen(false);
                 setAlertModal({ isOpen: true, type: 'success', title: 'อัปเดตสถานะ', message: `เปลี่ยนสถานะเป็น "${newStatus}" เรียบร้อย` });
             }
         } catch (err) {
@@ -295,74 +284,67 @@ const MALicensePage = () => {
         }
     };
 
-    // ─── GET COLUMNS BY CATEGORY ─────────
     const getColumns = (cat) => {
         const trackingCols = [
             { key: 'CreatedBy', label: 'ผู้บันทึก', width: 'min-w-[100px]' },
             { key: 'CreatedAt', label: 'วันบันทึก', width: 'whitespace-nowrap min-w-[120px]' },
         ];
-
         switch (cat) {
-            case 'HARDWARE':
-                return [
-                    { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
-                    { key: 'ItemName', label: 'ชื่ออุปกรณ์', width: 'min-w-[150px]' },
-                    { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'min-w-[100px]' },
-                    { key: 'SerialNumber', label: 'S/N', width: 'min-w-[100px] break-all' },
-                    { key: 'PONumber', label: 'PO/สัญญา', width: 'min-w-[100px] break-all' },
-                    { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
-                    { key: 'EndDate', label: 'หมดประกัน', width: 'whitespace-nowrap min-w-[90px]' },
-                    { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
-                    { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
-                    ...trackingCols,
-                ];
-            case 'SOFTWARE':
-                return [
-                    { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
-                    { key: 'ItemName', label: 'ชื่อ Software', width: 'min-w-[150px]' },
-                    { key: 'ServiceNumber', label: 'เลขบริการ', width: 'min-w-[120px] break-all' },
-                    { key: 'LicenseQty', label: 'จำนวน', width: 'min-w-[60px] text-center' },
-                    { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
-                    { key: 'EndDate', label: 'หมดอายุ', width: 'whitespace-nowrap min-w-[90px]' },
-                    { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
-                    { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
-                    ...trackingCols,
-                ];
-            case 'SERVICE':
-                return [
-                    { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
-                    { key: 'ItemName', label: 'ชื่อบริการ', width: 'min-w-[150px]' },
-                    { key: 'ServiceNumber', label: 'เลขสัญญา', width: 'min-w-[120px] break-all' },
-                    { key: 'Price', label: 'ราคา', width: 'min-w-[80px]' },
-                    { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
-                    { key: 'LocationName', label: 'สถานที่', width: 'min-w-[100px]' },
-                    { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
-                    { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
-                    { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
-                    ...trackingCols,
-                ];
-            case 'RENTAL':
-                return [
-                    { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
-                    { key: 'ItemName', label: 'ชื่อรายการ', width: 'min-w-[150px]' },
-                    { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'min-w-[100px]' },
-                    { key: 'PONumber', label: 'เลขสัญญา', width: 'min-w-[120px] break-all' },
-                    { key: 'LicenseQty', label: 'จำนวน', width: 'min-w-[60px] text-center' },
-                    { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
-                    { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
-                    { key: '_duration', label: 'ระยะเวลา', width: 'whitespace-nowrap min-w-[80px]' },
-                    { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
-                    ...trackingCols,
-                ];
-            default:
-                return [];
+            case 'HARDWARE': return [
+                { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
+                { key: 'ItemName', label: 'ชื่ออุปกรณ์', width: 'min-w-[150px]' },
+                { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'min-w-[200px]' },
+                { key: 'SerialNumber', label: 'S/N', width: 'min-w-[100px] break-all' },
+                { key: 'PONumber', label: 'PO/สัญญา', width: 'min-w-[100px] break-all' },
+                { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
+                { key: 'EndDate', label: 'หมดประกัน', width: 'whitespace-nowrap min-w-[90px]' },
+                { key: '_duration', label: 'เหลือเวลา', width: 'whitespace-nowrap min-w-[80px]' },
+                { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+                ...trackingCols,
+            ];
+            case 'SOFTWARE': return [
+                { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
+                { key: 'ItemName', label: 'ชื่อ Software', width: 'min-w-[150px]' },
+                { key: 'ServiceNumber', label: 'เลขบริการ', width: 'min-w-[120px] break-all' },
+                { key: 'LicenseQty', label: 'จำนวน', width: 'min-w-[60px] text-center' },
+                { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
+                { key: 'EndDate', label: 'หมดอายุ', width: 'whitespace-nowrap min-w-[90px]' },
+                { key: '_duration', label: 'เหลือเวลา', width: 'whitespace-nowrap min-w-[80px]' },
+                { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+                ...trackingCols,
+            ];
+            case 'SERVICE': return [
+                { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
+                { key: 'ItemName', label: 'ชื่อบริการ', width: 'min-w-[150px]' },
+                { key: 'ServiceNumber', label: 'เลขสัญญา', width: 'min-w-[120px] break-all' },
+                { key: 'Price', label: 'ราคา', width: 'min-w-[80px]' },
+                { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
+                { key: 'LocationName', label: 'สถานที่', width: 'min-w-[100px]' },
+                { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
+                { key: '_duration', label: 'เหลือเวลา', width: 'whitespace-nowrap min-w-[80px]' },
+                { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+                ...trackingCols,
+            ];
+            case 'RENTAL': return [
+                { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
+                { key: 'ItemName', label: 'ชื่อรายการ', width: 'min-w-[150px]' },
+                { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'min-w-[200px]' },
+                { key: 'PONumber', label: 'เลขสัญญา', width: 'min-w-[120px] break-all' },
+                { key: 'LicenseQty', label: 'จำนวน', width: 'min-w-[60px] text-center' },
+                { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
+                { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
+                { key: '_duration', label: 'เหลือเวลา', width: 'whitespace-nowrap min-w-[80px]' },
+                { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+                ...trackingCols,
+            ];
+            default: return [];
         }
     };
 
     const renderCellValue = (item, col) => {
         if (col.key === 'Status') {
             const days = getDaysRemaining(item.EndDate);
-            const isAlert = item.Status !== 'Cancelled' && days !== null && days <= 90;
+            const isAlert = item.Status !== 'Cancelled' && days !== null && days <= ALERT_DAYS;
             return (
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${STATUS_COLORS[item.Status] || STATUS_COLORS.Active} ${isAlert ? 'animate-pulse ring-2 ring-red-400 ring-offset-1' : ''}`}>
                     {item.Status}
@@ -371,19 +353,16 @@ const MALicensePage = () => {
         }
         if (col.key === 'EndDate') {
             const days = getDaysRemaining(item.EndDate);
-            const isAlert = item.Status !== 'Cancelled' && days !== null && days <= 90;
-            return (
-                <span className={isAlert ? 'text-red-600 font-bold animate-pulse' : ''}>
-                    {formatDate(item.EndDate)}
-                </span>
-            );
+            const isAlert = item.Status !== 'Cancelled' && days !== null && days <= ALERT_DAYS;
+            return <span className={isAlert ? 'text-red-600 font-bold animate-pulse' : ''}>{formatDate(item.EndDate)}</span>;
         }
         if (col.key === '_duration') {
             const days = getDaysRemaining(item.EndDate);
             if (days === null) return '-';
             if (days <= 0) return <span className="text-red-500 font-bold text-xs animate-pulse">หมดอายุ</span>;
-            if (days <= 90) return <span className="text-amber-500 font-bold text-xs animate-pulse">{days} วัน</span>;
-            return <span className="text-emerald-600 font-bold text-xs">{formatDuration(item.StartDate, item.EndDate)}</span>;
+            // CHANGED: แสดงวันที่เหลือจากวันนี้ ไม่ใช่ระยะเวลาทั้งหมด + threshold 60 วัน
+            if (days <= ALERT_DAYS) return <span className="text-amber-500 font-bold text-xs animate-pulse">{days} วัน</span>;
+            return <span className="text-emerald-600 font-bold text-xs">{formatDuration(new Date(), item.EndDate)}</span>;
         }
         if (col.key === 'Price') return `฿${(item.Price || 0).toLocaleString()}`;
         if (col.key === 'LicenseQty') return item.LicenseQty || '-';
@@ -394,89 +373,52 @@ const MALicensePage = () => {
 
     const activeCat = CATEGORIES.find(c => c.key === activeTab);
 
-    // ─── RENDER ──────────────────────────
     return (
         <div className="space-y-6">
-            {/* Page Header */}
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
                 <h2 className="text-3xl font-black text-slate-800">MA / LICENSE</h2>
                 <p className="text-slate-500 font-medium">บริหารจัดการสัญญา MA, License, Services และ Rental</p>
             </motion.div>
 
-            {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard icon={CheckCircle} title="Active" value={stats.active} color="from-emerald-500 to-emerald-600" subtitle="รายการที่ยังมีผล" onClick={() => setCardFilter(cardFilter === 'active' ? 'all' : 'active')} isActive={cardFilter === 'active'} />
-                <StatCard icon={Clock} title="Expiring Soon" value={stats.expiringSoon} color="from-amber-500 to-amber-600" subtitle="หมดอายุภายใน 90 วัน" onClick={() => setCardFilter(cardFilter === 'expiringSoon' ? 'all' : 'expiringSoon')} isActive={cardFilter === 'expiringSoon'} />
+                <StatCard icon={Clock} title="Expiring Soon" value={stats.expiringSoon} color="from-amber-500 to-amber-600" subtitle="หมดอายุภายใน 60 วัน" onClick={() => setCardFilter(cardFilter === 'expiringSoon' ? 'all' : 'expiringSoon')} isActive={cardFilter === 'expiringSoon'} />
                 <StatCard icon={AlertTriangle} title="Expired" value={stats.expired} color="from-red-500 to-red-600" subtitle="หมดอายุแล้ว" onClick={() => setCardFilter(cardFilter === 'expired' ? 'all' : 'expired')} isActive={cardFilter === 'expired'} />
-                <StatCard icon={DollarSign} title="Total Value" value={`฿${(stats.totalValue / 1000).toFixed(1)}K`} color="from-indigo-500 to-indigo-600" subtitle="มูลค่ารวมรายการ Active" />
+                <StatCard icon={DollarSign} title="Total Value" value={`฿${stats.totalValue.toLocaleString()}`}color="from-indigo-500 to-indigo-600" subtitle="มูลค่ารวมรายการ Active" />
             </div>
 
-            {/* Tab Navigation + Controls */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                {/* Tabs */}
                 <div className="flex bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
                     {CATEGORIES.map(cat => {
                         const CatIcon = cat.icon;
                         return (
-                            <button
-                                key={cat.key}
-                                onClick={() => { setActiveTab(cat.key); setSearchTerm(''); setStatusFilter('all'); setCardFilter('all'); setSortConfig(null); }}
-                                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === cat.key
-                                    ? `bg-gradient-to-r ${cat.color} text-white shadow-lg`
-                                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
-                                    }`}
-                            >
+                            <button key={cat.key} onClick={() => { setActiveTab(cat.key); setSearchTerm(''); setStatusFilter('all'); setCardFilter('all'); setSortConfig(null); }}
+                                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === cat.key ? `bg-gradient-to-r ${cat.color} text-white shadow-lg` : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}>
                                 <CatIcon size={16} />
                                 <span className="hidden sm:inline">{cat.label}</span>
                             </button>
                         );
                     })}
                 </div>
-
-                {/* Controls */}
                 <div className="flex flex-wrap items-center gap-3">
                     <div className="flex gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100">
                         <Search size={16} className="text-slate-400 self-center" />
-                        <input
-                            type="text"
-                            placeholder="ค้นหา..."
-                            className="bg-transparent border-none outline-none text-sm w-32 md:w-40 text-slate-700 placeholder-slate-400"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
+                        <input type="text" placeholder="ค้นหา..." className="bg-transparent border-none outline-none text-sm w-32 md:w-40 text-slate-700 placeholder-slate-400" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                     </div>
-                    <select
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                        className="bg-white border border-slate-200 px-3 py-2 rounded-xl text-sm font-medium text-slate-700 shadow-sm outline-none cursor-pointer"
-                    >
+                    <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-white border border-slate-200 px-3 py-2 rounded-xl text-sm font-medium text-slate-700 shadow-sm outline-none cursor-pointer">
                         <option value="all">ทุกสถานะ</option>
                         {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
-
-                    {/* View Mode Toggle */}
                     <div className="flex bg-slate-100 p-1 rounded-xl">
-                        <button
-                            onClick={() => setViewMode('list')}
-                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-                            title="มุมมองรายการ"
-                        >
+                        <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`} title="มุมมองรายการ">
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
                         </button>
-                        <button
-                            onClick={() => setViewMode('grid')}
-                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-                            title="มุมมองการ์ด"
-                        >
+                        <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`} title="มุมมองการ์ด">
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                         </button>
                     </div>
-
                     {isAdmin && (
-                        <button
-                            onClick={() => setFormModal({ isOpen: true, item: null })}
-                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r ${activeCat?.color} shadow-lg hover:shadow-xl transition-all`}
-                        >
+                        <button onClick={() => setFormModal({ isOpen: true, item: null })} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r ${activeCat?.color} shadow-lg hover:shadow-xl transition-all`}>
                             <Plus size={16} />
                             <span className="hidden sm:inline">เพิ่มรายการ</span>
                         </button>
@@ -484,14 +426,8 @@ const MALicensePage = () => {
                 </div>
             </div>
 
-            {/* Data Display */}
             {viewMode === 'list' ? (
-                <motion.div
-                    key={`list-${activeTab}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden flex flex-col"
-                >
+                <motion.div key={`list-${activeTab}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden flex flex-col">
                     <div className="overflow-x-auto max-h-[60vh] 2xl:max-h-[70vh] custom-scrollbar relative">
                         <table className="w-full text-left text-sm">
                             <thead className="bg-slate-50 text-slate-600 uppercase text-[11px] tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
@@ -525,29 +461,19 @@ const MALicensePage = () => {
                                     </tr>
                                 ) : paginatedItems.map((item, idx) => {
                                     const days = getDaysRemaining(item.EndDate);
-                                    const isExpiring = days !== null && days > 0 && days <= 90;
+                                    const isExpiring = days !== null && days > 0 && days <= ALERT_DAYS;
                                     const isExpired = days !== null && days <= 0;
                                     const globalIdx = (currentPage - 1) * itemsPerPage + idx;
                                     return (
-                                        <motion.tr
-                                            key={item.ItemID}
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            transition={{ delay: idx * 0.02 }}
+                                        <motion.tr key={item.ItemID} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.02 }}
                                             className={`hover:bg-slate-50 transition-colors cursor-pointer ${isExpired && item.Status !== 'Cancelled' ? 'bg-red-50/50' : isExpiring && item.Status !== 'Cancelled' ? 'bg-amber-50/50' : ''}`}
-                                            onClick={() => setDetailItem(item)}
-                                        >
+                                            onClick={() => setDetailItem(item)}>
                                             <td className="p-2 pl-3 text-slate-400 font-mono text-xs">{globalIdx + 1}</td>
                                             {getColumns(activeTab).map(col => (
-                                                <td key={col.key} className={`p-2 text-slate-700 text-xs font-medium ${col.width}`}>
-                                                    {renderCellValue(item, col)}
-                                                </td>
+                                                <td key={col.key} className={`p-2 text-slate-700 text-xs font-medium ${col.width}`}>{renderCellValue(item, col)}</td>
                                             ))}
                                             <td className="p-2 text-center">
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); setDetailItem(item); }}
-                                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                                                >
+                                                <button onClick={(e) => { e.stopPropagation(); setDetailItem(item); }} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
                                                     <Eye size={16} />
                                                 </button>
                                             </td>
@@ -559,12 +485,7 @@ const MALicensePage = () => {
                     </div>
                 </motion.div>
             ) : (
-                <motion.div
-                    key={`grid-${activeTab}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-                >
+                <motion.div key={`grid-${activeTab}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {filteredItems.length === 0 ? (
                         <div className="col-span-full p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200">
                             <div className="flex flex-col items-center gap-3">
@@ -573,107 +494,72 @@ const MALicensePage = () => {
                                 <p className="text-xs">เพิ่มรายการใหม่หรือเปลี่ยนตัวกรอง</p>
                             </div>
                         </div>
-                    ) : (
-                        paginatedItems.map((item, idx) => {
-                            const days = getDaysRemaining(item.EndDate);
-                            const isExpiring = days !== null && days > 0 && days <= 90;
-                            const isExpired = days !== null && days <= 0;
-                            const isAlert = item.Status !== 'Cancelled' && (isExpiring || isExpired);
-
-                            return (
-                                <motion.div
-                                    key={item.ItemID}
-                                    initial={{ opacity: 0, scale: 0.95 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    transition={{ delay: idx * 0.02 }}
-                                    className={`bg-white rounded-2xl border ${isAlert ? 'border-red-200 shadow-red-100' : 'border-slate-200'} shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all overflow-hidden cursor-pointer flex flex-col relative`}
-                                    onClick={() => setDetailItem(item)}
-                                >
-                                    {isAlert && (
-                                        <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 m-3 animate-ping"></div>
-                                    )}
-                                    <div className="p-4 border-b border-slate-50 flex items-start gap-3">
-                                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${activeCat?.color} flex items-center justify-center shadow-lg shrink-0`}>
-                                            <activeCat.icon className="w-5 h-5 text-white" />
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <h4 className="font-bold text-slate-800 text-sm truncate">{item.ItemName}</h4>
-                                            <p className="text-xs text-slate-500 truncate">{item.SubType}</p>
-                                        </div>
+                    ) : paginatedItems.map((item, idx) => {
+                        const days = getDaysRemaining(item.EndDate);
+                        const isExpiring = days !== null && days > 0 && days <= ALERT_DAYS;
+                        const isExpired = days !== null && days <= 0;
+                        const isAlert = item.Status !== 'Cancelled' && (isExpiring || isExpired);
+                        return (
+                            <motion.div key={item.ItemID} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.02 }}
+                                className={`bg-white rounded-2xl border ${isAlert ? 'border-red-200 shadow-red-100' : 'border-slate-200'} shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all overflow-hidden cursor-pointer flex flex-col relative`}
+                                onClick={() => setDetailItem(item)}>
+                                {isAlert && <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 m-3 animate-ping"></div>}
+                                <div className="p-4 border-b border-slate-50 flex items-start gap-3">
+                                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${activeCat?.color} flex items-center justify-center shadow-lg shrink-0`}>
+                                        <activeCat.icon className="w-5 h-5 text-white" />
                                     </div>
-                                    <div className="p-4 flex-1 space-y-3">
-                                        <div className="flex justify-between items-center text-xs">
-                                            <span className="text-slate-500">สถานะ:</span>
-                                            {renderCellValue(item, { key: 'Status' })}
-                                        </div>
-                                        <div className="flex justify-between items-center text-xs">
-                                            <span className="text-slate-500">หมดอายุ:</span>
-                                            <span className={isAlert ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-700'}>
-                                                {formatDate(item.EndDate)}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between items-center text-xs">
-                                            <span className="text-slate-500">ระยะเวลา:</span>
-                                            {renderCellValue(item, { key: '_duration' })}
-                                        </div>
-                                        <div className="flex justify-between items-start gap-2 text-xs">
-                                            <span className="text-slate-500 whitespace-nowrap">Vendor:</span>
-                                            <span className="font-medium text-slate-700 text-right break-words">{item.VendorName || '-'}</span>
-                                        </div>
+                                    <div className="min-w-0 flex-1">
+                                        <h4 className="font-bold text-slate-800 text-sm truncate">{item.ItemName}</h4>
+                                        <p className="text-xs text-slate-500 truncate">{item.SubType}</p>
                                     </div>
-                                </motion.div>
-                            )
-                        })
-                    )}
+                                </div>
+                                <div className="p-4 flex-1 space-y-3">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500">สถานะ:</span>
+                                        {renderCellValue(item, { key: 'Status' })}
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500">หมดอายุ:</span>
+                                        <span className={isAlert ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-700'}>{formatDate(item.EndDate)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500">เหลือเวลา:</span>
+                                        {renderCellValue(item, { key: '_duration' })}
+                                    </div>
+                                    <div className="flex justify-between items-start gap-2 text-xs">
+                                        <span className="text-slate-500 whitespace-nowrap">Vendor:</span>
+                                        <span className="font-medium text-slate-700 text-right break-words">{item.VendorName || '-'}</span>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        );
+                    })}
                 </motion.div>
             )}
 
-            {/* Pagination Control Container */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mt-4">
-                {/* Table Footer with Pagination */}
                 <div className="px-5 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-slate-500">
                     <div className="flex items-center gap-4">
                         <span>ทั้งหมด <span className="font-bold text-slate-700">{filteredItems.length}</span> รายการ</span>
                         <span className="hidden sm:inline text-slate-300">|</span>
                         <span className="hidden sm:inline">มูลค่ารวม <span className="font-bold text-slate-700">฿{filteredItems.reduce((s, i) => s + (i.Price || 0), 0).toLocaleString()}</span></span>
                     </div>
-
                     {totalPages > 1 && (
                         <div className="flex items-center gap-2">
-                            <span className="font-medium mr-2">
-                                หน้า {currentPage} จาก {totalPages}
-                            </span>
+                            <span className="font-medium mr-2">หน้า {currentPage} จาก {totalPages}</span>
                             <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
-                                <button
-                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                    disabled={currentPage === 1}
-                                    className="p-1.5 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white transition-colors border-r border-slate-200"
-                                >
-                                    <ChevronLeft size={16} />
-                                </button>
-                                <button
-                                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                    disabled={currentPage === totalPages}
-                                    className="p-1.5 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white transition-colors"
-                                >
-                                    <ChevronRight size={16} />
-                                </button>
+                                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1.5 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white transition-colors border-r border-slate-200"><ChevronLeft size={16} /></button>
+                                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1.5 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white transition-colors"><ChevronRight size={16} /></button>
                             </div>
                         </div>
                     )}
                 </div>
             </div>
 
-            {/* ─── DETAIL MODAL ────────────── */}
             {detailItem && (
                 <Portal>
                     <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden"
-                        >
-                            {/* Header */}
+                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden">
                             <div className={`p-4 md:p-5 bg-gradient-to-r ${activeCat?.color} text-white relative overflow-hidden`}>
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
                                 <div className="flex justify-between items-start relative z-10">
@@ -682,45 +568,24 @@ const MALicensePage = () => {
                                         <h3 className="font-black text-xl md:text-2xl tracking-tight">{detailItem.ItemName}</h3>
                                         <p className="text-white/70 text-sm mt-1">{detailItem.SubType}</p>
                                     </div>
-                                    <button onClick={() => setDetailItem(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                                        <X size={20} />
-                                    </button>
+                                    <button onClick={() => { setDetailItem(null); setStatusDropdownOpen(false); }} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
                                 </div>
                             </div>
-
-                            {/* Body */}
                             <div className="p-4 md:p-5 space-y-4 max-h-[60vh] overflow-y-auto">
-                                {/* Status Badge */}
                                 <div className="flex items-center gap-3">
-                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${STATUS_COLORS[detailItem.Status]}`}>
-                                        {detailItem.Status}
-                                    </span>
+                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${STATUS_COLORS[detailItem.Status]}`}>{detailItem.Status}</span>
                                     {detailItem.EndDate && (
                                         <span className="text-xs text-slate-500">
-                                            {getDaysRemaining(detailItem.EndDate) > 0
-                                                ? `เหลือ ${getDaysRemaining(detailItem.EndDate)} วัน`
-                                                : 'หมดอายุแล้ว'}
+                                            {getDaysRemaining(detailItem.EndDate) > 0 ? `เหลือ ${getDaysRemaining(detailItem.EndDate)} วัน` : 'หมดอายุแล้ว'}
                                         </span>
                                     )}
                                 </div>
-
-                                {/* Detail Grid */}
                                 <div className="bg-slate-50 rounded-xl overflow-hidden divide-y divide-slate-100 border border-slate-100 shadow-sm">
-                                    {detailItem.Brand && (
-                                        <DetailField icon={Tag} label="ยี่ห้อ/รุ่น" value={detailItem.Brand} />
-                                    )}
-                                    {detailItem.SerialNumber && (
-                                        <DetailField icon={Hash} label="Serial Number" value={detailItem.SerialNumber} />
-                                    )}
-                                    {detailItem.ServiceNumber && (
-                                        <DetailField icon={FileText} label="เลขบริการ/สัญญา" value={detailItem.ServiceNumber} />
-                                    )}
-                                    {detailItem.PONumber && (
-                                        <DetailField icon={CreditCard} label="PO / เลขสัญญา" value={detailItem.PONumber} />
-                                    )}
-                                    {(detailItem.LicenseQty > 0) && (
-                                        <DetailField icon={Hash} label="จำนวน License" value={detailItem.LicenseQty} />
-                                    )}
+                                    {detailItem.Brand && <DetailField icon={Tag} label="ยี่ห้อ/รุ่น" value={detailItem.Brand} />}
+                                    {detailItem.SerialNumber && <DetailField icon={Hash} label="Serial Number" value={detailItem.SerialNumber} />}
+                                    {detailItem.ServiceNumber && <DetailField icon={FileText} label="เลขบริการ/สัญญา" value={detailItem.ServiceNumber} />}
+                                    {detailItem.PONumber && <DetailField icon={CreditCard} label="PO / เลขสัญญา" value={detailItem.PONumber} />}
+                                    {(detailItem.LicenseQty > 0) && <DetailField icon={Hash} label="จำนวน License" value={detailItem.LicenseQty} />}
                                     <DetailField icon={DollarSign} label="ราคา" value={`฿${(detailItem.Price || 0).toLocaleString()}`} />
                                     <DetailField icon={Building} label="Vendor" value={detailItem.VendorName || '-'} />
                                     <DetailField icon={MapPin} label="สถานที่" value={detailItem.LocationName || '-'} />
@@ -728,14 +593,11 @@ const MALicensePage = () => {
                                     <DetailField icon={Calendar} label="สิ้นสุด" value={formatDate(detailItem.EndDate)} />
                                     <DetailField icon={Clock} label="ระยะเวลา" value={formatDuration(detailItem.StartDate, detailItem.EndDate)} />
                                 </div>
-
-                                {/* Tracking Information */}
                                 <div className="bg-blue-50 rounded-xl overflow-hidden divide-y divide-blue-100 border border-blue-100 shadow-sm">
                                     <DetailField icon={User} label="ผู้บันทึก" value={detailItem.CreatedBy || '-'} />
                                     <DetailField icon={Calendar} label="วันบันทึก" value={formatDate(detailItem.CreatedAt)} />
                                     <DetailField icon={Clock} label="แก้ไขล่าสุด" value={formatDate(detailItem.UpdatedAt)} />
                                 </div>
-
                                 {detailItem.Remark && (
                                     <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                                         <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">หมายเหตุ</p>
@@ -743,36 +605,24 @@ const MALicensePage = () => {
                                     </div>
                                 )}
                             </div>
-
-                            {/* Footer Actions */}
                             {isAdmin && (
                                 <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-2">
-                                    <button
-                                        onClick={() => { setDetailItem(null); setFormModal({ isOpen: true, item: detailItem }); }}
-                                        className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors border border-indigo-200"
-                                    >
+                                    <button onClick={() => { setDetailItem(null); setStatusDropdownOpen(false); setFormModal({ isOpen: true, item: detailItem }); }} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors border border-indigo-200">
                                         <Edit2 size={14} /> แก้ไข
                                     </button>
-                                    <div className="relative group">
-                                        <button className="flex items-center gap-1.5 px-4 py-2 bg-amber-50 text-amber-600 rounded-lg text-sm font-bold hover:bg-amber-100 transition-colors border border-amber-200">
-                                            <RefreshCw size={14} /> เปลี่ยนสถานะ <ChevronDown size={12} />
+                                    <div className="relative">
+                                        <button onClick={() => setStatusDropdownOpen(p => !p)} className="flex items-center gap-1.5 px-4 py-2 bg-amber-50 text-amber-600 rounded-lg text-sm font-bold hover:bg-amber-100 transition-colors border border-amber-200">
+                                            <RefreshCw size={14} /> เปลี่ยนสถานะ <ChevronDown size={12} className={`transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} />
                                         </button>
-                                        <div className="absolute bottom-full left-0 mb-1 bg-white rounded-lg shadow-xl border border-slate-200 py-1 hidden group-hover:block z-10 min-w-[140px]">
-                                            {STATUS_OPTIONS.filter(s => s !== detailItem.Status).map(s => (
-                                                <button
-                                                    key={s}
-                                                    onClick={() => handleStatusChange(detailItem, s)}
-                                                    className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 text-slate-700 font-medium"
-                                                >
-                                                    {s}
-                                                </button>
-                                            ))}
-                                        </div>
+                                        {statusDropdownOpen && (
+                                            <div className="absolute bottom-full left-0 mb-1 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-10 min-w-[140px]">
+                                                {STATUS_OPTIONS.filter(s => s !== detailItem.Status).map(s => (
+                                                    <button key={s} onClick={() => handleStatusChange(detailItem, s)} className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 text-slate-700 font-medium">{s}</button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
-                                    <button
-                                        onClick={() => { setDetailItem(null); handleDelete(detailItem); }}
-                                        className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-bold hover:bg-red-100 transition-colors border border-red-200 ml-auto"
-                                    >
+                                    <button onClick={() => { setDetailItem(null); setStatusDropdownOpen(false); handleDelete(detailItem); }} className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-bold hover:bg-red-100 transition-colors border border-red-200 ml-auto">
                                         <Trash2 size={14} /> ลบ
                                     </button>
                                 </div>
@@ -782,33 +632,16 @@ const MALicensePage = () => {
                 </Portal>
             )}
 
-            {/* ─── ADD/EDIT MODAL ──────────── */}
             {formModal.isOpen && (
-                <FormModal
-                    item={formModal.item}
-                    category={activeTab}
-                    vendors={vendors}
-                    locations={locations}
-                    maTypes={maTypes}
-                    onSave={handleSave}
-                    onClose={() => setFormModal({ isOpen: false, item: null })}
-                />
+                <FormModal item={formModal.item} category={activeTab} vendors={vendors} locations={locations} maTypes={maTypes} onSave={handleSave} onClose={() => setFormModal({ isOpen: false, item: null })} />
             )}
 
-            {/* Alert Modal */}
-            <AlertModal
-                isOpen={alertModal.isOpen}
-                type={alertModal.type}
-                title={alertModal.title}
-                message={alertModal.message}
-                onConfirm={alertModal.onConfirm || (() => setAlertModal(p => ({ ...p, isOpen: false })))}
-                onCancel={alertModal.onCancel}
-            />
+            <AlertModal isOpen={alertModal.isOpen} type={alertModal.type} title={alertModal.title} message={alertModal.message}
+                onConfirm={alertModal.onConfirm || (() => setAlertModal(p => ({ ...p, isOpen: false })))} onCancel={alertModal.onCancel} />
         </div>
     );
 };
 
-// ─── DETAIL FIELD COMPONENT ──────────────
 const DetailField = ({ icon: Icon, label, value }) => (
     <div className="flex items-center p-3 sm:px-4">
         <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0 flex items-center gap-2">
@@ -818,7 +651,6 @@ const DetailField = ({ icon: Icon, label, value }) => (
     </div>
 );
 
-// ─── FORM MODAL COMPONENT ────────────────
 const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClose }) => {
     const { user } = useAuth();
     const isEdit = !!item;
@@ -843,13 +675,19 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
         UpdatedAt: item?.UpdatedAt || '',
         ...(isEdit ? { ItemID: item.ItemID } : {}),
     });
+    const [errors, setErrors] = useState({});
 
     const handleChange = (field, value) => {
         setForm(prev => ({ ...prev, [field]: value }));
+        if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
     };
 
     const handleSubmit = (e) => {
-        e.preventDefault();
+        e?.preventDefault();
+        const newErrors = {};
+        if (!form.SubType) newErrors.SubType = 'กรุณาเลือกประเภทย่อย';
+        if (!form.ItemName.trim()) newErrors.ItemName = 'กรุณากรอกชื่อรายการ';
+        if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
         onSave(form);
     };
 
@@ -860,70 +698,40 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
     return (
         <Portal>
             <div className="fixed inset-0 z-[70] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden"
-                >
-                    {/* Header */}
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden">
                     <div className={`p-4 md:p-5 bg-gradient-to-r ${catInfo?.color} text-white`}>
                         <div className="flex justify-between items-center">
-                            <h3 className="font-black text-lg md:text-xl">
-                                {isEdit ? 'แก้ไขรายการ' : `เพิ่ม ${catInfo?.label} ใหม่`}
-                            </h3>
-                            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                                <X size={20} />
-                            </button>
+                            <h3 className="font-black text-lg md:text-xl">{isEdit ? 'แก้ไขรายการ' : `เพิ่ม ${catInfo?.label} ใหม่`}</h3>
+                            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
                         </div>
                     </div>
-
-                    {/* Form */}
-                    <form onSubmit={handleSubmit} className="p-4 md:p-5 space-y-4 max-h-[65vh] overflow-y-auto">
-                        {/* Row 1 */}
+                    <form id="ma-form" onSubmit={handleSubmit} className="p-4 md:p-5 space-y-4 max-h-[65vh] overflow-y-auto">
                         <div className="grid grid-cols-2 gap-4">
-                            <FormField label="ประเภทย่อย" required>
-                                <select
-                                    value={form.SubType}
-                                    onChange={(e) => handleChange('SubType', e.target.value)}
-                                    className="form-input"
-                                >
+                            <FormField label="ประเภทย่อย" required error={errors.SubType}>
+                                <select value={form.SubType} onChange={(e) => handleChange('SubType', e.target.value)} className={`form-input ${errors.SubType ? 'border-red-400 ring-1 ring-red-400' : ''}`}>
                                     <option value="">เลือกประเภท...</option>
                                     {subtypeOptions.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
                             </FormField>
-                            <FormField label={cat === 'SOFTWARE' ? 'ชื่อ Software / License' : cat === 'SERVICE' ? 'ชื่อบริการ' : cat === 'RENTAL' ? 'ชื่อรายการเช่า' : 'ชื่ออุปกรณ์'}>
-                                <input type="text" value={form.ItemName} onChange={(e) => handleChange('ItemName', e.target.value)} className="form-input" placeholder="ระบุชื่อ..." />
+                            <FormField label={cat === 'SOFTWARE' ? 'ชื่อ Software / License' : cat === 'SERVICE' ? 'ชื่อบริการ' : cat === 'RENTAL' ? 'ชื่อรายการเช่า' : 'ชื่ออุปกรณ์'} error={errors.ItemName}>
+                                <input type="text" value={form.ItemName} onChange={(e) => handleChange('ItemName', e.target.value)} className={`form-input ${errors.ItemName ? 'border-red-400 ring-1 ring-red-400' : ''}`} placeholder="ระบุชื่อ..." />
                             </FormField>
                         </div>
-
-                        {/* Conditional Fields */}
                         {(cat === 'HARDWARE' || cat === 'RENTAL') && (
                             <div className="grid grid-cols-2 gap-4">
-                                <FormField label="ยี่ห้อ/รุ่น">
-                                    <input type="text" value={form.Brand} onChange={(e) => handleChange('Brand', e.target.value)} className="form-input" placeholder="Brand / Model" />
-                                </FormField>
-                                <FormField label="Serial Number">
-                                    <input type="text" value={form.SerialNumber} onChange={(e) => handleChange('SerialNumber', e.target.value)} className="form-input" placeholder="S/N" />
-                                </FormField>
+                                <FormField label="ยี่ห้อ/รุ่น"><input type="text" value={form.Brand} onChange={(e) => handleChange('Brand', e.target.value)} className="form-input" placeholder="Brand / Model" /></FormField>
+                                <FormField label="Serial Number"><input type="text" value={form.SerialNumber} onChange={(e) => handleChange('SerialNumber', e.target.value)} className="form-input" placeholder="S/N" /></FormField>
                             </div>
                         )}
-
                         {cat === 'SOFTWARE' && (
                             <div className="grid grid-cols-2 gap-4">
-                                <FormField label="หมายเลขบริการ">
-                                    <input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="form-input" placeholder="Service Number" />
-                                </FormField>
-                                <FormField label="จำนวน License">
-                                    <input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="form-input" />
-                                </FormField>
+                                <FormField label="หมายเลขบริการ"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="form-input" placeholder="Service Number" /></FormField>
+                                <FormField label="จำนวน License"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="form-input" /></FormField>
                             </div>
                         )}
-
                         {cat === 'SERVICE' && (
                             <div className="grid grid-cols-2 gap-4">
-                                <FormField label="เลขสัญญา">
-                                    <input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="form-input" placeholder="Contract No." />
-                                </FormField>
+                                <FormField label="เลขสัญญา"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="form-input" placeholder="Contract No." /></FormField>
                                 <FormField label="สถานที่ให้บริการ">
                                     <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="form-input">
                                         <option value="">เลือกสถานที่...</option>
@@ -932,21 +740,14 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                                 </FormField>
                             </div>
                         )}
-
-                        {/* Common fields */}
                         <div className="grid grid-cols-2 gap-4">
                             {(cat !== 'SERVICE') && (
-                                <FormField label="PO / เลขสัญญา">
-                                    <input type="text" value={form.PONumber} onChange={(e) => handleChange('PONumber', e.target.value)} className="form-input" placeholder="PO Number" />
-                                </FormField>
+                                <FormField label="PO / เลขสัญญา"><input type="text" value={form.PONumber} onChange={(e) => handleChange('PONumber', e.target.value)} className="form-input" placeholder="PO Number" /></FormField>
                             )}
                             {(cat === 'RENTAL') && (
-                                <FormField label="จำนวน">
-                                    <input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="form-input" />
-                                </FormField>
+                                <FormField label="จำนวน"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="form-input" /></FormField>
                             )}
                         </div>
-
                         <div className="grid grid-cols-2 gap-4">
                             {(cat === 'HARDWARE' || cat === 'RENTAL') && (
                                 <FormField label="สถานที่ติดตั้ง">
@@ -956,11 +757,8 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                                     </select>
                                 </FormField>
                             )}
-                            <FormField label="ราคา (฿)">
-                                <input type="number" min="0" step="0.01" value={form.Price} onChange={(e) => handleChange('Price', parseFloat(e.target.value) || 0)} className="form-input" />
-                            </FormField>
+                            <FormField label="ราคา (฿)"><input type="number" min="0" step="0.01" value={form.Price} onChange={(e) => handleChange('Price', parseFloat(e.target.value) || 0)} className="form-input" /></FormField>
                         </div>
-
                         <div className="grid grid-cols-2 gap-4">
                             <FormField label="Vendor">
                                 <select value={form.VendorID} onChange={(e) => handleChange('VendorID', e.target.value ? parseInt(e.target.value) : '')} className="form-input">
@@ -974,21 +772,13 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                                 </select>
                             </FormField>
                         </div>
-
                         <div className="grid grid-cols-2 gap-4">
-                            <FormField label="วันที่เริ่ม/ต่อประกัน">
-                                <input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="form-input" />
-                            </FormField>
-                            <FormField label="วันที่หมดอายุ">
-                                <input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="form-input" />
-                            </FormField>
+                            <FormField label="วันที่เริ่ม/ต่อประกัน"><input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="form-input" /></FormField>
+                            <FormField label="วันที่หมดอายุ"><input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="form-input" /></FormField>
                         </div>
-
                         <FormField label="หมายเหตุ (Remark)">
                             <textarea rows={2} value={form.Remark} onChange={(e) => handleChange('Remark', e.target.value)} className="form-input resize-none" placeholder="ข้อมูลเพิ่มเติม..." />
                         </FormField>
-
-                        {/* Tracking Information - Locked */}
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
                             <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-3">📋 ข้อมูลการบันทึก</p>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -1005,24 +795,15 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                             </div>
                             {isEdit && (
                                 <div className="mt-3 pt-3 border-t border-blue-100">
-                                    <div>
-                                        <label className="block text-blue-600 font-bold uppercase tracking-wider mb-1 text-[11px]">แก้ไขล่าสุด</label>
-                                        <input type="text" value={formatDate(form.UpdatedAt)} disabled className="form-input bg-white text-slate-600 cursor-not-allowed border-blue-100" />
-                                    </div>
+                                    <label className="block text-blue-600 font-bold uppercase tracking-wider mb-1 text-[11px]">แก้ไขล่าสุด</label>
+                                    <input type="text" value={formatDate(form.UpdatedAt)} disabled className="form-input bg-white text-slate-600 cursor-not-allowed border-blue-100" />
                                 </div>
                             )}
                         </div>
                     </form>
-
-                    {/* Footer */}
                     <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3">
-                        <button onClick={onClose} className="flex-1 py-2.5 bg-white text-slate-600 rounded-lg text-sm font-bold border border-slate-200 hover:bg-slate-50 transition-colors">
-                            ยกเลิก
-                        </button>
-                        <button
-                            onClick={handleSubmit}
-                            className={`flex-1 py-2.5 text-white rounded-lg text-sm font-bold bg-gradient-to-r ${catInfo?.color} hover:shadow-lg transition-all`}
-                        >
+                        <button type="button" onClick={onClose} className="flex-1 py-2.5 bg-white text-slate-600 rounded-lg text-sm font-bold border border-slate-200 hover:bg-slate-50 transition-colors">ยกเลิก</button>
+                        <button type="submit" form="ma-form" className={`flex-1 py-2.5 text-white rounded-lg text-sm font-bold bg-gradient-to-r ${catInfo?.color} hover:shadow-lg transition-all`}>
                             {isEdit ? 'บันทึกการแก้ไข' : 'เพิ่มรายการ'}
                         </button>
                     </div>
@@ -1032,13 +813,13 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
     );
 };
 
-// ─── FORM FIELD COMPONENT ────────────────
-const FormField = ({ label, required, children }) => (
+const FormField = ({ label, required, error, children }) => (
     <div>
         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
             {label} {required && <span className="text-red-400">*</span>}
         </label>
         {children}
+        {error && <p className="text-red-500 text-[11px] mt-1 font-medium">{error}</p>}
     </div>
 );
 

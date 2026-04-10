@@ -1,10 +1,57 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Search, X, RefreshCw, ChevronLeft, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion } from 'motion/react';
 import { useLocation } from 'react-router-dom';
 import { API_BASE } from '../config/api';
 import Portal from '../components/Portal';
+
+// ─── Debounce hook ────────────────────────────────────────────────────────────
+function useDebounce(value, delay) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+// ─── Shared key→hostname resolver (single source of truth) ───────────────────
+// ✅ FIX: getHostsForKey และ filteredData ใช้ logic เดียวกัน ไม่ต้อง duplicate
+function resolveFilterKey(key, sumData) {
+  if (!sumData) return [];
+  const direct = {
+    noCrowdstrike: sumData.noCrowdstrike,
+    noTanium: sumData.noTanium,
+    noUems: sumData.noUems,
+    notActivated: sumData.notActivated,
+    noFixAsset: sumData.noFixAsset,
+    adminUsers: sumData.adminUsers,
+    notUpdated: sumData.notUpdated,
+    oldFixAssets: sumData.oldFixAssets,
+    notDomainJoined: sumData.notDomainJoined,
+  };
+  if (key in direct) return direct[key] || [];
+
+  const prefix = [
+    ['cs:', sumData.crowdstrikeVerMap],
+    ['tanium:', sumData.taniumVerMap],
+    ['uems:', sumData.uemsVerMap],
+    ['mfr:', sumData.manufacturerMap],
+    ['model:', sumData.modelMap],
+    ['osname:', sumData.osNameMap],
+    ['osrel:', sumData.osReleaseMap],
+    ['osbuild:', sumData.osBuildMap],
+    ['osarch:', sumData.osArchMap],
+    ['wifi:', sumData.wifiMap],
+    ['adapter:', sumData.adapterMap],
+    ['subnet:', sumData.subnetMap],
+  ];
+  for (const [p, map] of prefix) {
+    if (key.startsWith(p)) return (map || {})[key.slice(p.length)] || [];
+  }
+  return [];
+}
 
 const MOInventoryPage = () => {
   const [view, setView] = useState('list');
@@ -17,6 +64,7 @@ const MOInventoryPage = () => {
   const location = useLocation();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounce(searchQuery, 300); // ✅ FIX: debounce
   const [filterKeys, setFilterKeys] = useState(
     location.state?.filterKey
       ? [{ key: location.state.filterKey, label: location.state.filterLabel }]
@@ -41,63 +89,65 @@ const MOInventoryPage = () => {
   const [softwarePage, setSoftwarePage] = useState(1);
   const softwarePageSize = 20;
 
-  // ─────────────────────────────────────────────
-  //  Session Management
-  // ─────────────────────────────────────────────
+  // ─── Session Management ───────────────────────────────────────────────────
   const [sessionLoaded, setSessionLoaded] = useState(false);
 
   useEffect(() => {
-    // Load session state on component mount
-    const savedSession = sessionStorage.getItem('mo-inventory-session');
-    if (savedSession) {
+    const saved = sessionStorage.getItem('mo-inventory-session');
+    if (saved) {
       try {
-        const sessionData = JSON.parse(savedSession);
-        setSearchQuery(sessionData.searchQuery || '');
-        setFilterKeys(sessionData.filterKeys || []);
-        setSortKey(sessionData.sortKey || 'updated_at');
-        setSortAsc(sessionData.sortAsc || false);
-        setPage(sessionData.page || 1);
-        setSoftwareSearch(sessionData.softwareSearch || '');
-        setSoftwareSortKey(sessionData.softwareSortKey || 'name');
-        setSoftwareSortAsc(sessionData.softwareSortAsc !== undefined ? sessionData.softwareSortAsc : true);
-        setSoftwarePage(sessionData.softwarePage || 1);
-        setView(sessionData.view || 'list');
-        setHostname(sessionData.hostname || null);
+        const s = JSON.parse(saved);
+        setSearchQuery(s.searchQuery || '');
+        setFilterKeys(s.filterKeys || []);
+        setSortKey(s.sortKey || 'updated_at');
+        setSortAsc(s.sortAsc || false);
+        setPage(s.page || 1);
+        setSoftwareSearch(s.softwareSearch || '');
+        setSoftwareSortKey(s.softwareSortKey || 'name');
+        setSoftwareSortAsc(s.softwareSortAsc !== undefined ? s.softwareSortAsc : true);
+        setSoftwarePage(s.softwarePage || 1);
+        setView(s.view || 'list');
+        setHostname(s.hostname || null);
       } catch (err) {
-        console.warn('Failed to load MO Inventory session:', err);
+        console.warn('Failed to load MO session:', err);
       }
     }
     setSessionLoaded(true);
   }, []);
 
-  // Save session state whenever relevant state changes
   useEffect(() => {
-    if (!sessionLoaded) return; // Don't save until session is loaded
-    const sessionData = {
-      searchQuery,
-      filterKeys,
-      sortKey,
-      sortAsc,
-      page,
-      softwareSearch,
-      softwareSortKey,
-      softwareSortAsc,
-      softwarePage,
-      view,
-      hostname
-    };
-    sessionStorage.setItem('mo-inventory-session', JSON.stringify(sessionData));
-  }, [searchQuery, filterKeys, sortKey, sortAsc, page, softwareSearch, softwareSortKey, softwareSortAsc, softwarePage, view, hostname, sessionLoaded]);
+    if (!sessionLoaded) return;
+    sessionStorage.setItem('mo-inventory-session', JSON.stringify({
+      searchQuery, filterKeys, sortKey, sortAsc, page,
+      softwareSearch, softwareSortKey, softwareSortAsc, softwarePage, view, hostname,
+    }));
+  }, [searchQuery, filterKeys, sortKey, sortAsc, page,
+    softwareSearch, softwareSortKey, softwareSortAsc, softwarePage, view, hostname, sessionLoaded]);
 
   useEffect(() => {
-    if (!sessionLoaded) return; // Wait for session to load before fetching data
+    if (!sessionLoaded) return;
     if (view === 'list') fetchData();
     else if (view === 'detail' && hostname) fetchDetail(hostname);
   }, [view, hostname, sessionLoaded]);
 
-  // ─────────────────────────────────────────────
-  //  Data fetching
-  // ─────────────────────────────────────────────
+  // ✅ FIX: debounced search fires API — consistent with PCInventoryPage
+  const prevSearchRef = useRef('');
+  useEffect(() => {
+    const prev = prevSearchRef.current;
+    prevSearchRef.current = debouncedSearch;
+    if (debouncedSearch.length >= 2) {
+      (async () => {
+        try {
+          const res = await fetch(`${API_BASE}/mo-inventory/search?q=${encodeURIComponent(debouncedSearch)}`).then(r => r.json());
+          if (res.success) { setInvData(res.data || []); setPage(1); }
+        } catch (_) {}
+      })();
+    } else if (debouncedSearch.length === 0 && prev.length > 0) {
+      fetchData();
+    }
+  }, [debouncedSearch]);
+
+  // ─── Data fetching ────────────────────────────────────────────────────────
   const fetchData = async () => {
     setLoading(true);
     setError('');
@@ -108,7 +158,7 @@ const MOInventoryPage = () => {
       ]);
       if (!invRes.success) throw new Error(invRes.error || 'Failed to fetch');
       setInvData(invRes.data || []);
-      setSumData(sumRes.success ? sumRes.data : null); // unwrap .data
+      setSumData(sumRes.success ? sumRes.data : null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -149,40 +199,10 @@ const MOInventoryPage = () => {
     }
   };
 
-  // ─────────────────────────────────────────────
-  //  Filter helpers
-  // ─────────────────────────────────────────────
-  const getHostsForKey = (key) => {
-    if (!sumData) return [];
-    if (key === 'noCrowdstrike') return sumData.noCrowdstrike || [];
-    if (key === 'noTanium') return sumData.noTanium || [];
-    if (key === 'noUems') return sumData.noUems || [];
-    if (key === 'notActivated') return sumData.notActivated || [];
-    if (key === 'noFixAsset') return sumData.noFixAsset || [];
-    if (key === 'adminUsers') return sumData.adminUsers || [];
-    if (key === 'notUpdated') return sumData.notUpdated || [];
-    if (key === 'oldFixAssets') return sumData.oldFixAssets || [];
-    if (key === 'notDomainJoined') return sumData.notDomainJoined || [];
-    if (key.startsWith('cs:')) return (sumData.crowdstrikeVerMap || {})[key.slice(3)] || [];
-    if (key.startsWith('tanium:')) return (sumData.taniumVerMap || {})[key.slice(7)] || [];
-    if (key.startsWith('uems:')) return (sumData.uemsVerMap || {})[key.slice(5)] || [];
-    if (key.startsWith('mfr:')) return (sumData.manufacturerMap || {})[key.slice(4)] || [];
-    if (key.startsWith('model:')) return (sumData.modelMap || {})[key.slice(6)] || [];
-    if (key.startsWith('osname:')) return (sumData.osNameMap || {})[key.slice(7)] || [];
-    if (key.startsWith('osrel:')) return (sumData.osReleaseMap || {})[key.slice(6)] || [];
-    if (key.startsWith('osbuild:')) return (sumData.osBuildMap || {})[key.slice(8)] || [];
-    if (key.startsWith('osarch:')) return (sumData.osArchMap || {})[key.slice(7)] || [];
-    if (key.startsWith('wifi:')) return (sumData.wifiMap || {})[key.slice(5)] || [];
-    if (key.startsWith('adapter:')) return (sumData.adapterMap || {})[key.slice(8)] || [];
-    if (key.startsWith('subnet:')) return (sumData.subnetMap || {})[key.slice(7)] || [];
-    return [];
-  };
-
+  // ─── Filter / Sort ────────────────────────────────────────────────────────
   const toggleFilter = (key, label) => {
     setFilterKeys(prev =>
-      prev.find(p => p.key === key)
-        ? prev.filter(p => p.key !== key)
-        : [...prev, { key, label }]
+      prev.find(p => p.key === key) ? prev.filter(p => p.key !== key) : [...prev, { key, label }]
     );
     setPage(1);
   };
@@ -193,47 +213,24 @@ const MOInventoryPage = () => {
     setPage(1);
   };
 
-  const onSearchInput = async (e) => {
-    const q = e.target.value;
-    setSearchQuery(q);
-    if (q.length >= 2) {
-      try {
-        const res = await fetch(`${API_BASE}/mo-inventory/search?q=${encodeURIComponent(q)}`).then(r => r.json());
-        if (res.success) { setInvData(res.data || []); setPage(1); }
-      } catch { }
-    } else if (q.length === 0) {
-      fetchData();
-    }
+  // ✅ FIX: software sort — properly track key change vs direction toggle
+  const toggleSoftwareSort = (key) => {
+    if (softwareSortKey === key) setSoftwareSortAsc(prev => !prev);
+    else { setSoftwareSortKey(key); setSoftwareSortAsc(true); }
+    setSoftwarePage(1);
+  };
+
+  // ✅ FIX: search input just sets state, debounce effect handles API call
+  const onSearchInput = (e) => {
+    setSearchQuery(e.target.value);
+    setPage(1);
   };
 
   const filteredData = useMemo(() => {
     let result = [...invData];
     if (filterKeys.length > 0 && sumData) {
-      const resolve = (key) => {
-        if (key === 'noCrowdstrike') return sumData.noCrowdstrike || [];
-        if (key === 'noTanium') return sumData.noTanium || [];
-        if (key === 'noUems') return sumData.noUems || [];
-        if (key === 'notActivated') return sumData.notActivated || [];
-        if (key === 'noFixAsset') return sumData.noFixAsset || [];
-        if (key === 'adminUsers') return sumData.adminUsers || [];
-        if (key === 'notUpdated') return sumData.notUpdated || [];
-        if (key === 'oldFixAssets') return sumData.oldFixAssets || [];
-        if (key === 'notDomainJoined') return sumData.notDomainJoined || [];
-        if (key.startsWith('cs:')) return (sumData.crowdstrikeVerMap || {})[key.slice(3)] || [];
-        if (key.startsWith('tanium:')) return (sumData.taniumVerMap || {})[key.slice(7)] || [];
-        if (key.startsWith('uems:')) return (sumData.uemsVerMap || {})[key.slice(5)] || [];
-        if (key.startsWith('mfr:')) return (sumData.manufacturerMap || {})[key.slice(4)] || [];
-        if (key.startsWith('model:')) return (sumData.modelMap || {})[key.slice(6)] || [];
-        if (key.startsWith('osname:')) return (sumData.osNameMap || {})[key.slice(7)] || [];
-        if (key.startsWith('osrel:')) return (sumData.osReleaseMap || {})[key.slice(6)] || [];
-        if (key.startsWith('osbuild:')) return (sumData.osBuildMap || {})[key.slice(8)] || [];
-        if (key.startsWith('osarch:')) return (sumData.osArchMap || {})[key.slice(7)] || [];
-        if (key.startsWith('wifi:')) return (sumData.wifiMap || {})[key.slice(5)] || [];
-        if (key.startsWith('adapter:')) return (sumData.adapterMap || {})[key.slice(8)] || [];
-        if (key.startsWith('subnet:')) return (sumData.subnetMap || {})[key.slice(7)] || [];
-        return [];
-      };
-      const sets = filterKeys.map(fk => new Set(resolve(fk.key)));
+      // ✅ FIX: use shared resolveFilterKey — no more duplicated logic
+      const sets = filterKeys.map(fk => new Set(resolveFilterKey(fk.key, sumData)));
       const intersection = sets.reduce((acc, s) => new Set([...acc].filter(x => s.has(x))));
       result = result.filter(d => intersection.has(d.hostname));
     }
@@ -268,34 +265,28 @@ const MOInventoryPage = () => {
     return r;
   }, [detailData.software, softwareSearch, softwareSortKey, softwareSortAsc]);
 
-  // ─────────────────────────────────────────────
-  //  Actions
-  // ─────────────────────────────────────────────
+  // ─── Actions ──────────────────────────────────────────────────────────────
   const showToast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 3000); };
 
   const clearSession = () => {
     sessionStorage.removeItem('mo-inventory-session');
-    // Reset all states to defaults
-    setSearchQuery('');
-    setFilterKeys([]);
-    setSortKey('updated_at');
-    setSortAsc(false);
-    setPage(1);
-    setSoftwareSearch('');
-    setSoftwareSortKey('name');
-    setSoftwareSortAsc(true);
-    setSoftwarePage(1);
-    setView('list');
-    setHostname(null);
+    setSearchQuery(''); setFilterKeys([]); setSortKey('updated_at'); setSortAsc(false);
+    setPage(1); setSoftwareSearch(''); setSoftwareSortKey('name'); setSoftwareSortAsc(true);
+    setSoftwarePage(1); setView('list'); setHostname(null);
     showToast('Session cleared - เริ่มใหม่ทั้งหมด');
   };
 
-  // Fix #6 — PUT /mo-inventory/:hostname/asset
+  // ✅ FIX: validate fix_asset format before saving
   const saveAsset = async () => {
+    const asset = (modalData.assetInput || '').trim();
+    if (asset && !/^[A-Za-z0-9\-_.]+$/.test(asset)) {
+      alert('รูปแบบ Fix Asset ไม่ถูกต้อง กรุณาใช้ตัวอักษร ตัวเลข หรือ - _ . เท่านั้น');
+      return;
+    }
     try {
       const res = await fetch(
         `${API_BASE}/mo-inventory/${encodeURIComponent(modalData.hostname)}/asset`,
-        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fix_asset: modalData.assetInput }) }
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fix_asset: asset }) }
       );
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
@@ -316,54 +307,74 @@ const MOInventoryPage = () => {
     } catch (err) { alert(err.message); }
   };
 
-  // Fix #5 — Export 3 sheets (40 fields + users + software)
+  // ✅ NEW: Export filtered list to XLSX
+  const exportFilteredList = () => {
+    try {
+      if (filteredData.length === 0) { showToast('❌ ไม่มีข้อมูลที่จะ export'); return; }
+      const wb = XLSX.utils.book_new();
+      const headers = [
+        'Hostname', 'IP Address', 'User', 'Fix Asset', 'Local Admin',
+        'Serial Number', 'OS', 'OS Build', 'Activation',
+        'CrowdStrike Ver', 'Tanium Ver', 'UEMS Ver',
+        'Domain', 'Manufacturer', 'Model', 'Last Updated',
+      ];
+      const rows = filteredData.map(d => [
+        d.hostname || '',
+        d.ip_address || '',
+        d.active_usernames || '',
+        d.fix_asset || '',
+        d.local_admin_users || '',
+        d.serial_number || '',
+        `${d.os_name || ''} ${d.os_release || ''}`.trim(),
+        d.os_build || '',
+        d.os_activation || '',
+        d.crowdstrike_ver || '',
+        d.tanium_ver || '',
+        d.uems_ver || '',
+        d.domain || '',
+        d.manufacturer || '',
+        d.model || '',
+        d.updated_at ? new Date(d.updated_at).toLocaleString('th-TH') : '',
+      ]);
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      // auto column width
+      ws['!cols'] = headers.map((h, i) => ({
+        wch: Math.max(h.length, ...rows.map(r => String(r[i] || '').length), 10),
+      }));
+      XLSX.utils.book_append_sheet(wb, ws, 'Monitor Inventory');
+      const label = filterKeys.length > 0 ? `_${filterKeys.map(k => k.label).join('+')}` : '_all';
+      const filename = `mo_inventory${label}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      showToast(`✓ Export สำเร็จ: ${filename} (${filteredData.length} รายการ)`);
+    } catch (err) {
+      console.error('Export list error:', err);
+      showToast(`❌ Export ล้มเหลว: ${err.message}`);
+    }
+  };
+
   const exportMODetail = () => {
     try {
       if (!detailData.inv) { showToast('❌ ไม่มีข้อมูล Monitor ที่จะ export'); return; }
       const wb = XLSX.utils.book_new();
       const inv = detailData.inv;
-
       const ws1 = XLSX.utils.aoa_to_sheet([
         ['Field', 'Value'],
-        ['Hostname', inv.hostname],
-        ['IP Address', inv.ip_address],
-        ['MAC Address', inv.mac_address],
-        ['Fix Asset', inv.fix_asset],
-        ['Domain', inv.domain],
-        ['Manufacturer', inv.manufacturer],
-        ['Model', inv.model],
-        ['Serial Number', inv.serial_number],
-        ['WiFi SSID', inv.wifi_ssid],
-        ['Adapter Type', inv.adapter_type],
-        ['Local Admin Users', inv.local_admin_users],
-        ['User Count', inv.user_count],
-        ['PC Status', inv.pc_status],
-        ['OS Name', inv.os_name],
-        ['OS Release', inv.os_release],
-        ['OS Build', inv.os_build],
-        ['OS Full Version', inv.os_full_version],
-        ['Architecture', inv.os_arch],
-        ['Product Key', inv.os_product_key],
-        ['Product ID', inv.os_product_id],
-        ['Activation Status', inv.os_activation],
-        ['Install Date', inv.os_install_date],
-        ['Last Boot', inv.last_boot],
-        ['Uptime', inv.uptime],
-        ['CPU Name', inv.cpu_name],
-        ['CPU Cores', inv.cpu_cores],
-        ['CPU Threads', inv.cpu_threads],
-        ['RAM Info', inv.ram_info],
-        ['RAM Detail', inv.ram_detail],
-        ['Disk Info', inv.disk_info],
-        ['GPU', inv.gpu],
-        ['Resolution', inv.resolution],
-        ['BIOS Version', inv.bios_version],
-        ['BitLocker', inv.bitlocker],
-        ['CrowdStrike Ver', inv.crowdstrike_ver],
-        ['Tanium Ver', inv.tanium_ver],
-        ['UEMS Ver', inv.uems_ver],
-        ['Data Collected', inv.collected_at],
-        ['Last Updated', inv.updated_at],
+        ['Hostname', inv.hostname], ['IP Address', inv.ip_address], ['MAC Address', inv.mac_address],
+        ['Fix Asset', inv.fix_asset], ['Domain', inv.domain], ['Manufacturer', inv.manufacturer],
+        ['Model', inv.model], ['Serial Number', inv.serial_number], ['WiFi SSID', inv.wifi_ssid],
+        ['Adapter Type', inv.adapter_type], ['Local Admin Users', inv.local_admin_users],
+        ['User Count', inv.user_count], ['PC Status', inv.pc_status],
+        ['OS Name', inv.os_name], ['OS Release', inv.os_release], ['OS Build', inv.os_build],
+        ['OS Full Version', inv.os_full_version], ['Architecture', inv.os_arch],
+        ['Product Key', inv.os_product_key], ['Product ID', inv.os_product_id],
+        ['Activation Status', inv.os_activation], ['Install Date', inv.os_install_date],
+        ['Last Boot', inv.last_boot], ['Uptime', inv.uptime],
+        ['CPU Name', inv.cpu_name], ['CPU Cores', inv.cpu_cores], ['CPU Threads', inv.cpu_threads],
+        ['RAM Info', inv.ram_info], ['RAM Detail', inv.ram_detail], ['Disk Info', inv.disk_info],
+        ['GPU', inv.gpu], ['Resolution', inv.resolution], ['BIOS Version', inv.bios_version],
+        ['BitLocker', inv.bitlocker], ['CrowdStrike Ver', inv.crowdstrike_ver],
+        ['Tanium Ver', inv.tanium_ver], ['UEMS Ver', inv.uems_ver],
+        ['Data Collected', inv.collected_at], ['Last Updated', inv.updated_at],
       ]);
       XLSX.utils.book_append_sheet(wb, ws1, 'Monitor Info');
 
@@ -387,9 +398,7 @@ const MOInventoryPage = () => {
     }
   };
 
-  // ─────────────────────────────────────────────
-  //  Sub-components
-  // ─────────────────────────────────────────────
+  // ─── Sub-components ───────────────────────────────────────────────────────
   const StatBox = ({ id, label, list, bgClass, textClass, ringClass }) => {
     const isOn = filterKeys.find(k => k.key === id);
     const count = list?.length || 0;
@@ -429,43 +438,35 @@ const MOInventoryPage = () => {
     catch { return d; }
   };
 
-  // Fix #4 — "not admin" = green, has admin = red
   const isRealAdmin = (val) => {
     const v = (val || '').toLowerCase().trim();
     return v.includes('admin') && v !== 'not admin';
   };
 
-  // Distribution card rows — ตรงตาม layout ที่ต้องการ
   const distRows = sumData ? [
     [
       { key: 'cs', label: 'CrowdStrike', map: sumData.crowdstrikeVerMap, prefix: 'cs:', btnClass: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
       { key: 'tan', label: 'Tanium', map: sumData.taniumVerMap, prefix: 'tanium:', btnClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     ],
-    // Group 2: Infrastructure & Source (Royal Blue & Deep Red)
     [
       { key: 'subnet', label: 'IP Subnet', map: sumData.subnetMap, prefix: 'subnet:', btnClass: 'bg-blue-50 text-blue-700 border-blue-200' },
       { key: 'mfr', label: 'Manufacturer', map: sumData.manufacturerMap, prefix: 'mfr:', btnClass: 'bg-rose-50 text-rose-700 border-rose-200' },
     ],
-    // Group 3: Hardware & Build (Purple & Warm Orange)
     [
       { key: 'model', label: 'Model', map: sumData.modelMap, prefix: 'model:', btnClass: 'bg-violet-50 text-violet-700 border-violet-200', limit: 6 },
       { key: 'osbuild', label: 'OS Build', map: sumData.osBuildMap, prefix: 'osbuild:', btnClass: 'bg-orange-50 text-orange-700 border-orange-200', limit: 4 },
     ],
-    // Group 4: Software OS (Slate & Indigo)
     [
       { key: 'osrel', label: 'OS Release', map: sumData.osReleaseMap, prefix: 'osrel:', btnClass: 'bg-slate-100 text-slate-700 border-slate-300', limit: 4 },
       { key: 'osname', label: 'OS Name', map: sumData.osNameMap, prefix: 'osname:', btnClass: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
     ],
-    // Group 5: Connectivity (Golden Amber & Deep Teal)
     [
       { key: 'adapter', label: 'Adapter Type', map: sumData.adapterMap, prefix: 'adapter:', btnClass: 'bg-amber-50 text-amber-800 border-amber-200' },
       { key: 'wifi', label: 'WiFi SSID', map: sumData.wifiMap, prefix: 'wifi:', btnClass: 'bg-teal-50 text-teal-700 border-teal-200', limit: 5 },
     ],
   ] : [];
 
-  // ─────────────────────────────────────────────
-  //  Render
-  // ─────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
 
@@ -506,9 +507,7 @@ const MOInventoryPage = () => {
               <StatBox id="notActivated" label="OS Not Activated" list={sumData?.notActivated} textClass="text-amber-600" bgClass="bg-amber-50" ringClass="ring-amber-500" />
               <StatBox id="noFixAsset" label="No Fix Asset" list={sumData?.noFixAsset} textClass="text-amber-600" bgClass="bg-amber-50" ringClass="ring-amber-500" />
               <StatBox id="adminUsers" label="With Admin Users" list={sumData?.adminUsers} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" />
-              {/* Fix #1 — 30-day window */}
               <StatBox id="notUpdated" label="Not Updated > 30d" list={sumData?.notUpdated} textClass="text-red-600" bgClass="bg-red-50" ringClass="ring-red-500" />
-              {/* Fix #2 — old fix assets */}
               <StatBox id="oldFixAssets" label="Fix Asset > 5 ปี" list={sumData?.oldFixAssets} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" />
               <StatBox id="notDomainJoined" label="Not Domain Joined" list={sumData?.notDomainJoined} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" />
             </div>
@@ -517,10 +516,7 @@ const MOInventoryPage = () => {
             {sumData && (
               <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-4 overflow-hidden">
                 {distRows.map((row, rowIdx, rows) => (
-                  <div
-                    key={rowIdx}
-                    className={`grid grid-cols-2 ${rowIdx < rows.length - 1 ? 'border-b border-gray-100' : ''}`}
-                  >
+                  <div key={rowIdx} className={`grid grid-cols-2 ${rowIdx < rows.length - 1 ? 'border-b border-gray-100' : ''}`}>
                     {row.map((col, colIdx) => {
                       if (!col) return <div key="empty" />;
                       const { key, label, map, prefix, btnClass, limit } = col;
@@ -530,22 +526,11 @@ const MOInventoryPage = () => {
                         .slice(0, limit);
                       if (entries.length === 0) return <div key={key} />;
                       return (
-                        <div
-                          key={key}
-                          className={`px-4 py-2.5 ${colIdx === 0 ? 'border-r border-gray-100' : ''}`}
-                        >
-                          <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
-                            {label}
-                          </div>
+                        <div key={key} className={`px-4 py-2.5 ${colIdx === 0 ? 'border-r border-gray-100' : ''}`}>
+                          <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">{label}</div>
                           <div className="flex flex-wrap gap-1.5">
                             {entries.map(k => (
-                              <SumTag
-                                key={`${prefix}${k}`}
-                                id={`${prefix}${k}`}
-                                label={k}
-                                list={map[k]}
-                                btnClass={btnClass}
-                              />
+                              <SumTag key={`${prefix}${k}`} id={`${prefix}${k}`} label={k} list={map[k]} btnClass={btnClass} />
                             ))}
                           </div>
                         </div>
@@ -556,17 +541,26 @@ const MOInventoryPage = () => {
               </div>
             )}
 
-            {/* Active filter bar */}
-            {filterKeys.length > 0 && (
-              <div className="flex items-center gap-2 bg-[#eff4ff] border border-[#bfcfff] rounded-xl px-3.5 py-2 mb-3 text-[13px] font-medium text-[#2563eb]">
-                ☞ Filter: <b>{filterKeys.map(k => k.label).join(' + ')}</b>
-                <span className="text-gray-500 text-xs ml-1">({filteredData.length} เครื่อง)</span>
-                <button onClick={() => setFilterKeys([])}
-                  className="ml-auto bg-transparent border border-[#bfcfff] px-2 py-0.5 rounded flex items-center gap-1 text-xs hover:bg-[#bfcfff] transition-colors">
-                  <X size={12} /> ล้าง
-                </button>
-              </div>
-            )}
+            {/* ✅ NEW: Sticky filter bar + Export list button */}
+            <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 mb-3">
+              {filterKeys.length > 0 && (
+                <div className="flex flex-1 items-center gap-2 bg-[#eff4ff] border border-[#bfcfff] rounded-xl px-3.5 py-2 text-[13px] font-medium text-[#2563eb] shadow-sm backdrop-blur-sm">
+                  ☞ Filter: <b>{filterKeys.map(k => k.label).join(' + ')}</b>
+                  <span className="text-gray-500 text-xs ml-1">({filteredData.length} เครื่อง)</span>
+                  <button onClick={() => setFilterKeys([])}
+                    className="ml-auto bg-transparent border border-[#bfcfff] px-2 py-0.5 rounded flex items-center gap-1 text-xs hover:bg-[#bfcfff] transition-colors">
+                    <X size={12} /> ล้าง
+                  </button>
+                </div>
+              )}
+              <button
+                onClick={exportFilteredList}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 shadow-sm transition-all active:scale-95 whitespace-nowrap"
+              >
+                <Download size={14} />
+                Export {filterKeys.length > 0 ? `(${filteredData.length})` : 'All'}
+              </button>
+            </div>
 
             {/* Search box */}
             <div className="relative mb-3">
@@ -575,6 +569,12 @@ const MOInventoryPage = () => {
                 placeholder="ค้นหาทุกฟิลด์: hostname, IP, Serial, Manufacturer ฯลฯ"
                 className="w-full bg-white border border-gray-200 rounded-xl py-2.5 pl-9 pr-4 text-[13px] outline-none shadow-sm focus:border-blue-500 transition-colors"
                 value={searchQuery} onChange={onSearchInput} />
+              {/* ✅ loading indicator while debounce fires */}
+              {searchQuery.length >= 2 && searchQuery !== debouncedSearch && (
+                <div className="absolute inset-y-0 right-3 flex items-center">
+                  <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+                </div>
+              )}
             </div>
 
             {/* Table */}
@@ -584,8 +584,8 @@ const MOInventoryPage = () => {
                   <thead className="bg-[#f5f6f8] border-b border-gray-200 text-[#9ca3af] text-[10px] uppercase tracking-wider">
                     <tr>
                       {[['hostname', 'Hostname'], ['ip_address', 'IP Address'], ['active_usernames', 'User'],
-                      ['fix_asset', 'Fix Asset'], ['local_admin_users', 'Local Admin'], ['serial_number', 'Serial Number'],
-                      ['os_name', 'OS'], ['os_activation', 'Activation'], ['logon_time', 'Logon Time']].map(([k, lbl]) => (
+                        ['fix_asset', 'Fix Asset'], ['local_admin_users', 'Local Admin'], ['serial_number', 'Serial Number'],
+                        ['os_name', 'OS'], ['os_activation', 'Activation'], ['logon_time', 'Logon Time']].map(([k, lbl]) => (
                         <th key={k} className="py-2.5 px-3 font-semibold cursor-pointer select-none" onClick={() => toggleSort(k)}>
                           {lbl} {sortKey === k ? (sortAsc ? '▲' : '▼') : '↕'}
                         </th>
@@ -607,7 +607,6 @@ const MOInventoryPage = () => {
                         <td className="py-2 px-3 text-[13px] font-mono font-medium">{d.ip_address || '—'}</td>
                         <td className="py-2 px-3 text-[13px] font-medium text-blue-600">{(d.active_usernames || '—').split(',')[0]}</td>
                         <td className="py-2 px-3 text-[13px] font-mono text-purple-600 font-medium">{d.fix_asset || '—'}</td>
-                        {/* Fix #4 */}
                         <td className="py-2 px-3">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold
                             ${isRealAdmin(d.local_admin_users) ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
@@ -701,8 +700,9 @@ const MOInventoryPage = () => {
                   const InfoCell = ({ label, value, fontCls, textCol }) => (
                     <div className="bg-white p-3.5 px-4">
                       <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">{label}</div>
-                      <div className={`text-[13.5px] font-medium ${fontCls || ''} ${value == null || value === '' ? 'text-gray-400 italic' : textCol || 'text-gray-900'
-                        }`}>{value == null || value === '' ? '—' : value}</div>
+                      <div className={`text-[13.5px] font-medium ${fontCls || ''} ${value == null || value === '' ? 'text-gray-400 italic' : textCol || 'text-gray-900'}`}>
+                        {value == null || value === '' ? '—' : value}
+                      </div>
                     </div>
                   );
 
@@ -756,7 +756,6 @@ const MOInventoryPage = () => {
                           <InfoCell label="WiFi SSID" value={inv.wifi_ssid} textCol="text-blue-600" />
                           <InfoCell label="Adapter Type" value={inv.adapter_type} />
                           <InfoCell label="Domain" value={inv.domain} />
-                          {/* Fix #4 */}
                           <InfoCell label="Local Admin Users" value={inv.local_admin_users} fontCls="font-mono text-[12px]"
                             textCol={isRealAdmin(inv.local_admin_users) ? 'text-red-600' : 'text-green-600'} />
                           <InfoCell label="User Count" value={inv.user_count} />
@@ -806,7 +805,7 @@ const MOInventoryPage = () => {
                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Search size={15} /></div>
                           <input type="text" placeholder="Search software by name, version, publisher..."
                             className="w-full bg-white border border-gray-200 rounded-lg py-2.5 pl-9 pr-4 text-[13px] outline-none shadow-sm focus:border-blue-500 transition-colors"
-                            value={softwareSearch} onChange={e => setSoftwareSearch(e.target.value)} />
+                            value={softwareSearch} onChange={e => { setSoftwareSearch(e.target.value); setSoftwarePage(1); }} />
                         </div>
                         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                           <div className="overflow-x-auto">
@@ -814,8 +813,9 @@ const MOInventoryPage = () => {
                               <thead className="bg-[#f5f6f8] border-b border-gray-200 text-[#9ca3af] text-[10px] uppercase tracking-wider">
                                 <tr>
                                   {[['name', 'Name'], ['version', 'Version'], ['publisher', 'Publisher'], ['install_location', 'Install Location'], ['size_mb', 'Size (MB)']].map(([k, lbl]) => (
+                                    // ✅ FIX: use toggleSoftwareSort for correct key tracking
                                     <th key={k} className={`py-2.5 px-3 font-semibold cursor-pointer ${k === 'size_mb' ? 'text-right' : ''}`}
-                                      onClick={() => { setSoftwareSortKey(k); setSoftwareSortAsc(softwareSortKey === k ? !softwareSortAsc : true); }}>
+                                      onClick={() => toggleSoftwareSort(k)}>
                                       {lbl} {softwareSortKey === k ? (softwareSortAsc ? '▲' : '▼') : '↕'}
                                     </th>
                                   ))}
@@ -859,7 +859,6 @@ const MOInventoryPage = () => {
             )}
           </motion.div>
         )}
-
       </div>
 
       {/* ── Modals ── */}
@@ -872,6 +871,10 @@ const MOInventoryPage = () => {
             <input type="text" value={modalData.assetInput || ''} onChange={e => setModalData({ ...modalData, assetInput: e.target.value })}
               placeholder="e.g. DCI-IT-00123"
               className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:border-blue-600 outline-none transition-colors font-mono" />
+            {/* ✅ inline validation hint */}
+            {modalData.assetInput && !/^[A-Za-z0-9\-_.]*$/.test(modalData.assetInput) && (
+              <p className="text-[11px] text-red-500 mt-1.5">ใช้ได้เฉพาะ ตัวอักษร ตัวเลข - _ .</p>
+            )}
             <div className="flex justify-end gap-2.5 mt-5">
               <button className="px-5 py-2.5 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
                 onClick={() => setShowAssetModal(false)}>Cancel</button>
@@ -902,7 +905,6 @@ const MOInventoryPage = () => {
           {toastMsg}
         </div>
       )}
-
     </div>
   );
 };

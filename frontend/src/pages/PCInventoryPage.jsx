@@ -1,17 +1,26 @@
 import { ChevronLeft, Download, RefreshCw, Search, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { API_BASE } from '../config/api';
 import MOInventoryPage from './MOInventoryPage';
 
+// ─── Debounce hook ────────────────────────────────────────────────────────────
+function useDebounce(value, delay) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
 
 const PCInventoryPage = () => {
   const [inventoryType, setInventoryType] = useState('pc');
   const [view, setView] = useState('list');
   const [hostname, setHostname] = useState(null);
-  
+
   const [invData, setInvData] = useState([]);
   const [sumData, setSumData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -20,7 +29,12 @@ const PCInventoryPage = () => {
   const location = useLocation();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterKeys, setFilterKeys] = useState(location.state?.filterKey ? [{ key: location.state.filterKey, label: location.state.filterLabel }] : []);
+  const debouncedSearch = useDebounce(searchQuery, 300); // ✅ FIX: debounce search
+  const [filterKeys, setFilterKeys] = useState(
+    location.state?.filterKey
+      ? [{ key: location.state.filterKey, label: location.state.filterLabel }]
+      : []
+  );
   const [sortKey, setSortKey] = useState('updated_at');
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(1);
@@ -30,7 +44,7 @@ const PCInventoryPage = () => {
   const [detailData, setDetailData] = useState({ inv: null, users: [], software: [] });
 
   const [softwareSearch, setSoftwareSearch] = useState('');
-  const [softwareSortKey, setSoftwareSortKey] = useState('name');
+  const [softwareSortKey, setSoftwareSortKey] = useState('name');  // ✅ FIX: track sort key properly
   const [softwareSortAsc, setSoftwareSortAsc] = useState(true);
   const [softwarePage, setSoftwarePage] = useState(1);
   const softwarePageSize = 20;
@@ -43,6 +57,9 @@ const PCInventoryPage = () => {
   const [multiLoginData, setMultiLoginData] = useState({ data: [], allHostnames: [] });
   const [showMultiLoginModal, setShowMultiLoginModal] = useState(false);
 
+  // ✅ NEW: sticky filter bar ref
+  const filterBarRef = useRef(null);
+
   useEffect(() => {
     if (view === 'list') {
       fetchData();
@@ -51,13 +68,33 @@ const PCInventoryPage = () => {
     }
   }, [view, hostname]);
 
+  // ✅ FIX: debounced search effect — replaces inline onSearchInput API call
+  const prevSearchRef = useRef('');
+  useEffect(() => {
+    const prev = prevSearchRef.current;
+    prevSearchRef.current = debouncedSearch;
+
+    if (debouncedSearch.length >= 2) {
+      (async () => {
+        try {
+          const res = await fetch(
+            `${API_BASE}/pc-inventory/search?q=${encodeURIComponent(debouncedSearch)}`
+          ).then(r => r.json());
+          if (res.success) { setInvData(res.data || []); setPage(1); }
+        } catch (_) {}
+      })();
+    } else if (debouncedSearch.length === 0 && prev.length > 0) {
+      fetchData();
+    }
+  }, [debouncedSearch]);
+
   const fetchData = async () => {
     setLoading(true); setError('');
     try {
       const [invRes, sumRes, mlRes] = await Promise.all([
         fetch(`${API_BASE}/pc-inventory`).then(r => r.json()),
-        fetch(`${API_BASE}/pc-inventory/summary`).then(r => r.json()),  // ← เพิ่ม comma
-        fetch(`${API_BASE}/pc-inventory/multi-login`).then(r => r.json())
+        fetch(`${API_BASE}/pc-inventory/summary`).then(r => r.json()),
+        fetch(`${API_BASE}/pc-inventory/multi-login`).then(r => r.json()),
       ]);
       if (!invRes.success) throw new Error(invRes.error || 'Failed to fetch');
       setInvData(invRes.data || []);
@@ -71,48 +108,32 @@ const PCInventoryPage = () => {
     setDetailLoading(true);
     setError('');
     try {
-      // Create helper to safely fetch and ignore 404s
       const safeFetch = async (url) => {
         try {
           const r = await fetch(url);
-          if (!r.ok) {
-            console.warn(`Fetch failed for ${url} with status ${r.status}`);
-            return { success: false, data: null };
-          }
+          if (!r.ok) { console.warn(`Fetch failed for ${url} with status ${r.status}`); return { success: false, data: null }; }
           return await r.json();
-        } catch (e) {
-          console.warn(`Network error for ${url}:`, e);
-          return { success: false, data: null };
-        }
+        } catch (e) { console.warn(`Network error for ${url}:`, e); return { success: false, data: null }; }
       };
 
       const [ir, ur, sr] = await Promise.all([
         safeFetch(`${API_BASE}/pc-inventory/${encodeURIComponent(hn)}`),
         safeFetch(`${API_BASE}/pc-active-users/${encodeURIComponent(hn)}`),
-        safeFetch(`${API_BASE}/pc-inventory/${encodeURIComponent(hn)}/software`)
+        safeFetch(`${API_BASE}/pc-inventory/${encodeURIComponent(hn)}/software`),
       ]);
 
-      console.log('=== PC Detail Data ===');
-      console.log('Inventory Response:', ir);
-      console.log('Users Response:', ur);
-      console.log('Software Response:', sr);
-
-      if (!ir || !ir.success || !ir.data) {
+      if (!ir || !ir.success || !ir.data)
         throw new Error(`ไม่พบข้อมูลคอมพิวเตอร์นี้ในระบบ (Inventory Data Not Found)`);
-      }
-
-      const softwareData = sr && sr.success ? sr.data : [];
-      console.log('Software data processed:', softwareData);
 
       setDetailData({
         inv: ir.success ? ir.data : null,
         users: ur && ur.success ? ur.data : [],
-        software: softwareData
+        software: sr && sr.success ? sr.data : [],
       });
       setSoftwarePage(1);
       setSoftwareSearch('');
     } catch (err) {
-      console.error("fetchDetail error:", err);
+      console.error('fetchDetail error:', err);
       setError(err.message);
     }
     finally { setDetailLoading(false); }
@@ -139,17 +160,10 @@ const PCInventoryPage = () => {
     return [];
   };
 
-  const onSearchInput = async (e) => {
-    const q = e.target.value;
-    setSearchQuery(q);
-    if (q.length >= 2) {
-      try {
-        const res = await fetch(`${API_BASE}/pc-inventory/search?q=${encodeURIComponent(q)}`).then(r => r.json());
-        if (res.success) { setInvData(res.data || []); setPage(1); }
-      } catch (err) { }
-    } else if (q.length === 0) {
-      fetchData();
-    }
+  // ✅ FIX: search input only updates state (debounce handles API call)
+  const onSearchInput = (e) => {
+    setSearchQuery(e.target.value);
+    setPage(1);
   };
 
   const toggleFilter = (key, label) => {
@@ -166,6 +180,13 @@ const PCInventoryPage = () => {
     setPage(1);
   };
 
+  // ✅ FIX: software sort toggle — properly handle key change vs direction toggle
+  const toggleSoftwareSort = (key) => {
+    if (softwareSortKey === key) setSoftwareSortAsc(prev => !prev);
+    else { setSoftwareSortKey(key); setSoftwareSortAsc(true); }
+    setSoftwarePage(1);
+  };
+
   const filteredData = useMemo(() => {
     let result = [...invData];
     if (filterKeys.length > 0) {
@@ -173,6 +194,7 @@ const PCInventoryPage = () => {
       const intersection = allHostSets.reduce((acc, set) => new Set([...acc].filter(x => set.has(x))));
       result = result.filter(d => intersection.has(d.hostname));
     }
+    // client-side filter only for 1 char (2+ chars handled by API via debounce)
     if (searchQuery.length === 1) {
       const q = searchQuery.toLowerCase();
       result = result.filter(d => Object.values(d).join(' ').toLowerCase().includes(q));
@@ -196,10 +218,16 @@ const PCInventoryPage = () => {
   };
 
   const saveAsset = async () => {
+    // ✅ FIX: validate fix_asset format before saving
+    const asset = (modalData.assetInput || '').trim();
+    if (asset && !/^[A-Za-z0-9\-_.]+$/.test(asset)) {
+      alert('รูปแบบ Fix Asset ไม่ถูกต้อง กรุณาใช้ตัวอักษร ตัวเลข หรือ - _ . เท่านั้น');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/pc-inventory/${encodeURIComponent(modalData.hostname)}/asset`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fix_asset: modalData.assetInput })
+        body: JSON.stringify({ fix_asset: asset }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
@@ -212,7 +240,7 @@ const PCInventoryPage = () => {
     try {
       const res = await fetch(`${API_BASE}/pc-inventory/${encodeURIComponent(modalData.hostname)}/bitlocker`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bitlocker_key_c: modalData.keyC, bitlocker_key_d: modalData.keyD, bitlocker_pin: modalData.pin })
+        body: JSON.stringify({ bitlocker_key_c: modalData.keyC, bitlocker_key_d: modalData.keyD, bitlocker_pin: modalData.pin }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
@@ -230,6 +258,132 @@ const PCInventoryPage = () => {
     } catch (err) { alert(err.message); }
   };
 
+  // ✅ NEW: Export filtered list to XLSX
+  const exportFilteredList = () => {
+    try {
+      if (filteredData.length === 0) { showToast('❌ ไม่มีข้อมูลที่จะ export'); return; }
+      const wb = XLSX.utils.book_new();
+      const headers = [
+        'Hostname', 'IP Address', 'User', 'Fix Asset', 'Computer Type',
+        'Serial Number', 'OS', 'OS Build', 'BitLocker',
+        'CrowdStrike Ver', 'Tanium Ver', 'UEMS Ver', 'Last Updated',
+      ];
+      const rows = filteredData.map(d => [
+        d.hostname || '',
+        d.ip_address || '',
+        d.active_usernames || '',
+        d.fix_asset || '',
+        d.computer_type || '',
+        d.serial_number || '',
+        `${d.os_name || ''} ${d.os_release || ''}`.trim(),
+        d.os_build || '',
+        d.bitlocker || '',
+        d.crowdstrike_ver || '',
+        d.tanium_ver || '',
+        d.uems_ver || '',
+        d.updated_at ? new Date(d.updated_at).toLocaleString('th-TH') : '',
+      ]);
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      // auto column width
+      ws['!cols'] = headers.map((h, i) => ({
+        wch: Math.max(h.length, ...rows.map(r => String(r[i] || '').length), 10),
+      }));
+      XLSX.utils.book_append_sheet(wb, ws, 'PC Inventory');
+      const label = filterKeys.length > 0 ? `_${filterKeys.map(k => k.label).join('+')}` : '_all';
+      const filename = `pc_inventory${label}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      showToast(`✓ Export สำเร็จ: ${filename} (${filteredData.length} รายการ)`);
+    } catch (err) {
+      console.error('Export list error:', err);
+      showToast(`❌ Export ล้มเหลว: ${err.message}`);
+    }
+  };
+
+  const exportPCDetail = () => {
+    try {
+      if (!detailData.inv) { showToast('❌ ไม่มีข้อมูล PC ที่จะ export'); return; }
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1: PC Information
+      const invFields = [
+        ['Field', 'Value'],
+        ['Hostname', detailData.inv.hostname],
+        ['Computer Type', detailData.inv.computer_type],
+        ['Manufacturer', detailData.inv.manufacturer],
+        ['Model', detailData.inv.model],
+        ['Serial Number', detailData.inv.serial_number],
+        ['IP Address', detailData.inv.ip_address],
+        ['MAC Address', detailData.inv.mac_address],
+        ['Domain', detailData.inv.domain],
+        ['Fix Asset', detailData.inv.fix_asset],
+        ['CPU Name', detailData.inv.cpu_name],
+        ['CPU Cores', detailData.inv.cpu_cores],
+        ['CPU Threads', detailData.inv.cpu_threads],
+        ['RAM (GB)', detailData.inv.ram_gb],
+        ['GPU', detailData.inv.gpu],
+        ['Resolution', detailData.inv.resolution],
+        ['BIOS Version', detailData.inv.bios_version],
+        ['OS Name', detailData.inv.os_name],
+        ['OS Release', detailData.inv.os_release],
+        ['OS Build', detailData.inv.os_build],
+        ['OS Architecture', detailData.inv.os_arch],
+        ['BitLocker Status', detailData.inv.bitlocker],
+        ['CrowdStrike Ver', detailData.inv.crowdstrike_ver],
+        ['Tanium Ver', detailData.inv.tanium_ver],
+        ['UEMS Ver', detailData.inv.uems_ver],
+        ['Last Updated', detailData.inv.updated_at],
+      ];
+      if (isNotebookType(detailData.inv)) {
+        invFields.push(['Battery Status', detailData.inv.battery_status]);
+        invFields.push(['Battery Health', detailData.inv.battery_health]);
+        invFields.push(['Battery Percent', detailData.inv.battery_percent]);
+      }
+      const ws1 = XLSX.utils.aoa_to_sheet(invFields);
+      XLSX.utils.book_append_sheet(wb, ws1, 'PC Info');
+
+      // Sheet 2: Active Users
+      const usersData = [
+        ['Username', 'Session Name', 'Session ID', 'State', 'Logon Time'],
+        ...detailData.users.map(u => [
+          u.username || '—', u.session_name || '—', u.session_id || '—',
+          u.state || '—', u.logon_time || '—',
+        ]),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(usersData), 'Active Users');
+
+      // Sheet 3: Installed Software
+      const softData = [
+        ['Name', 'Version', 'Publisher', 'Install Location', 'Size (MB)'],
+        ...detailData.software.map(s => [
+          s.name || '—', s.version || '—', s.publisher || '—',
+          s.install_location || '—', s.size_mb || '—',
+        ]),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(softData), 'Software');
+
+      const filename = `${hostname}_inventory_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      showToast(`✓ Export สำเร็จ: ${filename}`);
+    } catch (err) {
+      console.error('Export error:', err);
+      showToast(`❌ Export ล้มเหลว: ${err.message}`);
+    }
+  };
+
+  const fmtDate = (d) => {
+    if (!d) return '—';
+    try {
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return d;
+      return dt.toLocaleString('th-TH');
+    } catch { return d; }
+  };
+
+  const isNotebookType = (inv) => {
+    const t = (inv?.computer_type || '').toLowerCase();
+    return /notebook|laptop|portable|sub notebook|convertible|detachable/.test(t);
+  };
+
   const StatBox = ({ id, label, list, bgClass, textClass, ringClass, onSecondaryClick }) => {
     const isOn = filterKeys.find(k => k.key === id);
     const count = list?.length || 0;
@@ -238,8 +392,8 @@ const PCInventoryPage = () => {
       <div
         onClick={() => { if (clickable) toggleFilter(id, label); }}
         className={`bg-white border rounded-xl p-3 px-3.5 shadow-sm transition-all 
-      ${clickable ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md' : 'opacity-70'} 
-      ${isOn ? `${ringClass} ring-2 ring-offset-2 scale-100 ${bgClass}` : 'border-gray-200'}`}
+        ${clickable ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md' : 'opacity-70'} 
+        ${isOn ? `${ringClass} ring-2 ring-offset-2 scale-100 ${bgClass}` : 'border-gray-200'}`}
       >
         <div className="text-xs font-medium text-gray-500 mb-2 flex items-center justify-between">
           {label}
@@ -247,9 +401,7 @@ const PCInventoryPage = () => {
             <span
               onClick={e => { e.stopPropagation(); onSecondaryClick(); }}
               className="text-[10px] text-purple-500 hover:text-purple-700 font-semibold bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5 transition-colors"
-            >
-              Detail
-            </span>
+            >Detail</span>
           )}
         </div>
         <div className={`text-2xl font-bold leading-none ${textClass}`}>{count}</div>
@@ -284,7 +436,9 @@ const PCInventoryPage = () => {
     let result = detailData.software.filter(s => {
       if (!softwareSearch) return true;
       const q = softwareSearch.toLowerCase();
-      return (s.name || '').toLowerCase().includes(q) || (s.version || '').toLowerCase().includes(q) || (s.publisher || '').toLowerCase().includes(q);
+      return (s.name || '').toLowerCase().includes(q)
+        || (s.version || '').toLowerCase().includes(q)
+        || (s.publisher || '').toLowerCase().includes(q);
     });
     result.sort((a, b) => {
       const aVal = (a[softwareSortKey] || '').toString().toLowerCase();
@@ -296,144 +450,18 @@ const PCInventoryPage = () => {
     return result;
   }, [detailData.software, softwareSearch, softwareSortKey, softwareSortAsc]);
 
-  const fmtDate = (d) => {
-    if (!d) return '—';
-    try {
-      const dt = new Date(d);
-      if (isNaN(dt.getTime())) return d;
-      return dt.toLocaleString('th-TH');
-    } catch { return d; }
-  };
-
-  const isNotebookType = (inv) => {
-    const t = (inv?.computer_type || '').toLowerCase();
-    return /notebook|laptop|portable|sub notebook|convertible|detachable/.test(t);
-  };
-
-  const exportPCDetail = () => {
-    try {
-      if (!detailData.inv) {
-        showToast('❌ ไม่มีข้อมูล PC ที่จะ export');
-        return;
-      }
-
-      console.log('📊 EXPORT DEBUG INFO:');
-      console.log('Hostname:', hostname);
-      console.log('PC Info Fields:', {
-        hostname: detailData.inv.hostname,
-        computer_type: detailData.inv.computer_type,
-        ip_address: detailData.inv.ip_address,
-        os_name: detailData.inv.os_name,
-        cpu_name: detailData.inv.cpu_name
-      });
-      console.log('Active Users Count:', detailData.users.length);
-      console.log('Active Users:', detailData.users);
-      console.log('Software Count:', detailData.software.length);
-      console.log('Software Sample:', detailData.software.slice(0, 5));
-
-      const wb = XLSX.utils.book_new();
-
-      // Sheet 1: PC Information
-      const invSheet = [[
-        'Field', 'Value'
-      ]];
-      const invFields = [
-        ['Hostname', detailData.inv.hostname],
-        ['Computer Type', detailData.inv.computer_type],
-        ['Manufacturer', detailData.inv.manufacturer],
-        ['Model', detailData.inv.model],
-        ['Serial Number', detailData.inv.serial_number],
-        ['IP Address', detailData.inv.ip_address],
-        ['MAC Address', detailData.inv.mac_address],
-        ['Domain', detailData.inv.domain],
-        ['Fix Asset', detailData.inv.fix_asset],
-        ['CPU Name', detailData.inv.cpu_name],
-        ['CPU Cores', detailData.inv.cpu_cores],
-        ['CPU Threads', detailData.inv.cpu_threads],
-        ['RAM (GB)', detailData.inv.ram_gb],
-        ['GPU', detailData.inv.gpu],
-        ['Resolution', detailData.inv.resolution],
-        ['BIOS Version', detailData.inv.bios_version],
-        ['OS Name', detailData.inv.os_name],
-        ['OS Release', detailData.inv.os_release],
-        ['OS Build', detailData.inv.os_build],
-        ['OS Architecture', detailData.inv.os_arch],
-        ['BitLocker Status', detailData.inv.bitlocker],
-        ['CrowdStrike Ver', detailData.inv.crowdstrike_ver],
-        ['Tanium Ver', detailData.inv.tanium_ver],
-        ['UEMS Ver', detailData.inv.uems_ver],
-        ['Last Updated', detailData.inv.updated_at],
-      ];
-      if (isNotebookType(detailData.inv)) {
-        invFields.push(['Battery Status', detailData.inv.battery_status]);
-        invFields.push(['Battery Health', detailData.inv.battery_health]);
-        invFields.push(['Battery Percent', detailData.inv.battery_percent]);
-      }
-      const invData = [...invSheet, ...invFields];
-      const ws1 = XLSX.utils.aoa_to_sheet(invData);
-      XLSX.utils.book_append_sheet(wb, ws1, 'PC Info');
-
-      // Sheet 2: Active Users
-      const usersData = [
-        ['Username', 'Session Name', 'Session ID', 'State', 'Logon Time'],
-        ...detailData.users.map(u => [
-          u.username || '—',
-          u.session_name || '—',
-          u.session_id || '—',
-          u.state || '—',
-          u.logon_time || '—'
-        ])
-      ];
-      const ws2 = XLSX.utils.aoa_to_sheet(usersData);
-      XLSX.utils.book_append_sheet(wb, ws2, 'Active Users');
-
-      // Sheet 3: Installed Software
-      const softData = [
-        ['Name', 'Version', 'Publisher', 'Install Location', 'Size (MB)'],
-        ...detailData.software.map(s => [
-          s.name || '—',
-          s.version || '—',
-          s.publisher || '—',
-          s.install_location || '—',
-          s.size_mb || '—'
-        ])
-      ];
-      const ws3 = XLSX.utils.aoa_to_sheet(softData);
-      XLSX.utils.book_append_sheet(wb, ws3, 'Software');
-
-      console.log('✅ Export file created - Sheets:', [ws1, ws2, ws3].filter(s => s).length);
-
-      const filename = `${hostname}_inventory_${new Date().toISOString().split('T')[0]}.xlsx`;
-      XLSX.writeFile(wb, filename);
-      showToast(`✓ Export สำเร็จ: ${filename}`);
-    } catch (err) {
-      console.error('Export error:', err);
-      showToast(`❌ Export ล้มเหลว: ${err.message}`);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Inventory Type Tabs */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex gap-2">
         <button
           onClick={() => setInventoryType('pc')}
-          className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${inventoryType === 'pc'
-            ? 'bg-blue-600 text-white shadow-md'
-            : 'bg-white text-gray-600 border border-gray-200 hover:border-blue-300'
-            }`}
-        >
-          💻 PC INVENTORY
-        </button>
+          className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${inventoryType === 'pc' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:border-blue-300'}`}
+        >💻 PC INVENTORY</button>
         <button
           onClick={() => setInventoryType('mo')}
-          className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${inventoryType === 'mo'
-            ? 'bg-blue-600 text-white shadow-md'
-            : 'bg-white text-gray-600 border border-gray-200 hover:border-blue-300'
-            }`}
-        >
-          🖥️ MONITOR INVENTORY
-        </button>
+          className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${inventoryType === 'mo' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:border-blue-300'}`}
+        >🖥️ MONITOR INVENTORY</button>
       </motion.div>
 
       {inventoryType === 'pc' && (
@@ -451,7 +479,7 @@ const PCInventoryPage = () => {
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all bg-white border border-slate-200 text-slate-600 hover:border-indigo-500 hover:text-indigo-600 shadow-sm hover:shadow active:scale-95"
                 onClick={view === 'list' ? fetchData : () => fetchDetail(hostname)}
               >
-                <RefreshCw size={16} className={loading || detailLoading ? "animate-spin text-indigo-500" : ""} /> Refresh
+                <RefreshCw size={16} className={loading || detailLoading ? 'animate-spin text-indigo-500' : ''} /> Refresh
               </button>
             </div>
           </motion.div>
@@ -460,8 +488,6 @@ const PCInventoryPage = () => {
 
             {view === 'list' && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-
-
                 {error && <div className="bg-red-50 border border-red-300 rounded-lg p-3 text-[13px] text-red-600 mb-4 font-semibold">⚠️ {error}</div>}
 
                 <div className="animate-in fade-in">
@@ -520,17 +546,47 @@ const PCInventoryPage = () => {
                     </div>
                   )}
 
-                  {filterKeys.length > 0 && (
-                    <div className="flex items-center gap-2 bg-[#eff4ff] border border-[#bfcfff] rounded-xl px-3.5 py-2 mb-3 text-[13px] font-medium text-[#2563eb]">
-                      ☞ Filter: <b>{filterKeys.map(k => k.label).join(' + ')}</b>
-                      <span className="text-gray-500 text-xs ml-1">({filteredData.length} เครื่อง)</span>
-                      <button onClick={() => setFilterKeys([])} className="ml-auto bg-transparent border border-[#bfcfff] px-2 py-0.5 rounded flex items-center gap-1 text-xs hover:bg-[#bfcfff] transition-colors"><X size={12} /> ล้าง</button>
-                    </div>
-                  )}
+                  {/* ✅ NEW: Sticky active-filter bar + Export list button */}
+                  <div
+                    ref={filterBarRef}
+                    className="sticky top-0 z-20 flex flex-wrap items-center gap-2 mb-3"
+                  >
+                    {filterKeys.length > 0 && (
+                      <div className="flex flex-1 items-center gap-2 bg-[#eff4ff] border border-[#bfcfff] rounded-xl px-3.5 py-2 text-[13px] font-medium text-[#2563eb] shadow-sm backdrop-blur-sm">
+                        ☞ Filter: <b>{filterKeys.map(k => k.label).join(' + ')}</b>
+                        <span className="text-gray-500 text-xs ml-1">({filteredData.length} เครื่อง)</span>
+                        <button
+                          onClick={() => setFilterKeys([])}
+                          className="ml-auto bg-transparent border border-[#bfcfff] px-2 py-0.5 rounded flex items-center gap-1 text-xs hover:bg-[#bfcfff] transition-colors"
+                        ><X size={12} /> ล้าง</button>
+                      </div>
+                    )}
+
+                    {/* ✅ NEW: Export list button — always visible in list view */}
+                    <button
+                      onClick={exportFilteredList}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 shadow-sm transition-all active:scale-95 whitespace-nowrap"
+                    >
+                      <Download size={14} />
+                      Export {filterKeys.length > 0 ? `(${filteredData.length})` : 'All'}
+                    </button>
+                  </div>
 
                   <div className="relative mb-3 flex w-full">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Search size={15} /></div>
-                    <input type="text" placeholder="ค้นหาทุกฟิลด์: hostname, IP, Serial, CPU, Softwareฯลฯ" className="w-full bg-white border border-gray-200 rounded-xl py-2.5 pl-9 pr-4 text-[13px] outline-none shadow-sm focus:border-blue-500 transition-colors" value={searchQuery} onChange={onSearchInput} />
+                    <input
+                      type="text"
+                      placeholder="ค้นหาทุกฟิลด์: hostname, IP, Serial, CPU, Software ฯลฯ"
+                      className="w-full bg-white border border-gray-200 rounded-xl py-2.5 pl-9 pr-4 text-[13px] outline-none shadow-sm focus:border-blue-500 transition-colors"
+                      value={searchQuery}
+                      onChange={onSearchInput}
+                    />
+                    {/* ✅ loading indicator while debounce fires */}
+                    {searchQuery.length >= 2 && searchQuery !== debouncedSearch && (
+                      <div className="absolute inset-y-0 right-3 flex items-center">
+                        <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
@@ -567,7 +623,8 @@ const PCInventoryPage = () => {
                               <td className="py-2 px-3 text-[13px] text-gray-600">{fmtDate(d.logon_time)}</td>
                               <td className="py-2 px-3">
                                 <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${d.bitlocker === 'Enabled' ? 'bg-green-100 text-green-700' : d.bitlocker === 'Disabled' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                                  <div className={`w-1.5 h-1.5 rounded-full ${d.bitlocker === 'Enabled' ? 'bg-green-500' : d.bitlocker === 'Disabled' ? 'bg-red-500' : 'bg-amber-500'}`}></div>{d.bitlocker || '—'}
+                                  <div className={`w-1.5 h-1.5 rounded-full ${d.bitlocker === 'Enabled' ? 'bg-green-500' : d.bitlocker === 'Disabled' ? 'bg-red-500' : 'bg-amber-500'}`}></div>
+                                  {d.bitlocker || '—'}
                                 </span>
                               </td>
                               <td className="py-2 px-3 text-right text-gray-400 font-bold group-hover:text-blue-500">›</td>
@@ -590,9 +647,10 @@ const PCInventoryPage = () => {
 
             {view === 'detail' && (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="animate-in fade-in">
-                <button className="flex items-center gap-2 bg-white border border-slate-200 shadow-sm px-4 py-2 rounded-xl text-sm font-bold text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 mb-5 transition-all" onClick={() => { setView('list'); setHostname(null); }}>
-                  <ChevronLeft size={16} /> กลับหน้ารายการ
-                </button>
+                <button
+                  className="flex items-center gap-2 bg-white border border-slate-200 shadow-sm px-4 py-2 rounded-xl text-sm font-bold text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 mb-5 transition-all"
+                  onClick={() => { setView('list'); setHostname(null); }}
+                ><ChevronLeft size={16} /> กลับหน้ารายการ</button>
 
                 {detailLoading ? (
                   <div className="flex justify-center items-center py-16 text-gray-500 text-sm gap-2">
@@ -609,7 +667,6 @@ const PCInventoryPage = () => {
                       <div className="flex-1 min-w-[200px]">
                         <div className="text-[20px] font-bold text-gray-900 mb-1">{hostname}</div>
                         <div className="text-[13px] text-gray-500 mb-2.5 tracking-tight">{detailData.inv.manufacturer || '—'} {detailData.inv.model || ''} &nbsp;·&nbsp; {detailData.inv.ip_address || '—'}</div>
-
                         <div className="flex flex-wrap gap-1.5 text-[12px] font-medium text-gray-600">
                           {detailData.inv.computer_type && <span className="bg-[#f5f6f8] border border-gray-200 rounded-md px-2.5 py-1">{detailData.inv.computer_type}</span>}
                           <span className="bg-[#f5f6f8] border border-gray-200 rounded-md px-2.5 py-1">{detailData.inv.os_name || '—'}</span>
@@ -632,19 +689,13 @@ const PCInventoryPage = () => {
                       </div>
                     </div>
 
-                    {/* OS & Battery Information Section */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
-                      {/* OS Information - REMOVED, will merge into Systems section */}
-
-                      {/* Battery Information - REMOVED, will merge into Battery/Power section */}
-                    </div>
-
-                    {/* Sections */}
                     {(() => {
                       const InfoCell = ({ label, value, fontCls, textCol, wrapperClass }) => (
                         <div className={`bg-white p-3.5 px-4 ${wrapperClass || ''}`}>
                           <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">{label}</div>
-                          <div className={`text-[13.5px] font-medium ${fontCls || ''} ${(value === null || value === '' || value === undefined) ? 'text-gray-400 italic' : textCol ? textCol : 'text-gray-900'} ${fontCls?.includes('whitespace-') ? '' : 'whitespace-pre-wrap'}`}>{(value === null || value === '' || value === undefined) ? '—' : value}</div>
+                          <div className={`text-[13.5px] font-medium ${fontCls || ''} ${(value === null || value === '' || value === undefined) ? 'text-gray-400 italic' : textCol ? textCol : 'text-gray-900'} ${fontCls?.includes('whitespace-') ? '' : 'whitespace-pre-wrap'}`}>
+                            {(value === null || value === '' || value === undefined) ? '—' : value}
+                          </div>
                         </div>
                       );
 
@@ -652,7 +703,7 @@ const PCInventoryPage = () => {
                         <div className="space-y-6">
                           {/* CURRENT SESSIONS */}
                           <div>
-                            <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1 flex items-center">Sessions ปัจจุบัน</div>
+                            <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Sessions ปัจจุบัน</div>
                             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                               <div className="overflow-x-auto">
                                 <table className="w-full text-left text-[13px]">
@@ -660,12 +711,18 @@ const PCInventoryPage = () => {
                                     <tr><th className="py-2 px-3">Username</th><th className="py-2 px-3">Session Name</th><th className="py-2 px-3">Session ID</th><th className="py-2 px-3">State</th><th className="py-2 px-3">Logon Time</th></tr>
                                   </thead>
                                   <tbody className="divide-y divide-gray-100">
-                                    {detailData.users.length === 0 ? <tr><td colSpan="5" className="text-center py-8 text-gray-400 font-medium text-xs">ไม่มี session</td></tr> : detailData.users.map(u => (
+                                    {detailData.users.length === 0 ? (
+                                      <tr><td colSpan="5" className="text-center py-8 text-gray-400 font-medium text-xs">ไม่มี session</td></tr>
+                                    ) : detailData.users.map(u => (
                                       <tr key={u.id}>
                                         <td className="py-2 px-3 font-medium text-blue-600">{u.username || '—'}</td>
                                         <td className="py-2 px-3 text-gray-600">{u.session_name || '—'}</td>
                                         <td className="py-2 px-3 font-mono text-[11px] text-gray-500">{u.session_id || '—'}</td>
-                                        <td className="py-2 px-3"><span className={`inline-flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[11px] font-bold ${u.state?.toUpperCase() === 'ACTIVE' ? 'bg-green-100 text-green-700' : u.state?.toUpperCase() === 'DISC' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}><div className="w-1.5 h-1.5 rounded-full bg-current"></div>{u.state}</span></td>
+                                        <td className="py-2 px-3">
+                                          <span className={`inline-flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[11px] font-bold ${u.state?.toUpperCase() === 'ACTIVE' ? 'bg-green-100 text-green-700' : u.state?.toUpperCase() === 'DISC' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                                            <div className="w-1.5 h-1.5 rounded-full bg-current"></div>{u.state}
+                                          </span>
+                                        </td>
                                         <td className="py-2 px-3 text-gray-600">{fmtDate(u.logon_time)}</td>
                                       </tr>
                                     ))}
@@ -708,7 +765,7 @@ const PCInventoryPage = () => {
                               {(detailData.inv.disk_info || '').split(' | ').filter(e => e).map((d, i) => {
                                 const letter = String.fromCharCode(67 + i);
                                 const tm = d.match(/Total:([^\s]+)/), fm = d.match(/Free:([^\s]+)/);
-                                return <InfoCell key={i} label={`Disk ${letter}`} value={`Total: ${tm ? tm[1] : ''}\nFree: ${fm ? fm[1] : ''}`} textCol="text-green-600" />
+                                return <InfoCell key={i} label={`Disk ${letter}`} value={`Total: ${tm ? tm[1] : ''}\nFree: ${fm ? fm[1] : ''}`} textCol="text-green-600" />;
                               })}
                               <InfoCell label="GPU" value={detailData.inv.gpu} />
                               <InfoCell label="Resolution" value={detailData.inv.resolution} />
@@ -774,26 +831,27 @@ const PCInventoryPage = () => {
                           {/* SOFTWARE */}
                           <div>
                             <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Software ({detailData.software.length})</div>
-
                             <div className="relative mb-3 flex w-full">
                               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Search size={15} /></div>
                               <input type="text" placeholder="ค้นหา Software: ชื่อ, Version, Publisher" className="w-full bg-white border border-gray-200 rounded-xl py-2.5 pl-9 pr-4 text-[13px] outline-none shadow-sm focus:border-blue-500" value={softwareSearch} onChange={(e) => { setSoftwareSearch(e.target.value); setSoftwarePage(1); }} />
                             </div>
-
                             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                               <div className="overflow-x-auto">
                                 <table className="w-full text-left text-[14px] whitespace-nowrap">
                                   <thead className="bg-[#f5f6f8] border-b border-gray-200 text-[#9ca3af] text-[11px] uppercase tracking-wider">
                                     <tr>
-                                      <th className="py-2.5 px-3 font-semibold cursor-pointer" onClick={() => { setSoftwareSortKey('name'); setSoftwareSortAsc(!softwareSortAsc); }}>Name {softwareSortKey === 'name' ? (softwareSortAsc ? '▲' : '▼') : '↕'}</th>
-                                      <th className="py-2.5 px-3 font-semibold cursor-pointer" onClick={() => { setSoftwareSortKey('version'); setSoftwareSortAsc(!softwareSortAsc); }}>Version {softwareSortKey === 'version' ? (softwareSortAsc ? '▲' : '▼') : '↕'}</th>
-                                      <th className="py-2.5 px-3 font-semibold cursor-pointer" onClick={() => { setSoftwareSortKey('publisher'); setSoftwareSortAsc(!softwareSortAsc); }}>Publisher {softwareSortKey === 'publisher' ? (softwareSortAsc ? '▲' : '▼') : '↕'}</th>
+                                      {/* ✅ FIX: use toggleSoftwareSort for correct key tracking */}
+                                      <th className="py-2.5 px-3 font-semibold cursor-pointer" onClick={() => toggleSoftwareSort('name')}>Name {softwareSortKey === 'name' ? (softwareSortAsc ? '▲' : '▼') : '↕'}</th>
+                                      <th className="py-2.5 px-3 font-semibold cursor-pointer" onClick={() => toggleSoftwareSort('version')}>Version {softwareSortKey === 'version' ? (softwareSortAsc ? '▲' : '▼') : '↕'}</th>
+                                      <th className="py-2.5 px-3 font-semibold cursor-pointer" onClick={() => toggleSoftwareSort('publisher')}>Publisher {softwareSortKey === 'publisher' ? (softwareSortAsc ? '▲' : '▼') : '↕'}</th>
                                       <th className="py-2.5 px-3 font-semibold">Install Location</th>
                                       <th className="py-2.5 px-3 font-semibold">Size</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-gray-100">
-                                    {softwareFiltered.slice((softwarePage - 1) * softwarePageSize, softwarePage * softwarePageSize).length === 0 ? <tr><td colSpan="5" className="text-center py-8 text-gray-400">ไม่พบซอฟต์แวร์</td></tr> : softwareFiltered.slice((softwarePage - 1) * softwarePageSize, softwarePage * softwarePageSize).map(s => (
+                                    {softwareFiltered.slice((softwarePage - 1) * softwarePageSize, softwarePage * softwarePageSize).length === 0 ? (
+                                      <tr><td colSpan="5" className="text-center py-8 text-gray-400">ไม่พบซอฟต์แวร์</td></tr>
+                                    ) : softwareFiltered.slice((softwarePage - 1) * softwarePageSize, softwarePage * softwarePageSize).map(s => (
                                       <tr key={s.id} className="hover:bg-[#eff4ff]">
                                         <td className="py-2.5 px-3 text-[13px] font-medium text-gray-800">{s.name || '—'}</td>
                                         <td className="py-2.5 px-3 text-[13px] font-mono text-gray-500">{s.version || '—'}</td>
@@ -814,7 +872,6 @@ const PCInventoryPage = () => {
                               </div>
                             </div>
                           </div>
-
                         </div>
                       );
                     })()}
@@ -824,7 +881,6 @@ const PCInventoryPage = () => {
                 )}
               </motion.div>
             )}
-
           </div>
         </>
       )}
@@ -833,10 +889,14 @@ const PCInventoryPage = () => {
       {showAssetModal && (
         <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-7 w-full max-w-[440px] shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-[16px] font-bold mb-1 border-gray-800">Edit Fix Asset</h3>
+            <h3 className="text-[16px] font-bold mb-1">Edit Fix Asset</h3>
             <div className="text-[13px] text-gray-500 mb-5">Hostname: {modalData.hostname}</div>
             <label className="block text-[12px] font-semibold text-gray-600 uppercase tracking-widest mb-1.5">Fix Asset Number</label>
             <input type="text" value={modalData.assetInput || ''} onChange={e => setModalData({ ...modalData, assetInput: e.target.value })} placeholder="e.g. DCI-IT-00123" className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:border-blue-600 outline-none transition-colors font-mono" />
+            {/* ✅ inline validation hint */}
+            {modalData.assetInput && !/^[A-Za-z0-9\-_.]*$/.test(modalData.assetInput) && (
+              <p className="text-[11px] text-red-500 mt-1.5">ใช้ได้เฉพาะ ตัวอักษร ตัวเลข - _ .</p>
+            )}
             <div className="flex justify-end gap-2.5 mt-5">
               <button className="px-5 py-2.5 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors" onClick={() => setShowAssetModal(false)}>Cancel</button>
               <button className="px-5 py-2.5 rounded-lg bg-[#2563eb] text-white text-[13px] font-semibold hover:bg-blue-700 transition-colors" onClick={saveAsset}>Save</button>
@@ -850,16 +910,12 @@ const PCInventoryPage = () => {
           <div className="bg-white rounded-2xl p-7 w-full max-w-[500px] shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <h3 className="text-[16px] font-bold mb-1">🔐 BitLocker Recovery Key</h3>
             <div className="text-[13px] text-gray-500 mb-5">Hostname: {modalData.hostname}</div>
-
             <label className="block text-[12px] font-semibold text-gray-600 uppercase tracking-widest mb-1.5">Recovery Key C:</label>
             <input type="text" value={modalData.keyC || ''} onChange={e => setModalData({ ...modalData, keyC: e.target.value })} placeholder="xxxxxxxx-xxxx-xxxx..." className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-[13px] focus:border-blue-600 outline-none transition-colors font-mono mb-3" />
-
             <label className="block text-[12px] font-semibold text-gray-600 uppercase tracking-widest mb-1.5">Recovery Key D:</label>
             <input type="text" value={modalData.keyD || ''} onChange={e => setModalData({ ...modalData, keyD: e.target.value })} placeholder="xxxxxxxx-xxxx-xxxx..." className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-[13px] focus:border-blue-600 outline-none transition-colors font-mono mb-3" />
-
             <label className="block text-[12px] font-semibold text-gray-600 uppercase tracking-widest mb-1.5">PIN:</label>
             <input type="text" value={modalData.pin || ''} onChange={e => setModalData({ ...modalData, pin: e.target.value })} placeholder="BitLocker PIN" className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-[13px] font-bold text-gray-700 focus:border-blue-600 outline-none transition-colors font-mono" />
-
             <div className="flex justify-end gap-2.5 mt-5">
               <button className="px-5 py-2.5 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors" onClick={() => setShowBlModal(false)}>Cancel</button>
               <button className="px-5 py-2.5 rounded-lg bg-[#2563eb] text-white text-[13px] font-semibold hover:bg-blue-700 transition-colors" onClick={saveBl}>Save</button>
@@ -881,112 +937,84 @@ const PCInventoryPage = () => {
         </div>
       )}
 
-     {showMultiLoginModal && (
-  <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center p-4">
-    <div className="bg-white rounded-2xl w-full max-w-[760px] shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col overflow-hidden border border-gray-200">
-      
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-gray-100">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-[10px] bg-[#f0effe] border border-[#d0cbf8] flex items-center justify-center text-[18px] shrink-0">👥</div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[15px] font-bold text-gray-900">Users ที่ Login หลายเครื่อง</span>
-              <span className="inline-flex items-center gap-1 bg-[#f0effe] border border-[#d0cbf8] text-[#534ab7] rounded-full px-2.5 py-0.5 text-[11px] font-semibold">
-                {multiLoginData.data.length} users
-              </span>
+      {showMultiLoginModal && (
+        <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-[760px] shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col overflow-hidden border border-gray-200">
+            <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-[10px] bg-[#f0effe] border border-[#d0cbf8] flex items-center justify-center text-[18px] shrink-0">👥</div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[15px] font-bold text-gray-900">Users ที่ Login หลายเครื่อง</span>
+                    <span className="inline-flex items-center gap-1 bg-[#f0effe] border border-[#d0cbf8] text-[#534ab7] rounded-full px-2.5 py-0.5 text-[11px] font-semibold">{multiLoginData.data.length} users</span>
+                  </div>
+                  <div className="text-[12px] text-gray-400 mt-0.5">{multiLoginData.allHostnames.length} เครื่องที่เกี่ยวข้อง</div>
+                </div>
+              </div>
+              <button onClick={() => setShowMultiLoginModal(false)} className="w-7 h-7 rounded-md border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
+                <X size={14} />
+              </button>
             </div>
-            <div className="text-[12px] text-gray-400 mt-0.5">{multiLoginData.allHostnames.length} เครื่องที่เกี่ยวข้อง</div>
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-3">
+              {multiLoginData.data.length === 0 ? (
+                <div className="text-center py-12 text-sm text-gray-400">ไม่พบ user ที่ login หลายเครื่อง</div>
+              ) : multiLoginData.data.map(u => {
+                const initials = u.username.replace(/^[.\\/]+/, '').slice(0, 2).toUpperCase();
+                const details = u.hostnameDetailList?.length
+                  ? u.hostnameDetailList
+                  : u.hostnameList.map(h => ({ hostname: h, state: '-', logon_time: '-' }));
+                return (
+                  <div key={u.username} className="bg-[#fafafa] border border-gray-200 rounded-xl p-4">
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <div className="w-8 h-8 rounded-full bg-[#e1f5ee] border border-[#9fe1cb] flex items-center justify-center text-[11px] font-semibold text-[#0f6e56] shrink-0">{initials}</div>
+                      <span className="text-[13px] font-bold text-gray-900">{u.username}</span>
+                      <span className="bg-[#ede9ff] text-[#534ab7] border border-[#d0cbf8] rounded-full px-2 py-0.5 text-[11px] font-semibold">{u.machine_count} เครื่อง</span>
+                      <span className="ml-auto text-[11px] text-gray-400 font-mono">{u.latest_logon ? fmtDate(u.latest_logon) : '—'}</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {details.map(d => (
+                        <button
+                          key={d.hostname}
+                          onClick={() => { setShowMultiLoginModal(false); setHostname(d.hostname); setView('detail'); }}
+                          className="bg-white border border-gray-200 hover:border-[#a5b4fc] hover:bg-[#f5f3ff] rounded-lg px-2.5 py-2 text-left transition-all group"
+                        >
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <div className="w-3.5 h-3.5 rounded-[3px] bg-[#dbeafe] flex items-center justify-center text-[8px] shrink-0">🖥</div>
+                            <span className="text-[11px] font-semibold text-gray-800 truncate group-hover:text-[#4338ca]">{d.hostname}</span>
+                          </div>
+                          <div className="flex items-center gap-1 mb-0.5">
+                            {d.state?.toUpperCase() === 'ACTIVE' ? (
+                              <span className="inline-flex items-center gap-1 bg-[#dcfce7] text-[#16a34a] rounded-full px-1.5 py-[1px] text-[10px] font-semibold"><span className="w-1.5 h-1.5 rounded-full bg-[#16a34a] inline-block"></span>Active</span>
+                            ) : d.state?.toUpperCase() === 'DISC' ? (
+                              <span className="inline-flex items-center gap-1 bg-[#fee2e2] text-[#dc2626] rounded-full px-1.5 py-[1px] text-[10px] font-semibold"><span className="w-1.5 h-1.5 rounded-full bg-[#dc2626] inline-block"></span>Disc</span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 rounded-full px-1.5 py-[1px] text-[10px] font-semibold">—</span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-gray-400 font-mono">{d.logon_time && d.logon_time !== '-' ? fmtDate(d.logon_time) : '—'}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowMultiLoginModal(false)} className="px-4 py-2 rounded-lg border border-gray-200 text-[12px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors">ปิด</button>
+            </div>
           </div>
         </div>
-        <button onClick={() => setShowMultiLoginModal(false)} className="w-7 h-7 rounded-md border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
-          <X size={14} />
-        </button>
-      </div>
+      )}
 
-      {/* Body */}
-      <div className="overflow-y-auto flex-1 px-6 py-4 space-y-3">
-        {multiLoginData.data.length === 0 ? (
-          <div className="text-center py-12 text-sm text-gray-400">ไม่พบ user ที่ login หลายเครื่อง</div>
-        ) : multiLoginData.data.map(u => {
-          const initials = u.username.replace(/^[.\\/]+/, '').slice(0, 2).toUpperCase();
-          const details = u.hostnameDetailList?.length
-            ? u.hostnameDetailList
-            : u.hostnameList.map(h => ({ hostname: h, state: '-', logon_time: '-' }));
-          return (
-            <div key={u.username} className="bg-[#fafafa] border border-gray-200 rounded-xl p-4">
-              {/* User row */}
-              <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-8 h-8 rounded-full bg-[#e1f5ee] border border-[#9fe1cb] flex items-center justify-center text-[11px] font-semibold text-[#0f6e56] shrink-0">
-                  {initials}
-                </div>
-                <span className="text-[13px] font-bold text-gray-900">{u.username}</span>
-                <span className="bg-[#ede9ff] text-[#534ab7] border border-[#d0cbf8] rounded-full px-2 py-0.5 text-[11px] font-semibold">
-                  {u.machine_count} เครื่อง
-                </span>
-                <span className="ml-auto text-[11px] text-gray-400 font-mono">
-                  {u.latest_logon ? fmtDate(u.latest_logon) : '—'}
-                </span>
-              </div>
-
-              {/* PC grid 4 columns */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                {details.map(d => (
-                  <button
-                    key={d.hostname}
-                    onClick={() => { setShowMultiLoginModal(false); setHostname(d.hostname); setView('detail'); }}
-                    className="bg-white border border-gray-200 hover:border-[#a5b4fc] hover:bg-[#f5f3ff] rounded-lg px-2.5 py-2 text-left transition-all group"
-                  >
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <div className="w-3.5 h-3.5 rounded-[3px] bg-[#dbeafe] flex items-center justify-center text-[8px] shrink-0">🖥</div>
-                      <span className="text-[11px] font-semibold text-gray-800 truncate group-hover:text-[#4338ca]">{d.hostname}</span>
-                    </div>
-                    <div className="flex items-center gap-1 mb-0.5">
-                      {d.state?.toUpperCase() === 'ACTIVE' ? (
-                        <span className="inline-flex items-center gap-1 bg-[#dcfce7] text-[#16a34a] rounded-full px-1.5 py-[1px] text-[10px] font-semibold">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a] inline-block"></span>Active
-                        </span>
-                      ) : d.state?.toUpperCase() === 'DISC' ? (
-                        <span className="inline-flex items-center gap-1 bg-[#fee2e2] text-[#dc2626] rounded-full px-1.5 py-[1px] text-[10px] font-semibold">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#dc2626] inline-block"></span>Disc
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 rounded-full px-1.5 py-[1px] text-[10px] font-semibold">—</span>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-gray-400 font-mono">
-                      {d.logon_time && d.logon_time !== '-' ? fmtDate(d.logon_time) : '—'}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Footer */}
-      <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
-        <button
-          onClick={() => setShowMultiLoginModal(false)}
-          className="px-4 py-2 rounded-lg border border-gray-200 text-[12px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
-        >
-          ปิด
-        </button>
-      </div>
-    </div>
-  </div>
-)}
       {toastMsg && (
         <div className="fixed bottom-5 left-5 bg-[#16a34a] text-white px-4 py-3 rounded-lg text-[13px] font-medium shadow-lg z-[9999] animate-in slide-in-from-bottom-5 duration-300">
           {toastMsg}
         </div>
       )}
 
-      {inventoryType === 'mo' && (
-        <MOInventoryPage />
-      )}
+      {inventoryType === 'mo' && <MOInventoryPage />}
     </div>
   );
 };
+
 export default PCInventoryPage;

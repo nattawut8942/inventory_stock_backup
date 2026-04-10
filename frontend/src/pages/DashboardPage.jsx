@@ -314,8 +314,8 @@ const DashboardPage = () => {
                 <StatCard
                     icon={DollarSign}
                     title="มูลค่าสต็อคปัจจุบัน "
-                    value={`฿${(stats.totalValue / 1000000).toFixed(2)}M`}
-                    subValue={`รวมมูลค่า ฿${stats.totalValue.toLocaleString()}`}
+                    value={`฿${stats.totalValue.toLocaleString()}`}
+                    subValue="บาท"
                     color="from-pink-500 to-pink-600"
                 />
                 <StatCard
@@ -427,7 +427,7 @@ const DashboardPage = () => {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.4, delay: 0.2 }}
-                    className="relative bg-white rounded-2xl p-6 shadow-lg border border-slate-100 overflow-hidden lg:col-span-2 group hover:shadow-xl transition-shadow duration-300 min-w-0"
+                    className="relative bg-white rounded-2xl p-6 shadow-lg border border-slate-100 lg:col-span-2 group hover:shadow-xl transition-shadow duration-300 min-w-0"
                 >
                     <div className="absolute top-0 right-0 w-60 h-40 bg-gradient-to-bl from-pink-50 to-transparent rounded-bl-[60px] opacity-60 pointer-events-none" />
                     <div className="relative flex justify-between items-center mb-6">
