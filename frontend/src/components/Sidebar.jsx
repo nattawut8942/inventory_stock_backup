@@ -162,37 +162,52 @@ const Sidebar = ({ isOpen, onClose }) => {
                 </div>
 
                 <nav className="relative z-10 flex-1 space-y-1.5 pr-2 overflow-y-auto pb-6">
-                    <NavItem icon={LayoutDashboard} label="DASHBOARD" to="/" onClose={onClose} />
+    <NavItem icon={LayoutDashboard} label="DASHBOARD" to="/" onClose={onClose} />
 
-                    <NavGroup icon={Package} label="STOCK & ORDERS" paths={['/inventory', '/ink-toner', '/purchase-orders', '/receive']}>
-                        <NavItem icon={Database} label="INVENTORY" to="/inventory" isSubItem onClose={onClose} />
-                        <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" isSubItem onClose={onClose} />
-                        <NavItem icon={ShoppingCart} label="PR & ORDERS" to="/purchase-orders" isSubItem onClose={onClose} />
-                        <NavItem icon={ArrowDownToLine} label="RECEIVE ITEMS" to="/receive" isSubItem onClose={onClose} />
+    {/* เส้นคั่นหลัง Dashboard */}
+    <div className="my-2 border-t border-white/5 mx-3"></div>
 
-                    </NavGroup>
+    {user?.role === 'Staff' ? (
+        <NavGroup icon={Package} label="STOCK & ORDERS" paths={['/inventory', '/ink-toner', '/purchase-orders', '/receive']}>
+            <NavItem icon={Database} label="INVENTORY" to="/inventory" isSubItem onClose={onClose} />
+            <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" isSubItem onClose={onClose} />
+            <NavItem icon={ShoppingCart} label="PR & ORDERS" to="/purchase-orders" isSubItem onClose={onClose} />
+            <NavItem icon={ArrowDownToLine} label="RECEIVE ITEMS" to="/receive" isSubItem onClose={onClose} />
+        </NavGroup>
+    ) : (
+        <>
+            <NavItem icon={Database} label="INVENTORY" to="/inventory" onClose={onClose} />
+            <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" onClose={onClose} />
+        </>
+    )}
 
-                    <NavItem icon={FileKey} label="MA / LICENSE" to="/ma-license" onClose={onClose} />
-                    <NavItem icon={Monitor} label="PC INVENTORY" to="/pc-inventory" onClose={onClose} />
+    {/* เส้นคั่นก่อนเข้าเมนูหลักอื่นๆ */}
+    <div className="my-2 border-t border-white/5 mx-3"></div>
 
-                    {user?.role === 'Staff' && (
-                        <>
-                            <div className="pt-6 pb-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider pl-3">
-                                Staff Controls
-                            </div>
-                            <NavItem icon={Plus} label="MANUAL IMPORT" to="/manual-import" onClose={onClose} />
-                            <NavItem icon={Shield} label="MANAGEMENT" to="/management" onClose={onClose} />
-                        </>
-                    )}
+    <NavItem icon={FileKey} label="MA / LICENSE" to="/ma-license" onClose={onClose} />
+    <NavItem icon={Monitor} label="PC INVENTORY" to="/pc-inventory" onClose={onClose} />
+    <NavItem icon={Shield} label="AD EXPLORER" to="/ad-explorer" onClose={onClose} />
 
-                    <div className="pt-6 pb-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider pl-3">
-                        ทั่วไป (General)
-                    </div>
-                    {/* <NavItem icon={ArrowUpFromLine} label="Withdraw Items" to="/withdraw" onClose={onClose} /> */}
-                    <NavItem icon={History} label="HISTORY LOG" to="/history" onClose={onClose} />
-                    <NavItem icon={FileSpreadsheet} label="REPORTS" to="/reports" onClose={onClose} />
+    {user?.role === 'Staff' && (
+        <>
+            {/* เส้นคั่นก่อน Staff Controls */}
+            <div className="mt-6 mb-2 border-t border-white/10 mx-3"></div>
+            <div className="pb-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider pl-3">
+                Staff Controls
+            </div>
+            <NavItem icon={Plus} label="MANUAL IMPORT" to="/manual-import" onClose={onClose} />
+            <NavItem icon={Shield} label="MANAGEMENT" to="/management" onClose={onClose} />
+        </>
+    )}
 
-                </nav>
+    {/* เส้นคั่นก่อน General */}
+    <div className="mt-6 mb-2 border-t border-white/10 mx-3"></div>
+    <div className="pb-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider pl-3">
+        ทั่วไป (General)
+    </div>
+    <NavItem icon={History} label="HISTORY LOG" to="/history" onClose={onClose} />
+    <NavItem icon={FileSpreadsheet} label="REPORTS" to="/reports" onClose={onClose} />
+</nav>
 
                 <div className="relative z-10 pt-6 border-t border-white/5 mt-2">
                     <div className="flex items-center space-x-3 px-3 py-3 bg-white/5 rounded-2xl border border-white/5 backdrop-blur-md hover:bg-white/10 transition-colors cursor-pointer group">

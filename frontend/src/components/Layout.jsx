@@ -24,7 +24,7 @@ const Layout = () => {
                     <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-indigo-500/10 to-transparent pointer-events-none -z-10"></div>
 
                     {/* Max width container */}
-                    <div className="max-w-7xl mx-auto w-full">
+                    <div className="max-w-[90%] mx-auto w-full">
                         <Outlet />
                     </div>
                 </div>

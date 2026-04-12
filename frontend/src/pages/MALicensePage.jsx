@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion'; // หรือ 'motion/react'
 import {
     Shield, Clock, AlertTriangle, DollarSign, Server, Monitor, Cpu, Wifi,
     Plus, Edit2, Trash2, X, Search, ChevronDown, Eye, FileText, Calendar,
     MapPin, Tag, Hash, Building, CreditCard, RefreshCw, CheckCircle, XCircle,
     HardDrive, Globe, Wrench, Printer, ChevronLeft, ChevronRight,
-    ChevronUp, ArrowUpDown, User
+    ChevronUp, ArrowUpDown, User, List, LayoutGrid
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AlertModal from '../components/AlertModal';
@@ -23,12 +23,11 @@ const CATEGORIES = [
 const STATUS_OPTIONS = ['Active', 'Expiring', 'Expired', 'Cancelled'];
 const STATUS_COLORS = {
     Active: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-    Expiring: 'bg-amber-100 text-amber-700 border-amber-200',
+    Expiring: 'bg-orange-100 text-orange-700 border-orange-200',
     Expired: 'bg-red-100 text-red-700 border-red-200',
     Cancelled: 'bg-slate-100 text-slate-500 border-slate-200',
 };
 
-// ─── CHANGED: threshold 90 → 60 วัน ─────
 const ALERT_DAYS = 60;
 
 // ─── HELPER: Days remaining ──────────────
@@ -79,12 +78,12 @@ const StatCard = ({ icon: Icon, title, value, color, subtitle, onClick, isActive
     >
         <div className="flex items-start justify-between">
             <div>
-                <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">{title}</p>
+                <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mb-1">{title}</p>
                 <h3 className="text-2xl font-black text-slate-900">{value}</h3>
-                {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
+                {subtitle && <p className="text-[10px] text-slate-400 mt-1">{subtitle}</p>}
             </div>
-            <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${color} flex items-center justify-center shadow-lg`}>
-                <Icon className="w-6 h-6 text-white" />
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center shadow-md`}>
+                <Icon className="w-5 h-5 text-white" />
             </div>
         </div>
     </motion.div>
@@ -113,7 +112,7 @@ const MALicensePage = () => {
 
     const [currentPage, setCurrentPage] = useState(1);
     const [sortConfig, setSortConfig] = useState(null);
-    const itemsPerPage = 10;
+    const itemsPerPage = 20;
 
     const fetchItems = async () => {
         try {
@@ -287,13 +286,13 @@ const MALicensePage = () => {
     const getColumns = (cat) => {
         const trackingCols = [
             { key: 'CreatedBy', label: 'ผู้บันทึก', width: 'min-w-[100px]' },
-            { key: 'CreatedAt', label: 'วันบันทึก', width: 'whitespace-nowrap min-w-[120px]' },
+            { key: 'CreatedAt', label: 'วันบันทึก', width: 'whitespace-nowrap min-w-[100px]' },
         ];
         switch (cat) {
             case 'HARDWARE': return [
                 { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
                 { key: 'ItemName', label: 'ชื่ออุปกรณ์', width: 'min-w-[150px]' },
-                { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'min-w-[200px]' },
+                { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'min-w-[150px]' },
                 { key: 'SerialNumber', label: 'S/N', width: 'min-w-[100px] break-all' },
                 { key: 'PONumber', label: 'PO/สัญญา', width: 'min-w-[100px] break-all' },
                 { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
@@ -328,7 +327,7 @@ const MALicensePage = () => {
             case 'RENTAL': return [
                 { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
                 { key: 'ItemName', label: 'ชื่อรายการ', width: 'min-w-[150px]' },
-                { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'min-w-[200px]' },
+                { key: 'Brand', label: 'ยี่ห้อ/รุ่น', width: 'min-w-[150px]' },
                 { key: 'PONumber', label: 'เลขสัญญา', width: 'min-w-[120px] break-all' },
                 { key: 'LicenseQty', label: 'จำนวน', width: 'min-w-[60px] text-center' },
                 { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
@@ -346,7 +345,7 @@ const MALicensePage = () => {
             const days = getDaysRemaining(item.EndDate);
             const isAlert = item.Status !== 'Cancelled' && days !== null && days <= ALERT_DAYS;
             return (
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${STATUS_COLORS[item.Status] || STATUS_COLORS.Active} ${isAlert ? 'animate-pulse ring-2 ring-red-400 ring-offset-1' : ''}`}>
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${STATUS_COLORS[item.Status] || STATUS_COLORS.Active} ${isAlert ? 'animate-pulse ring-2 ring-red-400 ring-offset-1' : ''}`}>
                     {item.Status}
                 </span>
             );
@@ -359,10 +358,14 @@ const MALicensePage = () => {
         if (col.key === '_duration') {
             const days = getDaysRemaining(item.EndDate);
             if (days === null) return '-';
-            if (days <= 0) return <span className="text-red-500 font-bold text-xs animate-pulse">หมดอายุ</span>;
-            // CHANGED: แสดงวันที่เหลือจากวันนี้ ไม่ใช่ระยะเวลาทั้งหมด + threshold 60 วัน
-            if (days <= ALERT_DAYS) return <span className="text-amber-500 font-bold text-xs animate-pulse">{days} วัน</span>;
-            return <span className="text-emerald-600 font-bold text-xs">{formatDuration(new Date(), item.EndDate)}</span>;
+            if (days <= 0) return <span className="text-red-600 font-bold text-[10px] animate-pulse">หมดอายุ</span>;
+            const display = days < 30 ? `${days} วัน` : formatDuration(new Date(), item.EndDate);
+            const isAlert = days <= ALERT_DAYS;
+            return (
+                <span className={`font-bold text-[10px] ${isAlert ? 'text-orange-600' : 'text-emerald-600'}`}>
+                    {display}
+                </span>
+            );
         }
         if (col.key === 'Price') return `฿${(item.Price || 0).toLocaleString()}`;
         if (col.key === 'LicenseQty') return item.LicenseQty || '-';
@@ -374,107 +377,127 @@ const MALicensePage = () => {
     const activeCat = CATEGORIES.find(c => c.key === activeTab);
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 w-full">
+            {/* Header & Stats */}
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
                 <h2 className="text-3xl font-black text-slate-800">MA / LICENSE</h2>
-                <p className="text-slate-500 font-medium">บริหารจัดการสัญญา MA, License, Services และ Rental</p>
+                <p className="text-slate-500 font-medium text-sm">บริหารจัดการสัญญา MA, License, Services และ Rental</p>
             </motion.div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard icon={CheckCircle} title="Active" value={stats.active} color="from-emerald-500 to-emerald-600" subtitle="รายการที่ยังมีผล" onClick={() => setCardFilter(cardFilter === 'active' ? 'all' : 'active')} isActive={cardFilter === 'active'} />
-                <StatCard icon={Clock} title="Expiring Soon" value={stats.expiringSoon} color="from-amber-500 to-amber-600" subtitle="หมดอายุภายใน 60 วัน" onClick={() => setCardFilter(cardFilter === 'expiringSoon' ? 'all' : 'expiringSoon')} isActive={cardFilter === 'expiringSoon'} />
-                <StatCard icon={AlertTriangle} title="Expired" value={stats.expired} color="from-red-500 to-red-600" subtitle="หมดอายุแล้ว" onClick={() => setCardFilter(cardFilter === 'expired' ? 'all' : 'expired')} isActive={cardFilter === 'expired'} />
-                <StatCard icon={DollarSign} title="Total Value" value={`฿${stats.totalValue.toLocaleString()}`}color="from-indigo-500 to-indigo-600" subtitle="มูลค่ารวมรายการ Active" />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard icon={CheckCircle} title="Active" value={stats.active} color="from-emerald-500 to-emerald-600" onClick={() => setCardFilter(cardFilter === 'active' ? 'all' : 'active')} isActive={cardFilter === 'active'} />
+                <StatCard icon={Clock} title="Expiring (< 60 Days)" value={stats.expiringSoon} color="from-orange-400 to-orange-500" onClick={() => setCardFilter(cardFilter === 'expiringSoon' ? 'all' : 'expiringSoon')} isActive={cardFilter === 'expiringSoon'} />
+                <StatCard icon={AlertTriangle} title="Expired" value={stats.expired} color="from-red-500 to-red-600" onClick={() => setCardFilter(cardFilter === 'expired' ? 'all' : 'expired')} isActive={cardFilter === 'expired'} />
+                <StatCard icon={DollarSign} title="Total Value" value={`฿${(stats.totalValue/1000).toFixed(0)}k`} color="from-indigo-500 to-indigo-600" subtitle="มูลค่ารวม Active" />
             </div>
 
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="flex bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
+            {/* Header Controls (เรียงแถวเดียวกัน) */}
+            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                
+                {/* Category Tabs */}
+                <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100 w-full xl:w-auto overflow-x-auto">
                     {CATEGORIES.map(cat => {
                         const CatIcon = cat.icon;
                         return (
                             <button key={cat.key} onClick={() => { setActiveTab(cat.key); setSearchTerm(''); setStatusFilter('all'); setCardFilter('all'); setSortConfig(null); }}
-                                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === cat.key ? `bg-gradient-to-r ${cat.color} text-white shadow-lg` : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}>
-                                <CatIcon size={16} />
-                                <span className="hidden sm:inline">{cat.label}</span>
+                                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === cat.key ? `bg-gradient-to-r ${cat.color} text-white shadow-md` : 'text-slate-500 hover:text-slate-800 hover:bg-white'}`}>
+                                <CatIcon size={14} />
+                                <span>{cat.label}</span>
                             </button>
                         );
                     })}
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100">
-                        <Search size={16} className="text-slate-400 self-center" />
-                        <input type="text" placeholder="ค้นหา..." className="bg-transparent border-none outline-none text-sm w-32 md:w-40 text-slate-700 placeholder-slate-400" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+
+                {/* Filter & Controls */}
+                <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+                    {/* Search */}
+                    <div className="relative flex-1 min-w-[150px] h-[36px]">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input type="text" placeholder="ค้นหา..." className="w-full h-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                     </div>
-                    <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-white border border-slate-200 px-3 py-2 rounded-xl text-sm font-medium text-slate-700 shadow-sm outline-none cursor-pointer">
+
+                    {/* Status Filter */}
+                    <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-[36px] bg-slate-50 border border-slate-200 px-2 rounded-lg text-xs font-medium text-slate-700 outline-none cursor-pointer hover:bg-white transition-colors">
                         <option value="all">ทุกสถานะ</option>
                         {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
-                    <div className="flex bg-slate-100 p-1 rounded-xl">
-                        <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`} title="มุมมองรายการ">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+
+                    {/* View Mode Toggle */}
+                    <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-200 h-[36px]">
+                        <button onClick={() => setViewMode('list')} className={`px-2 rounded-md transition-all flex items-center ${viewMode === 'list' ? 'bg-white shadow-sm text-indigo-600 font-bold' : 'text-slate-400 hover:text-slate-600'}`} title="รายการ">
+                            <List size={14} />
                         </button>
-                        <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`} title="มุมมองการ์ด">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                        <button onClick={() => setViewMode('grid')} className={`px-2 rounded-md transition-all flex items-center ${viewMode === 'grid' ? 'bg-white shadow-sm text-indigo-600 font-bold' : 'text-slate-400 hover:text-slate-600'}`} title="การ์ด">
+                            <LayoutGrid size={14} />
                         </button>
                     </div>
+
+                    {/* Add Button */}
                     {isAdmin && (
-                        <button onClick={() => setFormModal({ isOpen: true, item: null })} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r ${activeCat?.color} shadow-lg hover:shadow-xl transition-all`}>
-                            <Plus size={16} />
+                        <button onClick={() => setFormModal({ isOpen: true, item: null })} className={`h-[36px] flex items-center gap-1.5 px-3 rounded-lg font-bold text-xs text-white bg-gradient-to-r ${activeCat?.color} shadow-sm hover:shadow-md transition-all`}>
+                            <Plus size={14} />
                             <span className="hidden sm:inline">เพิ่มรายการ</span>
                         </button>
                     )}
                 </div>
             </div>
 
+            {/* LIST VIEW */}
             {viewMode === 'list' ? (
-                <motion.div key={`list-${activeTab}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden flex flex-col">
+                <motion.div key={`list-${activeTab}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                     <div className="overflow-x-auto max-h-[60vh] 2xl:max-h-[70vh] custom-scrollbar relative">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 text-slate-600 uppercase text-[11px] tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+                        <table className="w-full text-left text-xs min-w-max">
+                            <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                                 <tr>
-                                    <th className="p-2 pl-3 w-8 bg-slate-50">#</th>
+                                    <th className="px-3 py-2.5 w-8 bg-slate-50">#</th>
                                     {getColumns(activeTab).map(col => (
-                                        <th key={col.key} className={`p-2 ${col.width} bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors group select-none`} onClick={() => handleSort(col.key)}>
+                                        <th key={col.key} className={`px-3 py-2.5 ${col.width} bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors group select-none`} onClick={() => handleSort(col.key)}>
                                             <div className="flex items-center gap-1">
                                                 {col.label}
                                                 {sortConfig?.key === col.key ? (
-                                                    sortConfig.direction === 'asc' ? <ChevronUp size={12} className="text-indigo-600" /> : <ChevronDown size={12} className="text-indigo-600" />
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={10} className="text-indigo-600" /> : <ChevronDown size={10} className="text-indigo-600" />
                                                 ) : (
-                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                    <ArrowUpDown size={10} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                                                 )}
                                             </div>
                                         </th>
                                     ))}
-                                    <th className="p-2 w-16 text-center bg-slate-50">ดู</th>
+                                    <th className="px-3 py-2.5 w-12 text-center bg-slate-50">ดู</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            <tbody className="divide-y divide-slate-100">
                                 {filteredItems.length === 0 ? (
                                     <tr>
-                                        <td colSpan={getColumns(activeTab).length + 2} className="p-12 text-center text-slate-400">
-                                            <div className="flex flex-col items-center gap-3">
-                                                <FileText size={40} className="text-slate-300" />
-                                                <p className="font-bold">ไม่พบรายการ</p>
-                                                <p className="text-xs">เพิ่มรายการใหม่หรือเปลี่ยนตัวกรอง</p>
-                                            </div>
+                                        <td colSpan={getColumns(activeTab).length + 2} className="p-10 text-center text-slate-400">
+                                            ไม่พบรายการ
                                         </td>
                                     </tr>
                                 ) : paginatedItems.map((item, idx) => {
                                     const days = getDaysRemaining(item.EndDate);
                                     const isExpiring = days !== null && days > 0 && days <= ALERT_DAYS;
                                     const isExpired = days !== null && days <= 0;
+                                    const isCancelled = item.Status === 'Cancelled';
                                     const globalIdx = (currentPage - 1) * itemsPerPage + idx;
+                                    
+                                    // 🎨 ลอจิกสีพื้นหลังตาราง
+                                    const rowBgColor = isCancelled ? 'bg-slate-50 hover:bg-slate-100 opacity-75'
+                                        : isExpired ? 'bg-red-100 hover:bg-red-200'
+                                        : isExpiring ? (days <= 30 ? 'bg-red-50 hover:bg-red-100' : 'bg-orange-50 hover:bg-orange-100')
+                                        : 'bg-white hover:bg-slate-50';
+
                                     return (
                                         <motion.tr key={item.ItemID} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.02 }}
-                                            className={`hover:bg-slate-50 transition-colors cursor-pointer ${isExpired && item.Status !== 'Cancelled' ? 'bg-red-50/50' : isExpiring && item.Status !== 'Cancelled' ? 'bg-amber-50/50' : ''}`}
+                                            className={`transition-colors cursor-pointer align-top ${rowBgColor}`}
                                             onClick={() => setDetailItem(item)}>
-                                            <td className="p-2 pl-3 text-slate-400 font-mono text-xs">{globalIdx + 1}</td>
+                                            <td className="px-3 py-2 text-slate-400 font-mono text-[10px]">{globalIdx + 1}</td>
                                             {getColumns(activeTab).map(col => (
-                                                <td key={col.key} className={`p-2 text-slate-700 text-xs font-medium ${col.width}`}>{renderCellValue(item, col)}</td>
+                                                <td key={col.key} className={`px-3 py-2 text-slate-700 text-[11px] ${col.key === 'ItemName' ? 'font-bold text-xs' : ''} ${col.width}`}>
+                                                    {renderCellValue(item, col)}
+                                                </td>
                                             ))}
-                                            <td className="p-2 text-center">
-                                                <button onClick={(e) => { e.stopPropagation(); setDetailItem(item); }} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                                                    <Eye size={16} />
+                                            <td className="px-3 py-2 text-center">
+                                                <button onClick={(e) => { e.stopPropagation(); setDetailItem(item); }} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-white rounded transition-colors">
+                                                    <Eye size={14} />
                                                 </button>
                                             </td>
                                         </motion.tr>
@@ -485,50 +508,55 @@ const MALicensePage = () => {
                     </div>
                 </motion.div>
             ) : (
-                <motion.div key={`grid-${activeTab}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                /* GRID VIEW */
+                <motion.div key={`grid-${activeTab}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
                     {filteredItems.length === 0 ? (
                         <div className="col-span-full p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200">
-                            <div className="flex flex-col items-center gap-3">
-                                <FileText size={40} className="text-slate-300" />
-                                <p className="font-bold">ไม่พบรายการ</p>
-                                <p className="text-xs">เพิ่มรายการใหม่หรือเปลี่ยนตัวกรอง</p>
-                            </div>
+                            ไม่พบรายการ
                         </div>
                     ) : paginatedItems.map((item, idx) => {
                         const days = getDaysRemaining(item.EndDate);
                         const isExpiring = days !== null && days > 0 && days <= ALERT_DAYS;
                         const isExpired = days !== null && days <= 0;
-                        const isAlert = item.Status !== 'Cancelled' && (isExpiring || isExpired);
+                        const isCancelled = item.Status === 'Cancelled';
+                        
+                        // 🎨 ลอจิกสีพื้นหลังการ์ด
+                        const cardBgColor = isCancelled ? 'bg-slate-50 border-slate-200 opacity-75'
+                            : isExpired ? 'bg-red-100 border-red-300 ring-1 ring-red-200'
+                            : isExpiring ? (days <= 30 ? 'bg-red-50 border-red-200 ring-1 ring-red-100' : 'bg-orange-50 border-orange-200 ring-1 ring-orange-100')
+                            : 'bg-white border-slate-200';
+
                         return (
                             <motion.div key={item.ItemID} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.02 }}
-                                className={`bg-white rounded-2xl border ${isAlert ? 'border-red-200 shadow-red-100' : 'border-slate-200'} shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all overflow-hidden cursor-pointer flex flex-col relative`}
+                                className={`rounded-2xl border shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all overflow-hidden cursor-pointer flex flex-col relative ${cardBgColor}`}
                                 onClick={() => setDetailItem(item)}>
-                                {isAlert && <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 m-3 animate-ping"></div>}
-                                <div className="p-4 border-b border-slate-50 flex items-start gap-3">
-                                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${activeCat?.color} flex items-center justify-center shadow-lg shrink-0`}>
-                                        <activeCat.icon className="w-5 h-5 text-white" />
+                                {(isExpiring || isExpired) && !isCancelled && <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 m-3 animate-ping"></div>}
+                                
+                                <div className="p-3 border-b border-black/5 flex items-start gap-2.5">
+                                    <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${activeCat?.color} flex items-center justify-center shadow-sm shrink-0`}>
+                                        <activeCat.icon className="w-4 h-4 text-white" />
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                        <h4 className="font-bold text-slate-800 text-sm truncate">{item.ItemName}</h4>
-                                        <p className="text-xs text-slate-500 truncate">{item.SubType}</p>
+                                        <h4 className="font-bold text-slate-800 text-xs truncate">{item.ItemName}</h4>
+                                        <p className="text-[10px] text-slate-500 truncate">{item.SubType}</p>
                                     </div>
                                 </div>
-                                <div className="p-4 flex-1 space-y-3">
-                                    <div className="flex justify-between items-center text-xs">
+                                <div className="p-3 flex-1 space-y-2">
+                                    <div className="flex justify-between items-center text-[10px]">
                                         <span className="text-slate-500">สถานะ:</span>
                                         {renderCellValue(item, { key: 'Status' })}
                                     </div>
-                                    <div className="flex justify-between items-center text-xs">
+                                    <div className="flex justify-between items-center text-[10px]">
                                         <span className="text-slate-500">หมดอายุ:</span>
-                                        <span className={isAlert ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-700'}>{formatDate(item.EndDate)}</span>
+                                        <span className={(isExpiring || isExpired) && !isCancelled ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-700'}>{formatDate(item.EndDate)}</span>
                                     </div>
-                                    <div className="flex justify-between items-center text-xs">
+                                    <div className="flex justify-between items-center text-[10px]">
                                         <span className="text-slate-500">เหลือเวลา:</span>
                                         {renderCellValue(item, { key: '_duration' })}
                                     </div>
-                                    <div className="flex justify-between items-start gap-2 text-xs">
+                                    <div className="flex justify-between items-start gap-2 text-[10px] pt-1 border-t border-black/5">
                                         <span className="text-slate-500 whitespace-nowrap">Vendor:</span>
-                                        <span className="font-medium text-slate-700 text-right break-words">{item.VendorName || '-'}</span>
+                                        <span className="font-medium text-slate-700 text-right truncate">{item.VendorName || '-'}</span>
                                     </div>
                                 </div>
                             </motion.div>
@@ -537,50 +565,52 @@ const MALicensePage = () => {
                 </motion.div>
             )}
 
+            {/* Footer Pagination */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mt-4">
-                <div className="px-5 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-slate-500">
-                    <div className="flex items-center gap-4">
+                <div className="px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-3 text-[11px] text-slate-500">
+                    <div className="flex items-center gap-3">
                         <span>ทั้งหมด <span className="font-bold text-slate-700">{filteredItems.length}</span> รายการ</span>
                         <span className="hidden sm:inline text-slate-300">|</span>
                         <span className="hidden sm:inline">มูลค่ารวม <span className="font-bold text-slate-700">฿{filteredItems.reduce((s, i) => s + (i.Price || 0), 0).toLocaleString()}</span></span>
                     </div>
                     {totalPages > 1 && (
                         <div className="flex items-center gap-2">
-                            <span className="font-medium mr-2">หน้า {currentPage} จาก {totalPages}</span>
-                            <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
-                                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1.5 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white transition-colors border-r border-slate-200"><ChevronLeft size={16} /></button>
-                                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1.5 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white transition-colors"><ChevronRight size={16} /></button>
+                            <span className="font-medium mr-1">หน้า {currentPage} / {totalPages}</span>
+                            <div className="flex items-center border border-slate-200 rounded-md overflow-hidden bg-white">
+                                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1 hover:bg-slate-50 disabled:opacity-50 border-r border-slate-200"><ChevronLeft size={14} /></button>
+                                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1 hover:bg-slate-50 disabled:opacity-50"><ChevronRight size={14} /></button>
                             </div>
                         </div>
                     )}
                 </div>
             </div>
 
+            {/* MODAL ข้อมูลละเอียด */}
             {detailItem && (
                 <Portal>
                     <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden">
-                            <div className={`p-4 md:p-5 bg-gradient-to-r ${activeCat?.color} text-white relative overflow-hidden`}>
+                            <div className={`p-4 bg-gradient-to-r ${activeCat?.color} text-white relative overflow-hidden`}>
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
                                 <div className="flex justify-between items-start relative z-10">
                                     <div>
-                                        <p className="text-xs font-bold uppercase tracking-widest opacity-80 mb-1">{activeCat?.label}</p>
-                                        <h3 className="font-black text-xl md:text-2xl tracking-tight">{detailItem.ItemName}</h3>
-                                        <p className="text-white/70 text-sm mt-1">{detailItem.SubType}</p>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1">{activeCat?.label}</p>
+                                        <h3 className="font-black text-lg md:text-xl tracking-tight">{detailItem.ItemName}</h3>
+                                        <p className="text-white/80 text-xs mt-0.5">{detailItem.SubType}</p>
                                     </div>
-                                    <button onClick={() => { setDetailItem(null); setStatusDropdownOpen(false); }} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+                                    <button onClick={() => { setDetailItem(null); setStatusDropdownOpen(false); }} className="p-1.5 hover:bg-white/20 rounded-full transition-colors"><X size={18} /></button>
                                 </div>
                             </div>
-                            <div className="p-4 md:p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+                            <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
                                 <div className="flex items-center gap-3">
-                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${STATUS_COLORS[detailItem.Status]}`}>{detailItem.Status}</span>
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${STATUS_COLORS[detailItem.Status]}`}>{detailItem.Status}</span>
                                     {detailItem.EndDate && (
-                                        <span className="text-xs text-slate-500">
+                                        <span className="text-[11px] text-slate-500 font-medium">
                                             {getDaysRemaining(detailItem.EndDate) > 0 ? `เหลือ ${getDaysRemaining(detailItem.EndDate)} วัน` : 'หมดอายุแล้ว'}
                                         </span>
                                     )}
                                 </div>
-                                <div className="bg-slate-50 rounded-xl overflow-hidden divide-y divide-slate-100 border border-slate-100 shadow-sm">
+                                <div className="bg-slate-50 rounded-xl overflow-hidden divide-y divide-slate-100 border border-slate-100">
                                     {detailItem.Brand && <DetailField icon={Tag} label="ยี่ห้อ/รุ่น" value={detailItem.Brand} />}
                                     {detailItem.SerialNumber && <DetailField icon={Hash} label="Serial Number" value={detailItem.SerialNumber} />}
                                     {detailItem.ServiceNumber && <DetailField icon={FileText} label="เลขบริการ/สัญญา" value={detailItem.ServiceNumber} />}
@@ -593,37 +623,37 @@ const MALicensePage = () => {
                                     <DetailField icon={Calendar} label="สิ้นสุด" value={formatDate(detailItem.EndDate)} />
                                     <DetailField icon={Clock} label="ระยะเวลา" value={formatDuration(detailItem.StartDate, detailItem.EndDate)} />
                                 </div>
-                                <div className="bg-blue-50 rounded-xl overflow-hidden divide-y divide-blue-100 border border-blue-100 shadow-sm">
+                                <div className="bg-blue-50 rounded-xl overflow-hidden divide-y divide-blue-100 border border-blue-100">
                                     <DetailField icon={User} label="ผู้บันทึก" value={detailItem.CreatedBy || '-'} />
                                     <DetailField icon={Calendar} label="วันบันทึก" value={formatDate(detailItem.CreatedAt)} />
                                     <DetailField icon={Clock} label="แก้ไขล่าสุด" value={formatDate(detailItem.UpdatedAt)} />
                                 </div>
                                 {detailItem.Remark && (
-                                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">หมายเหตุ</p>
-                                        <p className="text-sm text-slate-700">{detailItem.Remark}</p>
+                                    <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">หมายเหตุ</p>
+                                        <p className="text-xs text-slate-700">{detailItem.Remark}</p>
                                     </div>
                                 )}
                             </div>
                             {isAdmin && (
-                                <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-2">
-                                    <button onClick={() => { setDetailItem(null); setStatusDropdownOpen(false); setFormModal({ isOpen: true, item: detailItem }); }} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors border border-indigo-200">
-                                        <Edit2 size={14} /> แก้ไข
+                                <div className="p-3 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-2">
+                                    <button onClick={() => { setDetailItem(null); setStatusDropdownOpen(false); setFormModal({ isOpen: true, item: detailItem }); }} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-md text-[11px] font-bold hover:bg-indigo-100 border border-indigo-200">
+                                        <Edit2 size={12} /> แก้ไข
                                     </button>
                                     <div className="relative">
-                                        <button onClick={() => setStatusDropdownOpen(p => !p)} className="flex items-center gap-1.5 px-4 py-2 bg-amber-50 text-amber-600 rounded-lg text-sm font-bold hover:bg-amber-100 transition-colors border border-amber-200">
-                                            <RefreshCw size={14} /> เปลี่ยนสถานะ <ChevronDown size={12} className={`transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} />
+                                        <button onClick={() => setStatusDropdownOpen(p => !p)} className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-md text-[11px] font-bold hover:bg-amber-100 border border-amber-200">
+                                            <RefreshCw size={12} /> เปลี่ยนสถานะ <ChevronDown size={10} className={`transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} />
                                         </button>
                                         {statusDropdownOpen && (
-                                            <div className="absolute bottom-full left-0 mb-1 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-10 min-w-[140px]">
+                                            <div className="absolute bottom-full left-0 mb-1 bg-white rounded-md shadow-lg border border-slate-200 py-1 z-10 min-w-[120px]">
                                                 {STATUS_OPTIONS.filter(s => s !== detailItem.Status).map(s => (
-                                                    <button key={s} onClick={() => handleStatusChange(detailItem, s)} className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 text-slate-700 font-medium">{s}</button>
+                                                    <button key={s} onClick={() => handleStatusChange(detailItem, s)} className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-slate-50 text-slate-700 font-medium">{s}</button>
                                                 ))}
                                             </div>
                                         )}
                                     </div>
-                                    <button onClick={() => { setDetailItem(null); setStatusDropdownOpen(false); handleDelete(detailItem); }} className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-bold hover:bg-red-100 transition-colors border border-red-200 ml-auto">
-                                        <Trash2 size={14} /> ลบ
+                                    <button onClick={() => { setDetailItem(null); setStatusDropdownOpen(false); handleDelete(detailItem); }} className="flex items-center gap-1 px-3 py-1.5 bg-red-50 text-red-600 rounded-md text-[11px] font-bold hover:bg-red-100 border border-red-200 ml-auto">
+                                        <Trash2 size={12} /> ลบ
                                     </button>
                                 </div>
                             )}
@@ -632,6 +662,7 @@ const MALicensePage = () => {
                 </Portal>
             )}
 
+            {/* FORM MODAL */}
             {formModal.isOpen && (
                 <FormModal item={formModal.item} category={activeTab} vendors={vendors} locations={locations} maTypes={maTypes} onSave={handleSave} onClose={() => setFormModal({ isOpen: false, item: null })} />
             )}
@@ -643,11 +674,11 @@ const MALicensePage = () => {
 };
 
 const DetailField = ({ icon: Icon, label, value }) => (
-    <div className="flex items-center p-3 sm:px-4">
-        <span className="text-xs text-slate-500 font-bold uppercase w-64 shrink-0 flex items-center gap-2">
-            <Icon size={14} className="text-indigo-400" /> {label}
+    <div className="flex items-start sm:items-center p-2.5 sm:px-3 flex-col sm:flex-row gap-1 sm:gap-0">
+        <span className="text-[11px] text-slate-500 font-bold uppercase w-48 shrink-0 flex items-center gap-1.5">
+            <Icon size={12} className="text-indigo-400" /> {label}
         </span>
-        <span className="text-base font-medium text-slate-800">{value}</span>
+        <span className="text-xs font-medium text-slate-800 break-words">{value}</span>
     </div>
 );
 
@@ -699,111 +730,105 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
         <Portal>
             <div className="fixed inset-0 z-[70] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
                 <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden">
-                    <div className={`p-4 md:p-5 bg-gradient-to-r ${catInfo?.color} text-white`}>
+                    <div className={`p-4 bg-gradient-to-r ${catInfo?.color} text-white`}>
                         <div className="flex justify-between items-center">
-                            <h3 className="font-black text-lg md:text-xl">{isEdit ? 'แก้ไขรายการ' : `เพิ่ม ${catInfo?.label} ใหม่`}</h3>
-                            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+                            <h3 className="font-black text-lg">{isEdit ? 'แก้ไขรายการ' : `เพิ่ม ${catInfo?.label} ใหม่`}</h3>
+                            <button onClick={onClose} className="p-1.5 hover:bg-white/20 rounded-full transition-colors"><X size={18} /></button>
                         </div>
                     </div>
-                    <form id="ma-form" onSubmit={handleSubmit} className="p-4 md:p-5 space-y-4 max-h-[65vh] overflow-y-auto">
-                        <div className="grid grid-cols-2 gap-4">
+                    <form id="ma-form" onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[65vh] overflow-y-auto custom-scrollbar">
+                        <div className="grid grid-cols-2 gap-3">
                             <FormField label="ประเภทย่อย" required error={errors.SubType}>
-                                <select value={form.SubType} onChange={(e) => handleChange('SubType', e.target.value)} className={`form-input ${errors.SubType ? 'border-red-400 ring-1 ring-red-400' : ''}`}>
+                                <select value={form.SubType} onChange={(e) => handleChange('SubType', e.target.value)} className={`w-full p-2 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 ${errors.SubType ? 'border-red-400' : 'border-slate-200'}`}>
                                     <option value="">เลือกประเภท...</option>
                                     {subtypeOptions.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
                             </FormField>
                             <FormField label={cat === 'SOFTWARE' ? 'ชื่อ Software / License' : cat === 'SERVICE' ? 'ชื่อบริการ' : cat === 'RENTAL' ? 'ชื่อรายการเช่า' : 'ชื่ออุปกรณ์'} error={errors.ItemName}>
-                                <input type="text" value={form.ItemName} onChange={(e) => handleChange('ItemName', e.target.value)} className={`form-input ${errors.ItemName ? 'border-red-400 ring-1 ring-red-400' : ''}`} placeholder="ระบุชื่อ..." />
+                                <input type="text" value={form.ItemName} onChange={(e) => handleChange('ItemName', e.target.value)} className={`w-full p-2 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 ${errors.ItemName ? 'border-red-400' : 'border-slate-200'}`} placeholder="ระบุชื่อ..." />
                             </FormField>
                         </div>
                         {(cat === 'HARDWARE' || cat === 'RENTAL') && (
-                            <div className="grid grid-cols-2 gap-4">
-                                <FormField label="ยี่ห้อ/รุ่น"><input type="text" value={form.Brand} onChange={(e) => handleChange('Brand', e.target.value)} className="form-input" placeholder="Brand / Model" /></FormField>
-                                <FormField label="Serial Number"><input type="text" value={form.SerialNumber} onChange={(e) => handleChange('SerialNumber', e.target.value)} className="form-input" placeholder="S/N" /></FormField>
+                            <div className="grid grid-cols-2 gap-3">
+                                <FormField label="ยี่ห้อ/รุ่น"><input type="text" value={form.Brand} onChange={(e) => handleChange('Brand', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Brand / Model" /></FormField>
+                                <FormField label="Serial Number"><input type="text" value={form.SerialNumber} onChange={(e) => handleChange('SerialNumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="S/N" /></FormField>
                             </div>
                         )}
                         {cat === 'SOFTWARE' && (
-                            <div className="grid grid-cols-2 gap-4">
-                                <FormField label="หมายเลขบริการ"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="form-input" placeholder="Service Number" /></FormField>
-                                <FormField label="จำนวน License"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="form-input" /></FormField>
+                            <div className="grid grid-cols-2 gap-3">
+                                <FormField label="หมายเลขบริการ"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Service Number" /></FormField>
+                                <FormField label="จำนวน License"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
                             </div>
                         )}
                         {cat === 'SERVICE' && (
-                            <div className="grid grid-cols-2 gap-4">
-                                <FormField label="เลขสัญญา"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="form-input" placeholder="Contract No." /></FormField>
+                            <div className="grid grid-cols-2 gap-3">
+                                <FormField label="เลขสัญญา"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Contract No." /></FormField>
                                 <FormField label="สถานที่ให้บริการ">
-                                    <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="form-input">
+                                    <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
                                         <option value="">เลือกสถานที่...</option>
                                         {locations.map(l => <option key={l.LocationID} value={l.Name}>{l.Name}</option>)}
                                     </select>
                                 </FormField>
                             </div>
                         )}
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-3">
                             {(cat !== 'SERVICE') && (
-                                <FormField label="PO / เลขสัญญา"><input type="text" value={form.PONumber} onChange={(e) => handleChange('PONumber', e.target.value)} className="form-input" placeholder="PO Number" /></FormField>
+                                <FormField label="PO / เลขสัญญา"><input type="text" value={form.PONumber} onChange={(e) => handleChange('PONumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="PO Number" /></FormField>
                             )}
                             {(cat === 'RENTAL') && (
-                                <FormField label="จำนวน"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="form-input" /></FormField>
+                                <FormField label="จำนวน"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
                             )}
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-3">
                             {(cat === 'HARDWARE' || cat === 'RENTAL') && (
                                 <FormField label="สถานที่ติดตั้ง">
-                                    <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="form-input">
+                                    <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
                                         <option value="">เลือกสถานที่...</option>
                                         {locations.map(l => <option key={l.LocationID} value={l.Name}>{l.Name}</option>)}
                                     </select>
                                 </FormField>
                             )}
-                            <FormField label="ราคา (฿)"><input type="number" min="0" step="0.01" value={form.Price} onChange={(e) => handleChange('Price', parseFloat(e.target.value) || 0)} className="form-input" /></FormField>
+                            <FormField label="ราคา (฿)"><input type="number" min="0" step="0.01" value={form.Price} onChange={(e) => handleChange('Price', parseFloat(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-3">
                             <FormField label="Vendor">
-                                <select value={form.VendorID} onChange={(e) => handleChange('VendorID', e.target.value ? parseInt(e.target.value) : '')} className="form-input">
+                                <select value={form.VendorID} onChange={(e) => handleChange('VendorID', e.target.value ? parseInt(e.target.value) : '')} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
                                     <option value="">เลือก Vendor...</option>
                                     {vendors.map(v => <option key={v.VendorID} value={v.VendorID}>{v.VendorName}</option>)}
                                 </select>
                             </FormField>
                             <FormField label="สถานะ">
-                                <select value={form.Status} onChange={(e) => handleChange('Status', e.target.value)} className="form-input">
+                                <select value={form.Status} onChange={(e) => handleChange('Status', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
                                     {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
                             </FormField>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <FormField label="วันที่เริ่ม/ต่อประกัน"><input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="form-input" /></FormField>
-                            <FormField label="วันที่หมดอายุ"><input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="form-input" /></FormField>
+                        <div className="grid grid-cols-2 gap-3">
+                            <FormField label="วันที่เริ่ม/ต่อประกัน"><input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
+                            <FormField label="วันที่หมดอายุ"><input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
                         </div>
                         <FormField label="หมายเหตุ (Remark)">
-                            <textarea rows={2} value={form.Remark} onChange={(e) => handleChange('Remark', e.target.value)} className="form-input resize-none" placeholder="ข้อมูลเพิ่มเติม..." />
+                            <textarea rows={2} value={form.Remark} onChange={(e) => handleChange('Remark', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 resize-none" placeholder="ข้อมูลเพิ่มเติม..." />
                         </FormField>
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
-                            <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-3">📋 ข้อมูลการบันทึก</p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mt-4">
+                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-2">📋 ข้อมูลการบันทึก</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                                 <div>
-                                    <label className="block text-blue-600 font-bold uppercase tracking-wider mb-1 text-[11px]">ผู้บันทึก</label>
-                                    <input type="text" value={form.CreatedBy || user?.username} disabled className="form-input bg-white text-slate-600 cursor-not-allowed border-blue-100" />
+                                    <label className="block text-blue-600 font-bold mb-0.5">ผู้บันทึก</label>
+                                    <input type="text" value={form.CreatedBy || user?.username} disabled className="w-full p-1.5 bg-white text-slate-500 rounded border border-blue-100 cursor-not-allowed" />
                                 </div>
                                 {isEdit && (
                                     <div>
-                                        <label className="block text-blue-600 font-bold uppercase tracking-wider mb-1 text-[11px]">วันบันทึก</label>
-                                        <input type="text" value={formatDate(form.CreatedAt)} disabled className="form-input bg-white text-slate-600 cursor-not-allowed border-blue-100" />
+                                        <label className="block text-blue-600 font-bold mb-0.5">วันบันทึก</label>
+                                        <input type="text" value={formatDate(form.CreatedAt)} disabled className="w-full p-1.5 bg-white text-slate-500 rounded border border-blue-100 cursor-not-allowed" />
                                     </div>
                                 )}
                             </div>
-                            {isEdit && (
-                                <div className="mt-3 pt-3 border-t border-blue-100">
-                                    <label className="block text-blue-600 font-bold uppercase tracking-wider mb-1 text-[11px]">แก้ไขล่าสุด</label>
-                                    <input type="text" value={formatDate(form.UpdatedAt)} disabled className="form-input bg-white text-slate-600 cursor-not-allowed border-blue-100" />
-                                </div>
-                            )}
                         </div>
                     </form>
-                    <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3">
-                        <button type="button" onClick={onClose} className="flex-1 py-2.5 bg-white text-slate-600 rounded-lg text-sm font-bold border border-slate-200 hover:bg-slate-50 transition-colors">ยกเลิก</button>
-                        <button type="submit" form="ma-form" className={`flex-1 py-2.5 text-white rounded-lg text-sm font-bold bg-gradient-to-r ${catInfo?.color} hover:shadow-lg transition-all`}>
+                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex gap-2">
+                        <button type="button" onClick={onClose} className="flex-1 py-2 bg-white text-slate-600 rounded-lg text-xs font-bold border border-slate-200 hover:bg-slate-100 transition-colors">ยกเลิก</button>
+                        <button type="submit" form="ma-form" className={`flex-1 py-2 text-white rounded-lg text-xs font-bold bg-gradient-to-r ${catInfo?.color} hover:shadow-lg transition-all`}>
                             {isEdit ? 'บันทึกการแก้ไข' : 'เพิ่มรายการ'}
                         </button>
                     </div>
@@ -815,11 +840,11 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
 
 const FormField = ({ label, required, error, children }) => (
     <div>
-        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+        <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
             {label} {required && <span className="text-red-400">*</span>}
         </label>
         {children}
-        {error && <p className="text-red-500 text-[11px] mt-1 font-medium">{error}</p>}
+        {error && <p className="text-red-500 text-[10px] mt-0.5 font-medium">{error}</p>}
     </div>
 );
 

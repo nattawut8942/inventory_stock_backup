@@ -1,14 +1,16 @@
+import dotenv from 'dotenv';
+dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cron from 'node-cron';
-import dotenv from 'dotenv';
+
 
 // Config & Services
 import { connectDB } from './src/config/db.js';
 import { connectDciDB } from './src/config/dciDb.js';
-import { sendDailyReport } from './src/services/emailService.js';
+import { sendDailyReport, sendMonthlyInventoryReport } from './src/services/emailService.js';
 
 // Routes
 import authRoutes from './src/routes/authRoutes.js';
@@ -26,7 +28,7 @@ import pcInventoryRoutes from './src/routes/pcInventoryRoutes.js'; // PC Invento
 import monitorInventoryRoutes from './src/routes/monitorInventoryRoutes.js'; // Monitor Inventory
 import stockCountRoutes from './src/routes/stockCountRoutes.js';
 import budgetRoutes from './src/routes/budgetRoutes.js'; // Added Budget Routes
-
+import adRoutes from './src/routes/adRoutes.js';
 
 // Setup Environment
 dotenv.config();
@@ -67,17 +69,34 @@ const startServer = async () => {
         app.use('/ITinventory/api', monitorInventoryRoutes); // /api/mo-inventory, etc.
         app.use('/ITinventory/api', stockCountRoutes);    // /api/stock-count
         app.use('/ITinventory/api', budgetRoutes);        // /api/budget
-
+        app.use('/ITinventory/api', adRoutes);    
 
         // Cron Job (Daily Low Stock Report at 07:00 AM)
-        cron.schedule('0 8 * * 1,5', async () => {
-            console.log('Running daily report...');
+        cron.schedule('0 8 * * 1', async () => {
+            console.log('Running Weekly report (Every Monday)...');
             await sendDailyReport();
         }, {
             scheduled: true,
             timezone: "Asia/Bangkok"
         });
 
+        // ส่งรายงานรายเดือน ทุกวันสิ้นเดือน เวลา 08:00 น
+        cron.schedule('0 8 28-31 * *', async () => {
+        const today = new Date();
+        const tomorrow = new Date(today);
+        tomorrow.setDate(today.getDate() + 1);
+
+        // เช็คว่า "พรุ่งนี้" เป็นวันที่ 1 หรือไม่? 
+        // ถ้าใช่ แสดงว่า "วันนี้" คือวันสุดท้ายของเดือน
+        if (tomorrow.getDate() === 1) {
+            console.log('Running monthly report (End of Month)...');
+            await sendMonthlyInventoryReport();
+        }
+        }, {
+            scheduled: true,
+            timezone: "Asia/Bangkok"
+        });
+        
         // Error Handling Middleware
         app.use((err, req, res, next) => {
             console.error('Unhandled Error:', err.stack);

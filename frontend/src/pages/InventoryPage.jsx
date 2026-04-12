@@ -502,19 +502,14 @@ const InventoryPage = () => {
               {opt.label}
             </button>
           ))}
-         {(
-                <button
-                    onClick={() => { setSearchTerm(''); setSelectedType('all'); setShowLowStock(false); setGridSort('priority'); }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all ml-auto ${
-                    (searchTerm || selectedType !== 'all' || showLowStock || gridSort !== 'priority')
-                        ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
-                        : 'border-slate-200 bg-white text-slate-300 cursor-default'
-                    }`}
-                    disabled={!searchTerm && selectedType === 'all' && !showLowStock && gridSort === 'priority'}
-                >
-                    <X size={13} /> ล้าง filter
-                </button>
-                )}
+          {(searchTerm || selectedType !== 'all' || showLowStock) && (
+            <button
+              onClick={() => { setSearchTerm(''); setSelectedType('all'); setShowLowStock(false); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-all ml-auto"
+            >
+              <X size={13} /> ล้าง filter
+            </button>
+          )}
         </div>
 
         {/* LIST VIEW */}
@@ -580,7 +575,7 @@ const InventoryPage = () => {
                       <td className="p-4 text-center">
                         <div className="flex justify-center gap-1">
                           <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-lg disabled:opacity-30" title="เพิ่มลงตะกร้า"><ShoppingCart size={16} /></button>
-                          <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg disabled:opacity-30" title="เบิก"><ShoppingBag size={16} /></button>
+                          <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg disabled:opacity-30" title="เบิกด่วน"><ShoppingBag size={16} /></button>
                         </div>
                       </td>
                       <td className="p-4 text-center">
@@ -615,7 +610,7 @@ const InventoryPage = () => {
             {sortedProducts.map((p, idx) => {
                 const inCart = isInCart(p.ProductID);
                 return (
-                    <motion.div key={p.ProductID} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }} className={`group bg-white rounded-2xl border p-3 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${inCart ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-slate-100'}`}>
+                    <motion.div key={p.ProductID} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }} className={`group bg-white rounded-2xl border p-3 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${inCart ? 'border-indigo-300 ring-2 ring-indigo-100' : p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'border-red-200' : 'border-slate-100'}`}>
                       <div className={`absolute top-0 left-0 w-full h-20 bg-gradient-to-br ${getColorGradient(p.DeviceType)} opacity-10 z-0`} />
 
                       {/* ✅ Priority badge — มุมซ้ายบน */}
@@ -629,6 +624,15 @@ const InventoryPage = () => {
                           {(['', 'Critical', 'High', 'Medium', 'Low'][p.business_priority]) ?? 'Medium'}
                         </span>
                       </div>
+
+                      {/* ✅ Low stock badge — มุมขวาบน (ใต้ปุ่ม action) */}
+                      {p.CurrentStock <= p.MinStock && p.MinStock > 0 && (
+                        <div className="absolute top-2 right-2 z-20">
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border bg-red-500 text-white border-red-400 animate-pulse">
+                            Low Stock
+                          </span>
+                        </div>
+                      )}
 
                       <div className="absolute top-2 right-2 z-20 flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                         <button onClick={() => viewHistory(p)} className="p-1.5 bg-white/90 backdrop-blur text-indigo-600 rounded-full shadow-sm hover:bg-indigo-50" title="ดูประวัติ"><List size={14} /></button>
@@ -669,7 +673,7 @@ const InventoryPage = () => {
                         </div>
                         <div className="flex w-full gap-1">
                           <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 disabled:opacity-50">ใส่ตะกร้า</button>
-                          <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 disabled:opacity-50">เบิก</button>
+                          <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 disabled:opacity-50">เบิกด่วน</button>
                         </div>
                       </div>
                     </motion.div>
@@ -863,64 +867,121 @@ const InventoryPage = () => {
         {detailItem && (
           <Portal>
             <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="w-full max-w-[480px] bg-white rounded-2xl border border-slate-200/80 shadow-xl overflow-hidden">
-                <div className="flex items-start gap-3.5 p-5 pb-0">
-                  <div className={`w-14 h-14 rounded-xl shrink-0 flex items-center justify-center ${getDeviceTypeColor(detailItem.DeviceType).bg}`}>
-                    <Package size={24} className={getDeviceTypeColor(detailItem.DeviceType).text} />
-                  </div>
-                  <div className="flex-1 min-w-0 pt-0.5">
-                    <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
-                      <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${getDeviceTypeColor(detailItem.DeviceType).badge}`}>{detailItem.DeviceType}</span>
-                      {detailItem.CurrentStock <= detailItem.MinStock && <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">Low stock</span>}
+              <motion.div initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="w-full max-w-[480px] bg-white rounded-2xl shadow-xl overflow-hidden">
+
+                {/* ── Header gradient ── */}
+                <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
+                  <div className="flex items-center gap-3 relative z-10">
+                    <div className="w-12 h-12 rounded-xl shrink-0 flex items-center justify-center overflow-hidden bg-white/20">
+                      {detailItem.ImageURL
+                        ? <img src={`${API_URL}${detailItem.ImageURL}`} alt="" className="w-full h-full object-cover" />
+                        : <Package size={22} className="text-white" />
+                      }
                     </div>
-                    <p className="text-[17px] font-bold text-slate-800 leading-snug truncate">{detailItem.ProductName}</p>
-                    <p className="text-[12px] text-slate-400 font-mono mt-0.5">ID: {detailItem.ProductID}</p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap gap-1.5 mb-1">
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/20 text-white border border-white/30">{detailItem.DeviceType}</span>
+                        {detailItem.CurrentStock <= detailItem.MinStock && detailItem.MinStock > 0 && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-500/70 text-white border border-red-400/50">Low Stock</span>
+                        )}
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                          detailItem.business_priority === 1 ? 'bg-red-500/70 text-white border-red-400/50' :
+                          detailItem.business_priority === 2 ? 'bg-orange-400/70 text-white border-orange-300/50' :
+                          detailItem.business_priority === 4 ? 'bg-green-500/70 text-white border-green-400/50' :
+                          'bg-yellow-400/70 text-white border-yellow-300/50'
+                        }`}>
+                          {(['', 'Critical', 'High', 'Medium', 'Low'][detailItem.business_priority]) ?? 'Medium'}
+                        </span>
+                      </div>
+                      <p className="font-bold text-[15px] text-white truncate leading-snug">{detailItem.ProductName}</p>
+                      <p className="text-indigo-200 text-[11px] font-mono mt-0.5 opacity-80">ID: {detailItem.ProductID}</p>
+                    </div>
+                    <button onClick={() => setDetailItem(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors shrink-0">
+                      <X size={18} />
+                    </button>
                   </div>
-                  <button onClick={() => setDetailItem(null)} className="w-8 h-8 shrink-0 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors mt-0.5"><X size={15} /></button>
                 </div>
-                <div className="grid grid-cols-3 gap-2 px-5 pt-4">
-                  <div className="bg-slate-50 rounded-xl p-3">
-                    <p className="text-[11px] text-slate-400 mb-1">คงเหลือ</p>
-                    <p className={`text-[22px] font-black leading-none ${detailItem.CurrentStock <= detailItem.MinStock ? 'text-red-500' : 'text-emerald-600'}`}>{detailItem.CurrentStock}</p>
-                    <p className="text-[11px] text-slate-400 mt-1">{detailItem.UnitOfMeasure || 'หน่วย'}</p>
-                  </div>
-                  <div className="bg-slate-50 rounded-xl p-3">
-                    <p className="text-[11px] text-slate-400 mb-1">ขั้นต่ำ</p>
-                    <p className="text-[22px] font-black leading-none text-slate-700">{detailItem.MinStock}</p>
-                    <p className="text-[11px] text-slate-400 mt-1">{detailItem.UnitOfMeasure || 'หน่วย'}</p>
-                  </div>
-                  <div className="bg-slate-50 rounded-xl p-3">
-                    <p className="text-[11px] text-slate-400 mb-1">ราคา/หน่วย</p>
-                    <p className="text-[18px] font-black leading-none text-slate-700">฿{detailItem.LastPrice?.toLocaleString() ?? '—'}</p>
-                    <p className="text-[11px] text-slate-400 mt-1">บาท</p>
-                  </div>
-                </div>
-                <div className="mt-4 border-t border-slate-100">
+
+                {/* ── Metric tiles ── */}
+                <div className="grid grid-cols-4 gap-1.5 px-4 pt-3 pb-1">
                   {[
-                    { label: 'จัดเก็บ', value: detailItem.Location || 'ไม่ได้ระบุ' },
-                    { label: 'หน่วยนับ', value: detailItem.UnitOfMeasure || '—' },
-                    { label: 'สูงสุด', value: detailItem.MaxStock ?? '—' },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="flex items-center px-5 py-2.5 border-b border-slate-100">
-                      <span className="text-[13px] text-slate-400 w-28 shrink-0">{label}</span>
-                      <span className="text-[13px] font-semibold text-slate-700">{value}</span>
+                    { label: 'คงเหลือ', value: detailItem.CurrentStock, color: detailItem.CurrentStock <= detailItem.MinStock && detailItem.MinStock > 0 ? 'text-red-500' : 'text-emerald-600' },
+                    { label: 'ขั้นต่ำ',  value: detailItem.MinStock,     color: 'text-slate-700' },
+                    { label: 'สูงสุด',   value: detailItem.MaxStock || '—', color: 'text-slate-700' },
+                    { label: 'ราคา/หน่วย', value: `฿${detailItem.LastPrice?.toLocaleString() ?? '—'}`, color: 'text-slate-700', sm: true },
+                  ].map(({ label, value, color, sm }) => (
+                    <div key={label} className="bg-slate-50 rounded-xl p-2.5 text-center">
+                      <p className="text-[10px] text-slate-400 mb-1">{label}</p>
+                      <p className={`font-bold leading-none ${sm ? 'text-[13px]' : 'text-[20px]'} ${color}`}>{value}</p>
                     </div>
                   ))}
-                  <div className="flex items-center px-5 py-2.5">
-                    <span className="text-[13px] text-slate-400 w-28 shrink-0">ความสำคัญ</span>
-                    <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${
-                      detailItem.business_priority === 1 ? 'bg-red-50 text-red-700 border-red-200' :
-                      detailItem.business_priority === 2 ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                      detailItem.business_priority === 4 ? 'bg-green-50 text-green-700 border-green-200' :
-                      'bg-yellow-50 text-yellow-700 border-yellow-200'
-                    }`}>
-                      {(['', 'Critical', 'High', 'Medium', 'Low'][detailItem.business_priority]) ?? 'Medium'}
-                    </span>
+                </div>
+
+                {/* ── Detail rows ── */}
+                <div>
+                  {/* ข้อมูลสินค้า */}
+                  <div className="px-4 pt-2 pb-0.5"><span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">ข้อมูลสินค้า</span></div>
+                  <div className="border-t border-slate-100 divide-y divide-slate-100">
+                    {[
+                      { label: 'ชื่อสินค้า', value: detailItem.ProductName },
+                      { label: 'หมวดหมู่',   value: detailItem.DeviceType },
+                      { label: 'บาร์โค้ด',   value: detailItem.BarcodeID || '—', mono: true },
+                      { label: 'ที่เก็บ',    value: detailItem.Location || 'ไม่ได้ระบุ' },
+                      { label: 'หน่วยนับ',   value: detailItem.UnitOfMeasure || '—' },
+                    ].map(({ label, value, mono }) => (
+                      <div key={label} className="flex items-center px-4 py-2">
+                        <span className="text-[12px] text-slate-400 w-24 shrink-0">{label}</span>
+                        <span className={`text-[12px] font-medium text-slate-800 ${mono ? 'font-mono' : ''}`}>{value}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* ราคา & Vendor */}
+                  <div className="px-4 pt-2 pb-0.5"><span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">ราคา & Vendor</span></div>
+                  <div className="border-t border-slate-100 divide-y divide-slate-100">
+                    {[
+                      { label: 'ราคาต่อหน่วย', value: detailItem.LastPrice != null ? `฿${detailItem.LastPrice.toLocaleString()}` : '—' },
+                      { label: 'มูลค่าสต็อค',  value: detailItem.LastPrice != null ? `฿${(detailItem.LastPrice * detailItem.CurrentStock).toLocaleString()}` : '—', accent: true },
+                      { label: 'Vendor',        value: detailItem.VendorName || detailItem.VendorID || '—' },
+                      { label: 'Lead time',     value: detailItem.lead_time_days ? `${detailItem.lead_time_days} วัน` : '—' },
+                    ].map(({ label, value, accent }) => (
+                      <div key={label} className="flex items-center px-4 py-2">
+                        <span className="text-[12px] text-slate-400 w-24 shrink-0">{label}</span>
+                        <span className={`text-[12px] font-medium ${accent ? 'text-indigo-600' : 'text-slate-800'}`}>{value}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* ความสำคัญ & สถานะ */}
+                  <div className="px-4 pt-2 pb-0.5"><span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">ความสำคัญ & สถานะ</span></div>
+                  <div className="border-t border-slate-100 divide-y divide-slate-100">
+                    <div className="flex items-center px-4 py-2">
+                      <span className="text-[12px] text-slate-400 w-24 shrink-0">ความสำคัญ</span>
+                      <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${
+                        detailItem.business_priority === 1 ? 'bg-red-50 text-red-700 border-red-200' :
+                        detailItem.business_priority === 2 ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                        detailItem.business_priority === 4 ? 'bg-green-50 text-green-700 border-green-200' :
+                        'bg-yellow-50 text-yellow-700 border-yellow-200'
+                      }`}>
+                        {(['', 'Critical', 'High', 'Medium', 'Low'][detailItem.business_priority]) ?? 'Medium'}
+                      </span>
+                    </div>
+                    <div className="flex items-center px-4 py-2">
+                      <span className="text-[12px] text-slate-400 w-24 shrink-0">สถานะสต็อค</span>
+                      {detailItem.CurrentStock <= detailItem.MinStock && detailItem.MinStock > 0
+                        ? <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">ต่ำกว่าขั้นต่ำ</span>
+                        : <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">ปกติ</span>
+                      }
+                    </div>
                   </div>
                 </div>
-                <div className="px-4 pb-4 pt-2 border-t border-slate-100">
-                  <button onClick={() => setDetailItem(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-[13px] py-2.5 rounded-xl transition-colors">ปิดหน้าต่าง</button>
+
+                {/* ── Footer ── */}
+                <div className="px-4 pb-4 pt-3 border-t border-slate-100">
+                  <button onClick={() => setDetailItem(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-[13px] py-2.5 rounded-xl transition-colors">ปิด</button>
                 </div>
+
               </motion.div>
             </div>
           </Portal>

@@ -87,7 +87,15 @@ export const updateProduct = async (req, res) => {
             query += `, BarcodeID = @BarcodeID`;
         }
 
-        query += ` WHERE ProductID = @ProductID`;
+        query += `,
+        priority_label = CASE @business_priority
+        WHEN 1 THEN 'CRITICAL'
+        WHEN 2 THEN 'HIGH'
+        WHEN 3 THEN 'MEDIUM'
+        WHEN 4 THEN 'LOW'
+        ELSE 'MEDIUM'
+        END
+        WHERE ProductID = @ProductID`;
 
         await request.query(query);
         res.json({ success: true });
@@ -167,9 +175,9 @@ export const manualImport = async (req, res) => {
                     .input('Location', sql.NVarChar(100), Location || null)
                     .query(`
                         INSERT INTO dbo.Stock_Products 
-                            (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, MaxStock, Location, IsActive)
+                            (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, MaxStock, Location, IsActive, business_priority, priority_label)
                         OUTPUT INSERTED.ProductID
-                        VALUES (@ProductName, @DeviceType, @CurrentStock, @UnitCost, @MinStock, @MaxStock, @Location, 1)
+                        VALUES (@ProductName, @DeviceType, @CurrentStock, @UnitCost, @MinStock, @MaxStock, @Location, 1, @business_priority, @priority_label)
                     `);
                 productID = insertRes.recordset[0].ProductID;
             }

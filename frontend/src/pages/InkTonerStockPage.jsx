@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Printer, Package, AlertTriangle, List, LayoutGrid, TrendingDown, Truck, Droplet, RefreshCw, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion'; 
 import { API_BASE } from '../config/api';
 import Pagination from '../components/Pagination';
 
-// StatCard Component (same style as InventoryPage)
+// StatCard Component
 const StatCard = ({ icon: Icon, title, value, color }) => (
     <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -32,7 +32,7 @@ const InkTonerStockPage = () => {
     const [showLowStock, setShowLowStock] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [sortConfig, setSortConfig] = useState(null);
-    const itemsPerPage = 10;
+    const itemsPerPage = 20;
 
     const fetchData = async () => {
         setLoading(true);
@@ -149,15 +149,9 @@ const InkTonerStockPage = () => {
     // Color helper for stock status
     const getStockColor = (item) => {
         if (isOutOfStock(item)) return 'text-red-600';
-        if (isLowStock(item)) return 'text-orange-500';
+        if (isLowStock(item)) return 'text-amber-700'; // เปลี่ยนสีตัวเลขตอนใกล้หมดให้เป็นแดงด้วย
         if (isHealthy(item)) return 'text-emerald-600';
-        return 'text-amber-500'; // between Minimum and SaftyStock
-    };
-
-    const getStockBg = (item) => {
-        if (isOutOfStock(item)) return 'bg-red-50 border-red-100';
-        if (isLowStock(item)) return 'bg-orange-50 border-orange-100';
-        return 'bg-emerald-50 border-emerald-100';
+        return 'text-amber-500'; 
     };
 
     if (loading) {
@@ -224,62 +218,63 @@ const InkTonerStockPage = () => {
             <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+                className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4"
             >
                 <div>
                     <h2 className="text-3xl font-black mb-1 text-slate-800">INK & TONER STOCK</h2>
                     <p className="text-slate-500 font-medium">ข้อมูลสต็อกหมึกและโทนเนอร์จากระบบ DCI</p>
                 </div>
-                <div className="flex items-center gap-3 flex-wrap">
-                    {/* Refresh Button */}
+                
+                <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                    {/* 1. ปุ่ม Refresh */}
                     <button
                         onClick={fetchData}
-                        className="bg-white hover:bg-indigo-50 text-indigo-600 border border-slate-200 font-bold px-3 py-2 rounded-xl transition-all shadow-sm flex items-center gap-2"
+                        className="bg-white hover:bg-indigo-50 text-indigo-600 border border-slate-200 font-bold px-3 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2 h-[42px]"
                         title="รีเฟรชข้อมูล"
                     >
-                        <RefreshCw size={18} />
-                        <span className="hidden sm:inline">รีเฟรช</span>
+                        <RefreshCw size={16} />
+                        <span className="hidden sm:inline text-sm">รีเฟรช</span>
                     </button>
 
-                    {/* View Mode Toggle */}
-                    <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-                        <button
-                            onClick={() => setViewMode('list')}
-                            className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
-                        >
-                            <List size={18} />
-                        </button>
-                        <button
-                            onClick={() => setViewMode('grid')}
-                            className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
-                        >
-                            <LayoutGrid size={18} />
-                        </button>
-                    </div>
-
-                    {/* Search */}
-                    <div className="flex gap-2 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
-                        <Search size={18} className="text-slate-400 self-center" />
-                        <input
-                            type="text"
-                            placeholder="ค้นหาหมึก/โทนเนอร์..."
-                            className="bg-transparent border-none outline-none text-sm w-48 text-slate-700 placeholder-slate-400"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
-
-                    {/* Low Stock Filter */}
+                    {/* 2. ปุ่ม สต็อกต่ำ */}
                     <button
                         onClick={() => setShowLowStock(!showLowStock)}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all font-bold text-sm ${showLowStock
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all font-bold text-sm h-[42px] ${showLowStock
                             ? 'bg-red-50 text-red-600 border-red-200 shadow-sm ring-2 ring-red-100'
                             : 'bg-white text-slate-500 border-slate-200 hover:text-red-500 hover:border-red-200'
                             }`}
                     >
-                        <AlertTriangle size={16} className={showLowStock ? "fill-current" : ""} />
+                        <AlertTriangle size={14} className={showLowStock ? "fill-current" : ""} />
                         <span>สต็อกต่ำ</span>
                     </button>
+
+                    {/* 3. ปุ่ม View Mode Toggle */}
+                    <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm h-[42px]">
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={`px-2.5 rounded-lg transition-all flex items-center ${viewMode === 'list' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
+                        >
+                            <List size={16} />
+                        </button>
+                        <button
+                            onClick={() => setViewMode('grid')}
+                            className={`px-2.5 rounded-lg transition-all flex items-center ${viewMode === 'grid' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
+                        >
+                            <LayoutGrid size={16} />
+                        </button>
+                    </div>
+
+                    {/* 4. Search */}
+                    <div className="relative flex-1 min-w-[200px] sm:max-w-xs h-[42px]">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                            type="text"
+                            placeholder="ค้นหาหมึก/โทนเนอร์..."
+                            className="w-full h-full bg-white border border-slate-200 rounded-xl pl-9 pr-4 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 transition-all shadow-sm"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
                 </div>
             </motion.div>
 
@@ -290,34 +285,34 @@ const InkTonerStockPage = () => {
                     animate={{ opacity: 1, x: 0 }}
                     className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-lg overflow-x-auto"
                 >
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-gradient-to-r from-slate-50 to-slate-100 text-slate-700 uppercase text-[12px] tracking-widest border-b border-slate-200">
+                    <table className="w-full text-left text-xs">
+                        <thead className="bg-gradient-to-r from-slate-50 to-slate-100 text-slate-700 uppercase text-[11px] tracking-widest border-b border-slate-200">
                             <tr>
-                                <th className="p-4 pl-6 cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Prt_Code')}>
-                                    <div className="flex items-center gap-1">รหัส {sortConfig?.key === 'Prt_Code' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                <th className="px-3 py-2 pl-4 cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Prt_Code')}>
+                                    <div className="flex items-center gap-1">รหัส {sortConfig?.key === 'Prt_Code' ? (sortConfig.direction === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : <ArrowUpDown size={10} className="opacity-0 group-hover:opacity-50" />}</div>
                                 </th>
-                                <th className="p-4 cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Prt_Name')}>
-                                    <div className="flex items-center gap-1">ชื่อรายการ {sortConfig?.key === 'Prt_Name' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                <th className="px-3 py-2 cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Prt_Name')}>
+                                    <div className="flex items-center gap-1">ชื่อรายการ {sortConfig?.key === 'Prt_Name' ? (sortConfig.direction === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : <ArrowUpDown size={10} className="opacity-0 group-hover:opacity-50" />}</div>
                                 </th>
-                                <th className="p-4 cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Spect')}>
-                                    <div className="flex items-center gap-1">สเปค {sortConfig?.key === 'Spect' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                <th className="px-3 py-2 cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Spect')}>
+                                    <div className="flex items-center gap-1">สเปค {sortConfig?.key === 'Spect' ? (sortConfig.direction === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : <ArrowUpDown size={10} className="opacity-0 group-hover:opacity-50" />}</div>
                                 </th>
-                                <th className="p-4 text-center cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('CurrentStock')}>
-                                    <div className="flex items-center justify-center gap-1">คงเหลือ {sortConfig?.key === 'CurrentStock' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                <th className="px-3 py-2 text-center cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('CurrentStock')}>
+                                    <div className="flex items-center justify-center gap-1">คงเหลือ {sortConfig?.key === 'CurrentStock' ? (sortConfig.direction === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : <ArrowUpDown size={10} className="opacity-0 group-hover:opacity-50" />}</div>
                                 </th>
-                                <th className="p-4 text-center cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('SaftyStock')}>
-                                    <div className="flex items-center justify-center gap-1">Safety Stock {sortConfig?.key === 'SaftyStock' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                <th className="px-3 py-2 text-center cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('SaftyStock')}>
+                                    <div className="flex items-center justify-center gap-1">Safety {sortConfig?.key === 'SaftyStock' ? (sortConfig.direction === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : <ArrowUpDown size={10} className="opacity-0 group-hover:opacity-50" />}</div>
                                 </th>
-                                <th className="p-4 text-center cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Minimum')}>
-                                    <div className="flex items-center justify-center gap-1">Minimum {sortConfig?.key === 'Minimum' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                <th className="px-3 py-2 text-center cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Minimum')}>
+                                    <div className="flex items-center justify-center gap-1">Min {sortConfig?.key === 'Minimum' ? (sortConfig.direction === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : <ArrowUpDown size={10} className="opacity-0 group-hover:opacity-50" />}</div>
                                 </th>
-                                <th className="p-4 cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Um')}>
-                                    <div className="flex items-center gap-1">หน่วย {sortConfig?.key === 'Um' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                <th className="px-3 py-2 cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Um')}>
+                                    <div className="flex items-center gap-1">หน่วย {sortConfig?.key === 'Um' ? (sortConfig.direction === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : <ArrowUpDown size={10} className="opacity-0 group-hover:opacity-50" />}</div>
                                 </th>
-                                <th className="p-4 cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Vender')}>
-                                    <div className="flex items-center gap-1">ผู้จัดจำหน่าย {sortConfig?.key === 'Vender' ? (sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-50" />}</div>
+                                <th className="px-3 py-2 cursor-pointer hover:bg-slate-100 group transition-colors" onClick={() => handleSort('Vender')}>
+                                    <div className="flex items-center gap-1">ผู้จัดจำหน่าย {sortConfig?.key === 'Vender' ? (sortConfig.direction === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : <ArrowUpDown size={10} className="opacity-0 group-hover:opacity-50" />}</div>
                                 </th>
-                                <th className="p-4 text-center">สถานะ</th>
+                                <th className="px-3 py-2 text-center">สถานะ</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -327,42 +322,49 @@ const InkTonerStockPage = () => {
                                     initial={{ opacity: 0, x: -10 }}
                                     animate={{ opacity: 1, x: 0 }}
                                     transition={{ delay: idx * 0.02 }}
-                                    className={`hover:bg-slate-50 transition-colors ${isLowStock(item) ? 'bg-orange-50/30' : ''} ${isOutOfStock(item) ? 'bg-red-50/30' : ''}`}
+                                    // ✅ เปลี่ยนสีพื้นหลังตรงนี้
+                                    className={`transition-colors group align-top ${
+                                        isOutOfStock(item) 
+                                            ? 'bg-red-100 hover:bg-red-200' 
+                                            : isLowStock(item) 
+                                                ? 'bg-red-50 hover:bg-red-100' 
+                                                : 'bg-white hover:bg-slate-50'
+                                    }`}
                                 >
-                                    <td className="p-4 pl-6">
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${getTonerGradient(item)} flex items-center justify-center shrink-0 shadow-md`}>
-                                                <Droplet size={18} className={getTonerIconColor(item)} />
+                                    <td className="px-3 py-2 pl-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${getTonerGradient(item)} flex items-center justify-center shrink-0 shadow-sm`}>
+                                                <Droplet size={14} className={getTonerIconColor(item)} />
                                             </div>
-                                            <span className="font-mono font-bold text-slate-700 text-xs">{item.Prt_Code}</span>
+                                            <span className="font-mono font-bold text-slate-700 text-[11px]">{item.Prt_Code}</span>
                                         </div>
                                     </td>
-                                    <td className="p-4">
-                                        <span className="font-bold text-slate-700 block whitespace-nowrap">{item.Prt_Name}</span>
+                                    <td className="px-3 py-2">
+                                        <span className="font-bold text-slate-700 block whitespace-nowrap text-xs">{item.Prt_Name}</span>
                                     </td>
-                                    <td className="p-4 text-slate-500 text-xs whitespace-nowrap">{item.Spect || '-'}</td>
-                                    <td className={`p-4 text-center font-mono font-bold text-lg ${getStockColor(item)}`}>
+                                    <td className="px-3 py-2 text-slate-500 text-[11px] whitespace-nowrap">{item.Spect || '-'}</td>
+                                    <td className={`px-3 py-2 text-center font-mono font-bold text-sm ${getStockColor(item)}`}>
                                         {item.CurrentStock ?? 0}
                                     </td>
-                                    <td className="p-4 text-center text-slate-400 font-mono">{item.SaftyStock ?? 0}</td>
-                                    <td className="p-4 text-center text-slate-400 font-mono">{item.Minimum ?? 0}</td>
-                                    <td className="p-4 text-slate-500 font-medium text-xs">{item.Um || '-'}</td>
-                                    <td className="p-4">
-                                        <span className="text-xs font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded-lg whitespace-nowrap">
+                                    <td className="px-3 py-2 text-center text-slate-400 font-mono text-[11px]">{item.SaftyStock ?? 0}</td>
+                                    <td className="px-3 py-2 text-center text-slate-400 font-mono text-[11px]">{item.Minimum ?? 0}</td>
+                                    <td className="px-3 py-2 text-slate-500 font-medium text-[11px]">{item.Um || '-'}</td>
+                                    <td className="px-3 py-2">
+                                        <span className="text-[10px] font-medium text-slate-600 bg-white/60 px-2 py-1 rounded-md whitespace-nowrap border border-slate-200/50">
                                             {item.Vender || '-'}
                                         </span>
                                     </td>
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         {isOutOfStock(item) ? (
-                                            <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-1 rounded-lg border border-red-100 flex items-center gap-1 w-fit">
-                                                <AlertTriangle size={12} /> หมด
+                                            <span className="text-[10px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-md border border-red-200 flex items-center gap-1 w-fit">
+                                                <AlertTriangle size={10} /> หมด
                                             </span>
                                         ) : isLowStock(item) ? (
-                                            <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-1 rounded-lg border border-orange-100 flex items-center gap-1 w-fit">
-                                                <TrendingDown size={12} /> ต่ำ
+                                            <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-md border border-red-200 flex items-center gap-1 w-fit">
+                                                <TrendingDown size={10} /> ใกล้หมด
                                             </span>
                                         ) : (
-                                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">ปกติ</span>
+                                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-100">ปกติ</span>
                                         )}
                                     </td>
                                 </motion.tr>
@@ -370,7 +372,7 @@ const InkTonerStockPage = () => {
                         </tbody>
                     </table>
                     {filteredData.length === 0 && (
-                        <div className="text-center py-10 text-slate-400">ไม่พบรายการ</div>
+                        <div className="text-center py-10 text-slate-400 text-xs">ไม่พบรายการ</div>
                     )}
                 </motion.div>
             )}
@@ -384,7 +386,14 @@ const InkTonerStockPage = () => {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: idx * 0.03 }}
-                            className={`group bg-white rounded-2xl border p-4 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${isLowStock(item) ? 'border-orange-200 ring-1 ring-orange-100' : 'border-slate-100'} ${isOutOfStock(item) ? 'border-red-200 ring-1 ring-red-100' : ''}`}
+                            // ✅ เปลี่ยนสีพื้นหลังตรงนี้
+                            className={`group rounded-2xl border p-4 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${
+                                isOutOfStock(item) 
+                                    ? 'bg-red-100 border-red-300 ring-1 ring-red-200' 
+                                    : isLowStock(item) 
+                                        ? 'bg-red-50 border-red-200 ring-1 ring-red-100' 
+                                        : 'bg-white border-slate-100'
+                            }`}
                         >
                             {/* Decorative Gradient Background */}
                             <div className={`absolute top-0 left-0 w-full h-20 bg-gradient-to-br ${getTonerGradient(item)} opacity-10 z-0`}></div>
@@ -393,55 +402,55 @@ const InkTonerStockPage = () => {
                             {(isOutOfStock(item) || isLowStock(item)) && (
                                 <div className="absolute top-2 right-2 z-20">
                                     {isOutOfStock(item) ? (
-                                        <span className="text-[9px] font-bold text-white bg-red-500 px-2 py-0.5 rounded-full shadow-sm">หมดสต็อก</span>
+                                        <span className="text-[9px] font-bold text-white bg-red-600 px-2 py-0.5 rounded-full shadow-sm">หมดสต็อก</span>
                                     ) : (
-                                        <span className="text-[9px] font-bold text-white bg-orange-500 px-2 py-0.5 rounded-full shadow-sm">สต็อกต่ำ</span>
+                                        <span className="text-[9px] font-bold text-white bg-red-400 px-2 py-0.5 rounded-full shadow-sm">ใกล้หมด</span>
                                     )}
                                 </div>
                             )}
 
                             <div className="relative z-10 flex flex-col items-center text-center">
                                 {/* Icon */}
-                                <div className={`w-20 h-20 mb-3 rounded-xl overflow-hidden shadow-lg flex items-center justify-center border-2 border-white group-hover:scale-105 transition-transform bg-gradient-to-br ${getTonerGradient(item)}`}>
-                                    <Droplet size={32} className={getTonerIconColor(item)} />
+                                <div className={`w-16 h-16 mb-3 rounded-xl overflow-hidden shadow-sm flex items-center justify-center border-2 border-white group-hover:scale-105 transition-transform bg-gradient-to-br ${getTonerGradient(item)}`}>
+                                    <Droplet size={24} className={getTonerIconColor(item)} />
                                 </div>
 
-                                <h3 className="font-bold text-slate-800 text-sm mb-1 line-clamp-2 min-h-[2.5rem]">{item.Prt_Name}</h3>
+                                <h3 className="font-bold text-slate-800 text-xs mb-1 line-clamp-2 min-h-[2rem]">{item.Prt_Name}</h3>
                                 <span className={`text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full mb-2 shadow-sm text-white ${getTonerBadgeBg(item)}`}>
                                     {item.Prt_Code}
                                 </span>
 
-                                <div className="grid grid-cols-2 gap-2 w-full pt-2 border-t border-slate-100 mb-2">
+                                <div className="grid grid-cols-2 gap-2 w-full pt-2 border-t border-black/5 mb-2">
                                     <div>
-                                        <p className="text-[11px] text-slate-500 font-bold uppercase">คงเหลือ</p>
-                                        <p className={`text-lg font-black ${getStockColor(item)}`}>
+                                        <p className="text-[10px] text-slate-500 font-bold uppercase">คงเหลือ</p>
+                                        <p className={`text-base font-black ${getStockColor(item)}`}>
                                             {item.CurrentStock ?? 0}
                                         </p>
                                     </div>
                                     <div>
-                                        <p className="text-[11px] text-slate-500 font-bold uppercase">Safety</p>
-                                        <p className="text-lg font-black text-slate-700">{item.SaftyStock ?? 0}</p>
+                                        <p className="text-[10px] text-slate-500 font-bold uppercase">Safety</p>
+                                        <p className="text-base font-black text-slate-700">{item.SaftyStock ?? 0}</p>
                                     </div>
                                 </div>
 
                                 {/* Vendor Info */}
                                 <div className="w-full mb-1 px-1">
-                                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg p-2">
-                                        <div className="p-1.5 bg-white rounded-md shadow-sm text-purple-500">
-                                            <Truck size={14} />
+                                    <div className="flex items-center gap-2 bg-white/60 border border-black/5 rounded-lg p-1.5">
+                                        <div className="p-1 bg-white rounded-md shadow-sm text-purple-500">
+                                            <Truck size={12} />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-[10px] text-slate-500 font-bold uppercase leading-none mb-0.5">ผู้จัดจำหน่าย</p>
-                                            <p className="text-xs font-bold text-slate-700 truncate">{item.Vender || '-'}</p>
+                                            <p className="text-[9px] text-slate-500 font-bold uppercase leading-none mb-0.5">ผู้จัดจำหน่าย</p>
+                                            <p className="text-[10px] font-bold text-slate-700 truncate">{item.Vender || '-'}</p>
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* Unit & Spec */}
                                 <div className="w-full px-1 mt-1">
-                                    <div className="flex items-center justify-between text-[10px] text-slate-400">
-                                        <span>หน่วย: <strong className="text-slate-600">{item.Um || '-'}</strong></span>
-                                        <span>Min: <strong className="text-slate-600">{item.Minimum ?? 0}</strong></span>
+                                    <div className="flex items-center justify-between text-[9px] text-slate-500">
+                                        <span>หน่วย: <strong className="text-slate-700">{item.Um || '-'}</strong></span>
+                                        <span>Min: <strong className="text-slate-700">{item.Minimum ?? 0}</strong></span>
                                     </div>
                                 </div>
                             </div>
@@ -451,7 +460,7 @@ const InkTonerStockPage = () => {
             )}
 
             {filteredData.length === 0 && viewMode === 'grid' && (
-                <div className="text-center py-10 text-slate-400">ไม่พบรายการ</div>
+                <div className="text-center py-10 text-slate-400 text-xs">ไม่พบรายการ</div>
             )}
 
             {/* Pagination */}
@@ -464,7 +473,7 @@ const InkTonerStockPage = () => {
             />
 
             {/* Results Count */}
-            <div className="text-center text-sm text-slate-400 pb-4">
+            <div className="text-center text-xs text-slate-400 pb-4">
                 แสดง {paginatedData.length} จาก {filteredData.length} รายการ
             </div>
         </div>

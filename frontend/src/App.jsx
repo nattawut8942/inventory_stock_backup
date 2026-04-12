@@ -21,7 +21,8 @@ import ManagementPage from './pages/ManagementPage';
 import MALicensePage from './pages/MALicensePage';
 import InkTonerStockPage from './pages/InkTonerStockPage';
 import PCInventoryPage from './pages/PCInventoryPage';
-
+import ADExplorer from './pages/ADExplorer';
+import ADUserDetail from './pages/ADUserDetail';
 
 // App Routes Component
 const AppRoutes = () => {
@@ -51,7 +52,8 @@ const AppRoutes = () => {
                 <Route path="reports" element={<ReportPage />} />
                 <Route path="ma-license" element={<MALicensePage />} />
                 <Route path="pc-inventory" element={<PCInventoryPage />} />
-               
+                <Route path="/ad-explorer" element={<ADExplorer />} />
+                <Route path="/ad-explorer/user/:username" element={<ADUserDetail />} />     
 
                 {/* PO and Receive - viewable by all, actions restricted in components */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />

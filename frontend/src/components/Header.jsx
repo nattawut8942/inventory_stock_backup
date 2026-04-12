@@ -13,11 +13,12 @@ import {
     FileSpreadsheet,
     Shield,
     Plus,
-    User,
+    User, // <- มี User แค่ตัวเดียวพอครับ
     FileKey,
     Printer,
     ClipboardList,
-    Monitor
+    Monitor,
+    Network
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatThaiDate } from '../utils/formatDate';
@@ -36,6 +37,17 @@ const Header = ({ onMenuClick }) => {
     }, []);
 
     const getPageConfig = (pathname) => {
+        // ✅ 1. เช็ค Dynamic Route สำหรับหน้า AD User Detail ก่อน
+        if (pathname.startsWith('/ad-explorer/user/')) {
+            const username = pathname.split('/').pop(); 
+            return { 
+                title: `USER PROFILE : ${username.toUpperCase()}`, 
+                icon: User, 
+                color: 'text-indigo-600' 
+            };
+        }
+
+        // ✅ 2. เส้นทางปกติ
         switch (pathname) {
             case '/': return { title: 'DASHBOARD', icon: LayoutDashboard, color: 'text-indigo-600' };
             case '/inventory': return { title: 'STOCK INVENTORY', icon: Package, color: 'text-emerald-600' };
@@ -49,6 +61,7 @@ const Header = ({ onMenuClick }) => {
             case '/ma-license': return { title: 'MA / LICENSE MANAGEMENT', icon: FileKey, color: 'text-amber-600' };
             case '/ink-toner': return { title: 'INK & TONER STOCK', icon: Printer, color: 'text-cyan-600' };
             case '/pc-inventory': return { title: 'PC / MONITOR INVENTORY', icon: Monitor, color: 'text-blue-600' };
+            case '/ad-explorer': return { title: 'ACTIVE DIRECTORY EXPLORER', icon: Network, color: 'text-indigo-600' };
             default: return { title: 'IT STOCK MANAGEMENT', icon: Package, color: 'text-slate-600' };
         }
     };
@@ -96,9 +109,6 @@ const Header = ({ onMenuClick }) => {
                         {currentTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                 </div>
-
-                {/* Vertical Diavider (Removed) */}
-                {/* User Profile (Removed) */}
             </div>
         </header>
     );

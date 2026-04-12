@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "ldapjs": "^3.0.7"
+  }
+}
