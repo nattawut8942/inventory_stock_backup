@@ -245,7 +245,7 @@ export const sendDailyReport = async () => {
                     ${maHtml || '<p style="color: #666; font-style: italic;">No expiring MA/Licenses.</p>'}
                     <p style="margin-top: 30px; font-size: 15px; color: #999; border-top: 1px solid #eee; padding-top: 10px;">
                         This is an automated message from IT Inventory Management System.<br/>
-                        🔗 ดูข้อมูลเพิ่มเติม: <a href="http://dciweb.dci.daikin.co.jp/ITinventory/" style="color: #0284c7; text-decoration: none; font-weight: bold;">IT Inventory Management System</a>
+                        
                     </p>
                 </div>`
         };
@@ -392,13 +392,13 @@ export const sendMonthlyInventoryReport = async () => {
                             <tr style="background-color: #f1f5f9;">
                                 <td style="${tdStyle} text-align: right; font-size: 15px; font-weight: bold;">📦 มูลค่าสต็อคทั้งหมด (All Stock Value)</td>
                                 <td style="${tdStyle} text-align: right; font-weight: bold; color: #0284c7; min-width: 120px;">
-                                    ${totalValueAll.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                                    ${totalValueAll.toLocaleString('th-TH', { minimumFractionDigits: 2 })} 
                                 </td>
                             </tr>
                             <tr style="background-color: #fef2f2;">
                                 <td style="${tdStyle} text-align: right; font-size: 15px; font-weight: bold;">🛒 มูลค่าที่ต้องสั่งซื้อ (Total to Order)</td>
                                 <td style="${tdStyle} text-align: right; font-weight: bold; color: #d9534f; min-width: 120px;">
-                                    ${totalToOrderValue.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                                    ${totalToOrderValue.toLocaleString('th-TH', { minimumFractionDigits: 2 })} 
                                 </td>
                             </tr>
                         </table>
@@ -411,7 +411,7 @@ export const sendMonthlyInventoryReport = async () => {
 
                     <p style="margin-top: 30px; font-size: 15px; color: #999; border-top: 1px solid #eee; padding-top: 10px;">
                         This is an automated monthly report from IT Inventory Management System.<br/>
-                        🔗 ดูข้อมูลเพิ่มเติม: <a href="http://dciweb.dci.daikin.co.jp/ITinventory/" style="color: #0284c7; text-decoration: none; font-weight: bold;">IT Inventory Management System</a>
+                        
                     </p>
                 </div>`,
             attachments: [
