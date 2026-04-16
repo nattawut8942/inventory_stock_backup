@@ -1,5 +1,7 @@
 import nodemailer from 'nodemailer';
 import ExcelJS from 'exceljs';
+import fs from 'fs';        // ✅ เพิ่ม
+import path from 'path';    // ✅ เพิ่ม
 import { sql, getPool } from '../config/db.js';
 
 // ==========================================================
@@ -184,7 +186,7 @@ export const sendDailyReport = async () => {
                 const statusColor = isExpired ? '#ef4444' : '#f59e0b';
                 const statusText = isExpired ? 'Expired' : `${daysRemaining} Days`;
                 const price = ma.Price ? ma.Price.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-';
-
+            
                 return `<tr>
                     <td style="${tdStyle}">${ma.Category}</td>
                     <td style="${tdStyle}">${ma.SubType || '-'}</td>
@@ -267,7 +269,7 @@ export const sendMonthlyInventoryReport = async () => {
     try {
         const pool = getPool();
         const monthName = new Date().toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
-
+ 
         // Query ข้อมูลสต็อกทั้งหมด
         const result = await pool.request().query(`
             SELECT 
@@ -284,54 +286,207 @@ export const sendMonthlyInventoryReport = async () => {
             ORDER BY business_priority ASC, DeviceType ASC, ProductName ASC
         `);
         const allStock = result.recordset;
-
-        // คำนวณสรุป
+ 
+        // ✅ declare ก่อน Excel block
         const lowStockItems = allStock.filter(item => item.CurrentStock <= item.MinStock && item.MinStock > 0);
         const totalValueAll = allStock.reduce((sum, item) => sum + (item.TotalValue || 0), 0);
         const totalToOrderValue = lowStockItems.reduce((sum, item) => sum + (item.ToOrderQty * (item.LastPrice || 0)), 0);
-
-        // --- สร้างไฟล์ Excel (เหมือนเดิม) ---
+ 
+        // Query รับ/เบิก ของเดือนนี้
+        const transResult = await pool.request().query(`
+            SELECT 
+                t.ProductID,
+                SUM(CASE WHEN t.TransType = 'IN' THEN t.Qty ELSE 0 END) as TotalIn,
+                SUM(CASE WHEN t.TransType = 'OUT' THEN ABS(t.Qty) ELSE 0 END) as TotalOut
+            FROM dbo.Stock_Transactions t
+            WHERE MONTH(t.TransDate) = MONTH(GETDATE())
+              AND YEAR(t.TransDate) = YEAR(GETDATE())
+            GROUP BY t.ProductID
+        `);
+ 
+        const transMap = {};
+        transResult.recordset.forEach(t => {
+            transMap[t.ProductID] = { in: t.TotalIn, out: t.TotalOut };
+        });
+ 
+        // --- สร้างไฟล์ Excel ---
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Inventory Full Report');
-        worksheet.columns = [
-            { header: 'Priority', key: 'priority', width: 12 },
-            { header: 'Category', key: 'type', width: 15 },
-            { header: 'Product Name', key: 'name', width: 35 },
-            { header: 'Location', key: 'loc', width: 15 },
-            { header: 'Current', key: 'current', width: 10 },
-            { header: 'Min', key: 'min', width: 10 },
-            { header: 'To Order', key: 'order', width: 10 },
-            { header: 'Unit', key: 'unit', width: 10 },
-            { header: 'Price', key: 'price', width: 12 },
-            { header: 'Total Value', key: 'total', width: 15 },
-            { header: 'Lead Time (Days)', key: 'lt', width: 15 }
-        ];
-        allStock.forEach(item => {
-            const row = worksheet.addRow({
-                priority: item.priority_label, type: item.DeviceType, name: item.ProductName, loc: item.Location,
-                current: item.CurrentStock, min: item.MinStock, order: item.ToOrderQty, unit: item.UnitOfMeasure,
-                price: item.LastPrice, total: item.TotalValue, lt: item.lead_time_days
+ 
+        // Row 1 — Logo + Title
+        worksheet.getRow(1).height = 40;
+        worksheet.mergeCells('B1:M1');
+        worksheet.getCell('B1').value = `IT Stock Monthly Summary - ${monthName}`;
+        worksheet.getCell('B1').font = { bold: true, size: 24, color: { argb: 'FF1E293B' } };
+        worksheet.getCell('B1').alignment = { vertical: 'middle', horizontal: 'left' };
+ 
+        // Logo
+        const logoPath = path.join(process.cwd(), '..', 'APP', 'DAIKIN_logo.svg.png');
+        if (fs.existsSync(logoPath)) {
+            const imageId = workbook.addImage({
+                buffer: fs.readFileSync(logoPath),
+                extension: 'png'
             });
-            if (item.CurrentStock <= item.MinStock) {
-                row.eachCell((cell) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF1F2' } }; });
+            worksheet.addImage(imageId, {
+                tl: { col: 0, row: 0 },
+                ext: { width: 120, height: 55 }
+            });
+        }
+ 
+        // Row 2 — ว่าง
+        worksheet.addRow([]);
+ 
+        // Row 3 — Header
+        const headerRow = worksheet.addRow([
+            'Priority', 'Category', 'Product Name', 'Location',
+            'Current', 'Min', 'To Order', 'Unit', 'Price',
+            'Total Value', 'Lead Time (Days)',
+            'In Bounds(PCS)', 'Out Bounds(PCS)'
+        ]);
+ 
+        // กำหนด key และ width
+        const colKeys = ['priority','type','name','loc','current','min','order','unit','price','total','lt','month_in','month_out'];
+        const colWidths = [12, 15, 35, 15, 10, 10, 10, 10, 12, 15, 15, 16, 16];
+        colKeys.forEach((key, i) => {
+            worksheet.getColumn(i + 1).key   = key;
+            worksheet.getColumn(i + 1).width = colWidths[i];
+        });
+ 
+        // Style header row
+        headerRow.height = 22;
+        headerRow.eachCell(cell => {
+            cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+            cell.font      = { bold: true, color: { argb: 'FFFFFFFF' } };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.border    = {
+                top:    { style: 'thin', color: { argb: 'FF334155' } },
+                left:   { style: 'thin', color: { argb: 'FF334155' } },
+                bottom: { style: 'thin', color: { argb: 'FF334155' } },
+                right:  { style: 'thin', color: { argb: 'FF334155' } }
+            };
+        });
+ 
+        // คำนวณ grand total
+        let grandTotalIn  = 0;
+        let grandTotalOut = 0;
+        
+                allStock.forEach(item => {
+            const trans    = transMap[item.ProductID] || { in: 0, out: 0 };
+            const monthIn  = trans.in  || 0;
+            const monthOut = trans.out || 0;
+            grandTotalIn  += monthIn  * (item.LastPrice || 0);
+            grandTotalOut += monthOut * (item.LastPrice || 0);
+
+            const row = worksheet.addRow({
+                priority:  item.priority_label,
+                type:      item.DeviceType,
+                name:      item.ProductName,
+                loc:       item.Location,
+                current:   item.CurrentStock,
+                min:       item.MinStock,
+                order:     item.ToOrderQty,
+                unit:      item.UnitOfMeasure,
+                price:     item.LastPrice,
+                total:     item.TotalValue,
+                lt:        item.lead_time_days,
+                month_in:  monthIn  > 0 ? monthIn  : '',
+                month_out: monthOut > 0 ? monthOut : ''
+            });
+
+            row.height = 20;
+
+            // border ทุก cell
+            row.eachCell(cell => {
+                cell.border = {
+                    top:    { style: 'thin', color: { argb: 'FFe2e8f0' } },
+                    left:   { style: 'thin', color: { argb: 'FFe2e8f0' } },
+                    bottom: { style: 'thin', color: { argb: 'FFe2e8f0' } },
+                    right:  { style: 'thin', color: { argb: 'FFe2e8f0' } }
+                };
+            });
+ 
+            // ✅ สีทุก priority ไม่ใช่แค่ low stock
+            const priorityBg = {
+                'CRITICAL': 'FFFFF1F2',
+                'HIGH':     'FFFFF7ED',
+                'MEDIUM':   'FFFEFCE8',
+                'LOW':      'FFF0FDF4'
+            }[item.priority_label];
+ 
+            if (item.CurrentStock <= item.MinStock && item.MinStock > 0) {
+                for (let col = 1; col <= 11; col++) {
+                    row.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF1F2' } };
+                }
                 row.getCell('current').font = { color: { argb: 'FFFF0000' }, bold: true };
             }
+ 
+            // ✅ สีรับ/เบิก เข้มขึ้น
+            if (monthIn > 0) {
+            row.getCell('month_in').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFbbf7d0' } };
+            row.getCell('month_in').font = { color: { argb: 'FF15803d' }, bold: true };
+            }
+            if (monthOut > 0) {
+                row.getCell('month_out').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFfecaca' } };
+                row.getCell('month_out').font = { color: { argb: 'FFb91c1c' }, bold: true };
+            }
         });
-        worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-        worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-        const excelBuffer = await workbook.xlsx.writeBuffer();
+ 
+        // Row Total ด้านล่าง
+        const totalRow = worksheet.addRow({
+            name: `รวมมูลค่าเดือน ${monthName}`,
+            month_in:  grandTotalIn,
+            month_out: grandTotalOut
+        });
+        totalRow.height = 26;
+        totalRow.eachCell(cell => {
+            cell.fill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+            cell.font   = { bold: true, color: { argb: 'FFFFFFFF' } };
+            cell.border = {
+                top:    { style: 'medium', color: { argb: 'FF334155' } },
+                bottom: { style: 'medium', color: { argb: 'FF334155' } },
+                left:   { style: 'thin',   color: { argb: 'FF334155' } },
+                right:  { style: 'thin',   color: { argb: 'FF334155' } }
+            };
+        });
+        totalRow.getCell('month_in').font  = { bold: true, color: { argb: 'FF86efac' } };
+        totalRow.getCell('month_out').font = { bold: true, color: { argb: 'FFfca5a5' } };
+        for (let col = 1; col <= 11; col++) {
+        totalRow.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0f172a' } };
+        totalRow.getCell(col).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        totalRow.getCell(col).border = {
+        top:    { style: 'medium', color: { argb: 'FF334155' } },
+        bottom: { style: 'medium', color: { argb: 'FF334155' } },
+        left:   { style: 'thin',   color: { argb: 'FF334155' } },
+        right:  { style: 'thin',   color: { argb: 'FF334155' } }
+    };
+}
+        totalRow.getCell('name').value = `Total Value - ${monthName}`;
+        totalRow.getCell('name').alignment = { horizontal: 'right', vertical: 'middle' };
 
-        // --- เตรียมตาราง HTML (ปรับ Style ให้เหมือน Daily เป๊ะๆ) ---
+        // col month_in — เขียว
+        totalRow.getCell('month_in').fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF166534' } };
+        totalRow.getCell('month_in').font      = { bold: true, color: { argb: 'FFbbf7d0' }, size: 12 };
+        totalRow.getCell('month_in').alignment = { horizontal: 'right', vertical: 'middle' };
+        totalRow.getCell('month_in').border    = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } };
+
+        // col month_out — แดง
+        totalRow.getCell('month_out').fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7f1d1d' } };
+        totalRow.getCell('month_out').font      = { bold: true, color: { argb: 'FFfecaca' }, size: 12 };
+        totalRow.getCell('month_out').alignment = { horizontal: 'right', vertical: 'middle' };
+        totalRow.getCell('month_out').border    = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } };
+        const excelBuffer = await workbook.xlsx.writeBuffer();
+ 
+        // --- เตรียมตาราง HTML ---
         const thStyle = `padding: 4px 14px; border: 1px solid #ddd; text-align: left; font-size: 12px; background-color: #f8fafc; color: #475569; white-space: nowrap;`;
         const tdStyle = `padding: 4px 14px; border: 1px solid #ddd; font-size: 12px;`;
-
+ 
         const lowStockRows = lowStockItems.map(item => {
             const price = item.LastPrice || 0;
             const total = item.ToOrderQty * price;
             const fmtPrice = price ? price.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-';
             const fmtTotal = total ? total.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-';
             const leadTime = item.lead_time_days ? `${item.lead_time_days} days` : '-';
-
+ 
             return `<tr>
                 <td style="${tdStyle}">${item.ProductName}</td>
                 <td style="${tdStyle} text-align: center;">${item.CurrentStock}</td>
@@ -342,7 +497,7 @@ export const sendMonthlyInventoryReport = async () => {
                 <td style="${tdStyle} text-align: right; font-weight: bold; color: #0284c7;">${fmtTotal}</td>
             </tr>`;
         }).join('');
-
+ 
         const transporter = nodemailer.createTransport({
             host: process.env.EMAIL_HOST || 'smtp.dci.daikin.co.jp',
             port: 25,
@@ -350,69 +505,71 @@ export const sendMonthlyInventoryReport = async () => {
             ignoreTLS: true,
             tls: { rejectUnauthorized: false }
         });
-
+ 
         await transporter.sendMail({
             from: '"IT INVENTORY" <it-inventory@dci.daikin.co.jp>',
             to: 'dci.is@dci.daikin.co.jp',
             subject: `📊 IT Monthly Inventory & Reorder Report - ${monthName}`,
             html: `
-                <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 950px; margin: 0 auto; color: #1e293b; line-height: 1.5;">
-                    <div style="background-color: #ffffff; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;"> 
+                <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 1100px; margin: 0 auto; color: #1e293b; line-height: 1.5;">
+                    <div style="background-color: #ffffff; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
                         <h2 style="color: #0f172a; border-bottom: 3px solid #3b82f6; padding-bottom: 12px;">📦 IT Stock Monthly Summary</h2>
-                        
-                        <p style="font-size: 20px; margin-bottom: 18px; margin-top: 10px; ">สรุปรายการสินค้าที่ต้องสั่งซื้อและสถานะสต็อกประจำเดือน <strong>${monthName}</strong> รายละเอียดตามตารางด้านล่างนี้:</p>
-
-                        <h3 style="color: #dc2626; font-size: 16px; margin-bottom: 10px; display: flex; align-items: center;">⚠️ Low Stock Alert (สินค้าที่ต้องรีบสั่งซื้อ)</h3>
-                    <table style="width: auto; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 4px;">
-                        <thead>
-                            <tr>
-                                <th style="${thStyle} min-width: 150px;">Product</th>
-                                <th style="${thStyle} text-align: center; width: 55px;">Current</th>
-                                <th style="${thStyle} text-align: center; width: 45px;">Min</th>
-                                <th style="${thStyle} text-align: center; width: 80px;">To Order</th>
-                                <th style="${thStyle} text-align: center; width: 90px;">Lead Time</th>
-                                <th style="${thStyle} text-align: right; width: 90px;">Unit Price</th>
-                                <th style="${thStyle} text-align: right; width: 80px;">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${lowStockRows || '<tr><td colspan="7" style="text-align:center; padding:10px;">No low stock items this month.</td></tr>'}
-                        </tbody>
-                        <tfoot>
-                            <tr style="background-color: #f1f5f9;">
-                                <td colspan="6" style="${tdStyle} text-align: right; font-size: 13px; font-weight: bold;">Total Amount to Order</td>
-                                <td style="${tdStyle} text-align: right; font-weight: bold; color: #d9534f;">
-                                    ${totalToOrderValue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                                </td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                    <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
-                        <table style="border-collapse: collapse; font-family: Arial, sans-serif;">
-                            <tr style="background-color: #f1f5f9;">
-                                <td style="${tdStyle} text-align: right; font-size: 15px; font-weight: bold;">📦 มูลค่าสต็อคทั้งหมด (All Stock Value)</td>
-                                <td style="${tdStyle} text-align: right; font-weight: bold; color: #0284c7; min-width: 120px;">
-                                    ${totalValueAll.toLocaleString('th-TH', { minimumFractionDigits: 2 })} 
-                                </td>
-                            </tr>
-                            <tr style="background-color: #fef2f2;">
-                                <td style="${tdStyle} text-align: right; font-size: 15px; font-weight: bold;">🛒 มูลค่าที่ต้องสั่งซื้อ (Total to Order)</td>
-                                <td style="${tdStyle} text-align: right; font-weight: bold; color: #d9534f; min-width: 120px;">
-                                    ${totalToOrderValue.toLocaleString('th-TH', { minimumFractionDigits: 2 })} 
-                                </td>
-                            </tr>
+ 
+                        <p style="font-size: 20px; margin-bottom: 18px; margin-top: 10px;">สรุปรายการสินค้าที่ต้องสั่งซื้อและสถานะสต็อกประจำเดือน <strong>${monthName}</strong> รายละเอียดตามตารางด้านล่างนี้:</p>
+ 
+                        <h3 style="color: #dc2626; font-size: 16px; margin-bottom: 10px;">⚠️ Low Stock Alert (สินค้าที่ต้องรีบสั่งซื้อ)</h3>
+                        <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 4px;">
+                            <thead>
+                                <tr>
+                                    <th style="${thStyle} min-width: 150px;">Product</th>
+                                    <th style="${thStyle} text-align: center; width: 55px;">Current</th>
+                                    <th style="${thStyle} text-align: center; width: 45px;">Min</th>
+                                    <th style="${thStyle} text-align: center; width: 80px;">To Order</th>
+                                    <th style="${thStyle} text-align: center; width: 90px;">Lead Time</th>
+                                    <th style="${thStyle} text-align: right; width: 90px;">Unit Price</th>
+                                    <th style="${thStyle} text-align: right; width: 80px;">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${lowStockRows || '<tr><td colspan="7" style="text-align:center; padding:10px;">No low stock items this month.</td></tr>'}
+                            </tbody>
+                            <tfoot>
+                                <tr style="background-color: #f1f5f9;">
+                                    <td colspan="6" style="${tdStyle} text-align: right; font-size: 13px; font-weight: bold;">Total Amount to Order</td>
+                                    <td style="${tdStyle} text-align: right; font-weight: bold; color: #d9534f;">
+                                        ${totalToOrderValue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                    </td>
+                                </tr>
+                            </tfoot>
                         </table>
-                    </div>
-                    <div style="margin-top: 20px; background: #eff6ff; padding: 12px; border-radius: 4px; border-left: 4px solid #3b82f6;">
-                        <p style="margin: 0; font-size: 18px; color: #1e40af;">
-                            <strong>หมายเหตุ:</strong> ข้อมูลสต็อกทั้งหมด (รวมสินค้าที่มีสถานะปกติ) ได้ถูกแนบมาในไฟล์ Excel พร้อมรายงานฉบับนี้แล้ว
+ 
+                        <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
+                            <table style="border-collapse: collapse; font-family: Arial, sans-serif;">
+                                <tr style="background-color: #f1f5f9;">
+                                    <td style="${tdStyle} text-align: right; font-size: 15px; font-weight: bold;">📦 มูลค่าสต็อคทั้งหมด (All Stock Value)</td>
+                                    <td style="${tdStyle} text-align: right; font-weight: bold; color: #0284c7; min-width: 120px; font-size: 15px;">
+                                        ${totalValueAll.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                                    </td>
+                                </tr>
+                                <tr style="background-color: #fef2f2;">
+                                    <td style="${tdStyle} text-align: right; font-size: 15px; font-weight: bold;">🛒 มูลค่าที่ต้องสั่งซื้อ (Total to Order)</td>
+                                    <td style="${tdStyle} text-align: right; font-weight: bold; color: #d9534f; min-width: 120px; font-size: 15px;">
+                                        ${totalToOrderValue.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+ 
+                        <div style="margin-top: 20px; background: #eff6ff; padding: 12px; border-radius: 4px; border-left: 4px solid #3b82f6;">
+                            <p style="margin: 0; font-size: 18px; color: #1e40af;">
+                                <strong>หมายเหตุ:</strong> ข้อมูลสต็อกทั้งหมด (รวมสินค้าที่มีสถานะปกติ) ได้ถูกแนบมาในไฟล์ Excel พร้อมรายงานฉบับนี้แล้ว
+                            </p>
+                        </div>
+ 
+                        <p style="margin-top: 30px; font-size: 15px; color: #999; border-top: 1px solid #eee; padding-top: 10px;">
+                            This is an automated monthly report from IT Inventory Management System.
                         </p>
                     </div>
-
-                    <p style="margin-top: 30px; font-size: 15px; color: #999; border-top: 1px solid #eee; padding-top: 10px;">
-                        This is an automated monthly report from IT Inventory Management System.<br/>
-                        
-                    </p>
                 </div>`,
             attachments: [
                 {
@@ -421,10 +578,11 @@ export const sendMonthlyInventoryReport = async () => {
                 }
             ]
         });
-
+ 
         console.log('Monthly Email sent successfully with Excel and Daily Style table');
         return { success: true };
     } catch (error) {
+        console.error('Monthly Email Error:', error.message);
         console.error('Monthly Email Error:', error);
         return { success: false, error: error.message };
     }
