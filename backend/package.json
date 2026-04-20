@@ -17,7 +17,8 @@
         "mssql": "^12.2.0",
         "multer": "^2.0.2",
         "node-cron": "^3.0.3",
-        "nodemailer": "^6.9.15",
+        "node-fetch": "^3.3.2",
+        "nodemailer": "^6.10.1",
         "xlsx": "^0.18.5"
     }
 }

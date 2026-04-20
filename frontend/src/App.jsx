@@ -2,7 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
-
+import { QuotaJobProvider } from './context/QuotaJobContext';
 
 // Components
 import Layout from './components/Layout';
@@ -23,6 +23,7 @@ import InkTonerStockPage from './pages/InkTonerStockPage';
 import PCInventoryPage from './pages/PCInventoryPage';
 import ADExplorer from './pages/ADExplorer';
 import ADUserDetail from './pages/ADUserDetail';
+import QuotaManager from './pages/QuotaManager';
 
 // App Routes Component
 const AppRoutes = () => {
@@ -52,13 +53,14 @@ const AppRoutes = () => {
                 <Route path="reports" element={<ReportPage />} />
                 <Route path="ma-license" element={<MALicensePage />} />
                 <Route path="pc-inventory" element={<PCInventoryPage />} />
-                <Route path="/ad-explorer" element={<ADExplorer />} />
-                <Route path="/ad-explorer/user/:username" element={<ADUserDetail />} />     
+                <Route path="ad-explorer" element={<ADExplorer />} />
+                <Route path="ad-explorer/user/:username" element={<ADUserDetail />} />
+                <Route path="quota-manager" element={<QuotaManager />} />
 
-                {/* PO and Receive - viewable by all, actions restricted in components */}
+                {/* PO and Receive */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
                 <Route path="receive" element={<ReceivePage />} />
-                
+
                 <Route
                     path="manual-import"
                     element={
@@ -77,7 +79,7 @@ const AppRoutes = () => {
                 />
             </Route>
 
-            {/* Catch all - redirect to home */}
+            {/* Catch all */}
             <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     );
@@ -88,7 +90,9 @@ const App = () => {
         <BrowserRouter basename={import.meta.env.BASE_URL}>
             <AuthProvider>
                 <DataProvider>
-                    <AppRoutes />
+                    <QuotaJobProvider>
+                        <AppRoutes />
+                    </QuotaJobProvider>
                 </DataProvider>
             </AuthProvider>
         </BrowserRouter>

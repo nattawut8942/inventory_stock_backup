@@ -18,7 +18,8 @@ import {
     Printer,
     ClipboardList,
     Monitor,
-    Network
+    Network,
+    HardDrive
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatThaiDate } from '../utils/formatDate';
@@ -62,6 +63,7 @@ const Header = ({ onMenuClick }) => {
             case '/ink-toner': return { title: 'INK & TONER STOCK', icon: Printer, color: 'text-cyan-600' };
             case '/pc-inventory': return { title: 'PC / MONITOR INVENTORY', icon: Monitor, color: 'text-blue-600' };
             case '/ad-explorer': return { title: 'ACTIVE DIRECTORY EXPLORER', icon: Network, color: 'text-indigo-600' };
+            case '/quota-manager': return { title: 'QUOTA MANAGER', icon: HardDrive, color: 'text-indigo-600' };
             default: return { title: 'IT STOCK MANAGEMENT', icon: Package, color: 'text-slate-600' };
         }
     };

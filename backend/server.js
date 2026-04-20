@@ -29,8 +29,10 @@ import monitorInventoryRoutes from './src/routes/monitorInventoryRoutes.js'; // 
 import stockCountRoutes from './src/routes/stockCountRoutes.js';
 import budgetRoutes from './src/routes/budgetRoutes.js'; // Added Budget Routes
 import adRoutes from './src/routes/adRoutes.js';
-
+import quotaRoutes from './src/routes/quotaRoutes.js';
 // Setup Environment
+import { cleanupStaleLogs } from './src/controllers/quotaController.js';
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,17 +43,31 @@ const PORT = process.env.PORT || 3002;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Static Files (Uploads)
 const uploadsDir = path.join(__dirname, 'uploads');
 app.use('/uploads', express.static(uploadsDir));
 
 // Database Connection & Init
+const connectWithRetry = async (fn, name, retries = 5) => {
+    for (let i = 0; i < retries; i++) {
+        try {
+            await fn();
+            console.log(`[DB] ${name} connected`);
+            return;
+        } catch (err) {
+            console.error(`[DB] ${name} failed (${i+1}/${retries}):`, err.message);
+            if (i < retries - 1) await new Promise(r => setTimeout(r, 5000));
+        }
+    }
+    throw new Error(`${name} connection failed after ${retries} retries`);
+};
+
 const startServer = async () => {
     try {
-        await connectDB();
-        await connectDciDB();
+        await connectWithRetry(connectDB, 'Main DB');
+        await connectWithRetry(connectDciDB, 'DCI DB');
 
         // Routes
         app.use('/ITinventory/api', authRoutes);         // /api/authen
@@ -70,11 +86,28 @@ const startServer = async () => {
         app.use('/ITinventory/api', stockCountRoutes);    // /api/stock-count
         app.use('/ITinventory/api', budgetRoutes);        // /api/budget
         app.use('/ITinventory/api', adRoutes);    
+        app.use('/ITinventory/api', quotaRoutes);      // /api/quota
+        
+    cron.schedule('0 8 * * 1', async () => {
+    console.log('Running Weekly report (Every Monday)...');
+    await sendDailyReport();
 
-        // Cron Job (Daily Low Stock Report at 07:00 AM)
-        cron.schedule('0 8 * * 1', async () => {
-            console.log('Running Weekly report (Every Monday)...');
-            await sendDailyReport();
+    // ส่ง Quota Report
+    try {
+        const { buildList } = await import('./src/controllers/quotaController.js');
+        const { sendQuotaReport } = await import('./src/services/quotaEmailService.js');
+        const list = await buildList(false);
+        const summary = {
+            total:    list.length,
+            warning:  list.filter(u => u.pctUsed >= 80 && u.pctUsed < 90).length,
+            critical: list.filter(u => u.pctUsed >= 90 && u.pctUsed < 100).length,
+            exceeded: list.filter(u => u.pctUsed >= 100).length,
+        };
+        await sendQuotaReport({ recipients: ['dci.is@dci.daikin.co.jp'], data: list, summary });
+        console.log('[Cron] Quota report sent');
+        } catch (err) {
+            console.error('[Cron] Quota report failed:', err.message);
+        }
         }, {
             scheduled: true,
             timezone: "Asia/Bangkok"
@@ -96,7 +129,21 @@ const startServer = async () => {
             scheduled: true,
             timezone: "Asia/Bangkok"
         });
-        
+
+        cron.schedule('0 7 * * *', async () => {
+        console.log('[Cron] Auto sync quota...');
+        try {
+            const { buildList } = await import('./src/controllers/quotaController.js');
+            await buildList(true);
+            console.log('[Cron] Quota sync done');
+        } catch (err) {
+            console.error('[Cron] Quota sync failed:', err.message);
+            }
+        }, {
+            scheduled: true,
+            timezone: 'Asia/Bangkok'
+        });
+
         // Error Handling Middleware
         app.use((err, req, res, next) => {
             console.error('Unhandled Error:', err.stack);
@@ -112,5 +159,6 @@ const startServer = async () => {
         console.error('Failed to start server:', err);
     }
 };
+await cleanupStaleLogs();
 
 startServer();

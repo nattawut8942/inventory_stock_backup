@@ -16,7 +16,7 @@ import {
     ChevronDown,
     ClipboardList
 } from 'lucide-react';
-import { FileKey, Monitor } from 'lucide-react';
+import { FileKey, Monitor, HardDrive } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import logodaikin from '../../public/DAIKIN_logo.svg.png';
 
@@ -169,24 +169,29 @@ const Sidebar = ({ isOpen, onClose }) => {
 
     {user?.role === 'Staff' ? (
         <NavGroup icon={Package} label="STOCK & ORDERS" paths={['/inventory', '/ink-toner', '/purchase-orders', '/receive']}>
-            <NavItem icon={Database} label="INVENTORY" to="/inventory" isSubItem onClose={onClose} />
+        
+            <NavItem icon={Database} label="STOCK INVENTORY" to="/inventory" isSubItem onClose={onClose} />
             <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" isSubItem onClose={onClose} />
             <NavItem icon={ShoppingCart} label="PR & ORDERS" to="/purchase-orders" isSubItem onClose={onClose} />
             <NavItem icon={ArrowDownToLine} label="RECEIVE ITEMS" to="/receive" isSubItem onClose={onClose} />
         </NavGroup>
     ) : (
         <>
-            <NavItem icon={Database} label="INVENTORY" to="/inventory" onClose={onClose} />
+            <NavItem icon={Database} label="STOCK INVENTORY" to="/inventory" onClose={onClose} />
             <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" onClose={onClose} />
         </>
     )}
 
     {/* เส้นคั่นก่อนเข้าเมนูหลักอื่นๆ */}
-    <div className="my-2 border-t border-white/5 mx-3"></div>
+    <div className="my-1 border-t border-white/5 mx-3"></div>
 
     <NavItem icon={FileKey} label="MA / LICENSE" to="/ma-license" onClose={onClose} />
+    <div className="my-1 border-t border-white/5 mx-3"></div>{/* เส้นคั่นก่อนเข้าเมนูหลักอื่นๆ */} 
     <NavItem icon={Monitor} label="PC INVENTORY" to="/pc-inventory" onClose={onClose} />
+    <div className="my-1 border-t border-white/5 mx-3"></div> {/* เส้นคั่นก่อนเข้าเมนูหลักอื่นๆ */}
     <NavItem icon={Shield} label="AD EXPLORER" to="/ad-explorer" onClose={onClose} />
+    <div className="my-1 border-t border-white/5 mx-3"></div> {/* เส้นคั่นก่อนเข้าเมนูหลักอื่นๆ */}
+    <NavItem icon={HardDrive} label="QUOTA MANAGER" to="/quota-manager" onClose={onClose} />
 
     {user?.role === 'Staff' && (
         <>
