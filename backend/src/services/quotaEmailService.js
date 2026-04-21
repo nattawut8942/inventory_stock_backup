@@ -33,7 +33,7 @@ export const sendQuotaWarning = async (u, files = []) => {
     const fileRows = files.slice(0, 20).map((f, i) => `
         <tr bgcolor="${i % 2 === 0 ? '#ffffff' : '#f8fafc'}">
             <td width="30" align="center" style="padding:7px 10px; font-size:11px; color:#94a3b8; border-bottom:1px solid #f1f5f9;">${i + 1}</td>
-            <td style="padding:7px 10px; font-size:12px; font-weight:bold; color:#1e293b; border-bottom:1px solid #f1f5f9;">${esc(f.filename)}</td>
+            <td style="padding:7px 10px; font-size:14px; font-weight:bold; color:#1e293b; border-bottom:1px solid #f1f5f9;">${esc(f.filename)}</td>
             <td width="80" align="right" style="padding:7px 10px; font-size:12px; font-weight:bold; color:#d97706; border-bottom:1px solid #f1f5f9; white-space:nowrap;">${esc(f.size)}</td>
             <td style="padding:7px 10px; font-size:11px; color:#64748b; font-family:Consolas,monospace; border-bottom:1px solid #f1f5f9; word-break:break-all; min-width:300px;">${esc(f.unc || f.path)}</td>
         </tr>`).join('');

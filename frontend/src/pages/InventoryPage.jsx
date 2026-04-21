@@ -673,7 +673,7 @@ const InventoryPage = () => {
                         </div>
                         <div className="flex w-full gap-1">
                           <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 disabled:opacity-50">ใส่ตะกร้า</button>
-                          <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 disabled:opacity-50">เบิกด่วน</button>
+                          <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 disabled:opacity-50">เบิก</button>
                         </div>
                       </div>
                     </motion.div>

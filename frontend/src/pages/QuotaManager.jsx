@@ -11,7 +11,7 @@ import Pagination from '../components/Pagination';
 import { API_BASE } from '../config/api';
 import { useQuotaJobs } from '../context/QuotaJobContext';
 
-const ITEMS_PER_PAGE = 25;
+const ITEMS_PER_PAGE = 20;
 
 const STATUS_CONFIG = {
     Exceeded: { label: 'เต็มความจุ', cls: 'bg-red-50 text-red-600 border-red-100',      dot: 'bg-red-500'    },
@@ -339,6 +339,7 @@ const QuotaManager = () => {
     const [query,  setQuery]  = useState('');
     const [sort,   setSort]   = useState({ key: 'pctUsed', direction: 'desc' });
     const [page,   setPage]   = useState(1);
+    const [logsPage, setLogsPage] = useState(1);
 
     const [selected,    setSelected]    = useState(new Set());
     const [threshold,   setThreshold]   = useState(80);
@@ -420,12 +421,13 @@ const QuotaManager = () => {
     }, [API, pushToast]);
 
     const fetchLogs = useCallback(async () => {
-        setLogsLoading(true);
-        try {
-            const res = await fetch(`${API}/logs?limit=200`).then(r => r.json());
-            setLogs(res.data || []);
-        } catch { pushToast('โหลด log ล้มเหลว', 'error'); }
-        setLogsLoading(false);
+    setLogsLoading(true);
+    try {
+        const res = await fetch(`${API}/logs?limit=200`).then(r => r.json());
+        setLogs(res.data || []);
+        setLogsPage(1);  // ← เพิ่ม
+    } catch { pushToast('โหลด log ล้มเหลว', 'error'); }
+    setLogsLoading(false);
     }, [API, pushToast]);
 
     useEffect(() => { fetchUsers(); }, [fetchUsers]);
@@ -531,6 +533,7 @@ const QuotaManager = () => {
     }, [users, filter, query, sort]);
 
     const paged        = useMemo(() => filtered.slice((page-1)*ITEMS_PER_PAGE, page*ITEMS_PER_PAGE), [filtered, page]);
+    const pagedLogs    = useMemo(() => logs.slice((logsPage-1)*ITEMS_PER_PAGE, logsPage*ITEMS_PER_PAGE), [logs, logsPage]);
     const warningCount = useMemo(() => users.filter(u => u.pctUsed >= threshold).length, [users, threshold]);
     const overallPct   = useMemo(() => bulkProgress.total === 0 ? 0 : Math.round((bulkProgress.current / bulkProgress.total) * 100), [bulkProgress]);
 
@@ -1205,8 +1208,13 @@ const QuotaManager = () => {
                                 </tbody>
                             </table>
                         </div>
-                        <Pagination currentPage={page} totalPages={Math.ceil(filtered.length / ITEMS_PER_PAGE)}
-                            onPageChange={setPage} itemsPerPage={ITEMS_PER_PAGE} totalItems={filtered.length} />
+                         <Pagination
+                            currentPage={page}
+                            totalPages={Math.ceil(filtered.length / ITEMS_PER_PAGE)}
+                            onPageChange={setPage}
+                            itemsPerPage={ITEMS_PER_PAGE}
+                            totalItems={filtered.length}
+                        />
                     </div>
                 </motion.div>
             )}
@@ -1218,7 +1226,7 @@ const QuotaManager = () => {
                         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                    {logsLoading ? 'กำลังโหลด...' : `${logs.length} รายการ`}
+                                    {logsLoading ? 'กำลังโหลด...' : `${logs.length} รายการ (หน้า ${logsPage}/${Math.ceil(logs.length / ITEMS_PER_PAGE) || 1})`}
                                 </span>
                                 {Object.keys(activeJobs).length > 0 && (
                                     <span className="flex items-center gap-1.5 text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
@@ -1266,7 +1274,15 @@ const QuotaManager = () => {
                                                 </div>
                                             );
                                         })}
+                                        <Pagination
+                            currentPage={logsPage}
+                            totalPages={Math.ceil(logs.length / ITEMS_PER_PAGE)}
+                            onPageChange={setLogsPage}
+                            itemsPerPage={ITEMS_PER_PAGE}
+                            totalItems={logs.length}
+                        />
                                     </div>
+                                    
                                 </motion.div>
                             )}
                         </AnimatePresence>
@@ -1294,7 +1310,7 @@ const QuotaManager = () => {
                                             <History size={36} strokeWidth={1} className="mx-auto mb-2 text-slate-200" />
                                             <p className="text-sm text-slate-400">ยังไม่มี log</p>
                                         </td></tr>
-                                    ) : logs.map((l, i) => {
+                                    ) : pagedLogs.map((l, i) => {
                                         // match ด้วย logId (แม่นยำ) ก่อน ถ้าไม่มีค่อย fallback username
                                         const logJob = jobItems.find(j => j.logId === l.ID) ||
                                             (activeJobs[l.Username]
@@ -1398,6 +1414,13 @@ const QuotaManager = () => {
                                 </tbody>
                             </table>
                         </div>
+                          <Pagination
+                currentPage={logsPage}
+                totalPages={Math.ceil(logs.length / ITEMS_PER_PAGE)}
+                onPageChange={setLogsPage}
+                itemsPerPage={ITEMS_PER_PAGE}
+                totalItems={logs.length}
+            />
                     </div>
                 </motion.div>
             )}
