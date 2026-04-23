@@ -90,7 +90,7 @@ export const getFilesFromLatestReport = async (username, onStep) => {
             } else if (msg.type === 'done') {
                 delete activeWorkers[username];
                 releaseLock();
-                resolve({ files: msg.files, reportFile: msg.reportFile || '' });
+                resolve({ files: msg.files, reportFile: msg.reportFile || '', htmlBase64: msg.htmlBase64 || null });
             } else if (msg.type === 'error') {
                 delete activeWorkers[username];
                 releaseLock();

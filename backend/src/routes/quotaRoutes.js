@@ -1,7 +1,7 @@
 import express from 'express';
 import {
     getQuotaUsers, getQuotaStats, getEmailLogs,
-    getFsrmStatus, syncQuota,
+    getFsrmStatus, syncQuota,getSyncLogs,
     sendWarningSingle, sendWarningEmails,
     sendReportEmail, getJobStatus,
     cancelJob, getEmailLog, deleteEmailLog, clearEmailLogs, resetStaleLogs,
@@ -23,5 +23,6 @@ router.get   ('/quota/log/:id',             getEmailLog);
 router.delete('/quota/log/:id',             deleteEmailLog);
 router.delete('/quota/logs',                clearEmailLogs);
 router.post  ('/quota/reset-stale',         resetStaleLogs);
+router.get('/quota/sync-logs', getSyncLogs);
 
 export default router;

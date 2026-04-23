@@ -2,17 +2,17 @@
 //  fsrmWorker.js — รันใน Worker Thread แยกจาก main process
 // ============================================================
 import { workerData, parentPort } from 'worker_threads';
-import { spawn }                   from 'child_process';
+import { spawn } from 'child_process';
 import { writeFileSync, unlinkSync, existsSync } from 'fs';
-import { tmpdir }                  from 'os';
-import { join }                    from 'path';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 const { username, fsrmConfig } = workerData;
 const { FSRM_SERVER, FSRM_USER, FSRM_PASS, REPORT_PATH, REPORT_NAME } = fsrmConfig;
 
 const step = (msg) => parentPort.postMessage({ type: 'step', msg });
 const done = (files, reportFile) => parentPort.postMessage({ type: 'done', files, reportFile });
-const fail = (err)  => parentPort.postMessage({ type: 'error', error: err });
+const fail = (err) => parentPort.postMessage({ type: 'error', error: err });
 
 let cancelled = false;
 parentPort.on('message', (msg) => { if (msg === 'cancel') cancelled = true; });
@@ -30,21 +30,21 @@ const runPS = (lines, timeoutMs = 180000) => new Promise((resolve, reject) => {
     writeFileSync(psFile, [...header, ...lines].join('\r\n'), 'utf8');
     const proc = spawn('powershell', [
         '-NoProfile', '-ExecutionPolicy', 'Bypass',
-        '-NonInteractive', '-File', psFile
-    ], { timeout: timeoutMs });
+        '-NonInteractive', '-WindowStyle', 'Hidden', '-File', psFile
+    ], { timeout: timeoutMs, windowsHide: true });
     let chunks = [];
     let stderr = '';
     proc.stdout.on('data', d => { chunks.push(d); });
     proc.stderr.on('data', d => { stderr += d.toString(); });
     proc.on('close', (code) => {
-        try { if (existsSync(psFile)) unlinkSync(psFile); } catch {}
+        try { if (existsSync(psFile)) unlinkSync(psFile); } catch { }
         if (cancelled) return reject(new Error('CANCELLED'));
         const stdout = Buffer.concat(chunks).toString('utf8');
         if (code === 0 || stdout.length > 0) resolve(stdout);
         else reject(new Error(stderr.split('\n')[0] || `exit ${code}`));
     });
     proc.on('error', (err) => {
-        try { if (existsSync(psFile)) unlinkSync(psFile); } catch {}
+        try { if (existsSync(psFile)) unlinkSync(psFile); } catch { }
         reject(err);
     });
 });
@@ -115,10 +115,10 @@ const run = async () => {
             ], 45000)).trim();
 
             const status = (pollOut.match(/STATUS:([^|]+)/) || [])[1]?.trim();
-            const fname  = ((pollOut.match(/FILE:([^|]+)/) || [])[1] || '').trim();
-            const isNew  = (pollOut.match(/ISNEW:(\w+)/) || [])[1] === 'True';
+            const fname = ((pollOut.match(/FILE:([^|]+)/) || [])[1] || '').trim();
+            const isNew = (pollOut.match(/ISNEW:(\w+)/) || [])[1] === 'True';
 
-            step(`รอ report... [${w+5}s] status=${status}`);
+            step(`รอ report... [${w + 5}s] status=${status}`);
 
             if (!isStillRunning(status)) {
                 if (isNew && fname) { newFile = fname; break; }
@@ -152,7 +152,7 @@ const run = async () => {
         step('กำลัง parse รายการไฟล์...');
         const files = parseFiles(html, username);
         step(`ได้ไฟล์ ${files.length} รายการ`);
-        done(files, newFile || '');
+        parentPort.postMessage({ type: 'done', files, reportFile: newFile || '', htmlBase64: b64.trim() });
 
     } catch (err) {
         if (err.message === 'CANCELLED') fail('CANCELLED');
@@ -180,7 +180,7 @@ const parseFiles = (html, uname) => {
     let sec = null;
     for (let ai = 0; ai < allAnchors.length; ai++) {
         const start = allAnchors[ai];
-        const end   = allAnchors[ai + 1] || html.length;
+        const end = allAnchors[ai + 1] || html.length;
         const chunk = html.slice(start, end);
 
         // เช็คว่า section นี้เป็นของ user ที่ต้องการไหม
@@ -215,8 +215,8 @@ const parseFiles = (html, uname) => {
     let m;
     while ((m = rowRe.exec(sec)) !== null) {
         const filename = cl(m[1]);
-        const unc      = cl(m[2]); // UNC path (\\W2KADTH\...)
-        const path     = cl(m[4]); // LOCAL path (E:\...)
+        const unc = cl(m[2]); // UNC path (\\W2KADTH\...)
+        const path = cl(m[4]); // LOCAL path (E:\...)
         if (filename && path && path.includes('\\')) {
             // กรอง header row ออก
             if (filename && !filename.includes('File name') && !filename.includes('Folder')) {
@@ -251,6 +251,6 @@ const cl = s => {
         .replace(/&nbsp;/g, ' ')
         .trim();
 };
-const toMB  = s=>{ if(!s||s==='—')return 0; const n=parseFloat(s.replace(/,/g,'')); if(isNaN(n))return 0; if(s.includes('GB'))return n*1024; if(s.includes('TB'))return n*1024*1024; if(s.includes('KB'))return n/1024; return n; };
+const toMB = s => { if (!s || s === '—') return 0; const n = parseFloat(s.replace(/,/g, '')); if (isNaN(n)) return 0; if (s.includes('GB')) return n * 1024; if (s.includes('TB')) return n * 1024 * 1024; if (s.includes('KB')) return n / 1024; return n; };
 
 run();

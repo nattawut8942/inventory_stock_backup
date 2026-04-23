@@ -57,7 +57,7 @@ const connectWithRetry = async (fn, name, retries = 5) => {
             console.log(`[DB] ${name} connected`);
             return;
         } catch (err) {
-            console.error(`[DB] ${name} failed (${i+1}/${retries}):`, err.message);
+            console.error(`[DB] ${name} failed (${i + 1}/${retries}):`, err.message);
             if (i < retries - 1) await new Promise(r => setTimeout(r, 5000));
         }
     }
@@ -85,29 +85,29 @@ const startServer = async () => {
         app.use('/ITinventory/api', monitorInventoryRoutes); // /api/mo-inventory, etc.
         app.use('/ITinventory/api', stockCountRoutes);    // /api/stock-count
         app.use('/ITinventory/api', budgetRoutes);        // /api/budget
-        app.use('/ITinventory/api', adRoutes);    
+        app.use('/ITinventory/api', adRoutes);
         app.use('/ITinventory/api', quotaRoutes);      // /api/quota
-        
-    cron.schedule('0 8 * * 1', async () => {
-    console.log('Running Weekly report (Every Monday)...');
-    await sendDailyReport();
 
-    // ส่ง Quota Report
-    try {
-        const { buildList } = await import('./src/controllers/quotaController.js');
-        const { sendQuotaReport } = await import('./src/services/quotaEmailService.js');
-        const list = await buildList(false);
-        const summary = {
-            total:    list.length,
-            warning:  list.filter(u => u.pctUsed >= 80 && u.pctUsed < 90).length,
-            critical: list.filter(u => u.pctUsed >= 90 && u.pctUsed < 100).length,
-            exceeded: list.filter(u => u.pctUsed >= 100).length,
-        };
-        await sendQuotaReport({ recipients: ['dci.is@dci.daikin.co.jp'], data: list, summary });
-        console.log('[Cron] Quota report sent');
-        } catch (err) {
-            console.error('[Cron] Quota report failed:', err.message);
-        }
+        cron.schedule('0 8 * * 1', async () => {
+            console.log('Running Weekly report (Every Monday)...');
+            await sendDailyReport();
+
+            // ส่ง Quota Report
+            try {
+                const { buildList } = await import('./src/controllers/quotaController.js');
+                const { sendQuotaReport } = await import('./src/services/quotaEmailService.js');
+                const list = await buildList(false);
+                const summary = {
+                    total: list.length,
+                    warning: list.filter(u => u.pctUsed >= 80 && u.pctUsed < 90).length,
+                    critical: list.filter(u => u.pctUsed >= 90 && u.pctUsed < 100).length,
+                    exceeded: list.filter(u => u.pctUsed >= 100).length,
+                };
+                await sendQuotaReport({ recipients: ['dci.is@dci.daikin.co.jp'], data: list, summary });
+                console.log('[Cron] Quota report sent');
+            } catch (err) {
+                console.error('[Cron] Quota report failed:', err.message);
+            }
         }, {
             scheduled: true,
             timezone: "Asia/Bangkok"
@@ -115,29 +115,29 @@ const startServer = async () => {
 
         // ส่งรายงานรายเดือน ทุกวันสิ้นเดือน เวลา 08:00 น
         cron.schedule('0 8 28-31 * *', async () => {
-        const today = new Date();
-        const tomorrow = new Date(today);
-        tomorrow.setDate(today.getDate() + 1);
+            const today = new Date();
+            const tomorrow = new Date(today);
+            tomorrow.setDate(today.getDate() + 1);
 
-        // เช็คว่า "พรุ่งนี้" เป็นวันที่ 1 หรือไม่? 
-        // ถ้าใช่ แสดงว่า "วันนี้" คือวันสุดท้ายของเดือน
-        if (tomorrow.getDate() === 1) {
-            console.log('Running monthly report (End of Month)...');
-            await sendMonthlyInventoryReport();
-        }
+            // เช็คว่า "พรุ่งนี้" เป็นวันที่ 1 หรือไม่? 
+            // ถ้าใช่ แสดงว่า "วันนี้" คือวันสุดท้ายของเดือน
+            if (tomorrow.getDate() === 1) {
+                console.log('Running monthly report (End of Month)...');
+                await sendMonthlyInventoryReport();
+            }
         }, {
             scheduled: true,
             timezone: "Asia/Bangkok"
         });
 
-        cron.schedule('0 7 * * *', async () => {
-        console.log('[Cron] Auto sync quota...');
-        try {
-            const { buildList } = await import('./src/controllers/quotaController.js');
-            await buildList(true);
-            console.log('[Cron] Quota sync done');
-        } catch (err) {
-            console.error('[Cron] Quota sync failed:', err.message);
+        cron.schedule('47 2 * * *', async () => {
+            console.log('[Cron] Auto sync quota starting at 02:10 AM...');
+            try {
+                const { buildList } = await import('./src/controllers/quotaController.js');
+                await buildList(true);
+                console.log('[Cron] Quota sync done at:', new Date().toLocaleString());
+            } catch (err) {
+                console.error('[Cron] Quota sync failed:', err.message);
             }
         }, {
             scheduled: true,

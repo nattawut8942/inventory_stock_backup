@@ -1,38 +1,40 @@
-import { execFile }                              from 'child_process';
+import { execFile } from 'child_process';
 import { writeFileSync, unlinkSync, existsSync } from 'fs';
-import { tmpdir }                                from 'os';
-import { join }                                  from 'path';
-import { promisify }                             from 'util';
-import ldap                                      from 'ldapjs';
-import dotenv                                    from 'dotenv';
-import { connectDB, getPool, sql }               from '../config/db.js';
-import { sendQuotaWarning, sendQuotaReport }     from '../services/quotaEmailService.js';
-import { getFilesFromLatestReport,
-         isFsrmBusy, getFsrmQueueLength }        from '../services/fsrmReportService.js';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { promisify } from 'util';
+import ldap from 'ldapjs';
+import dotenv from 'dotenv';
+import { connectDB, getPool, sql } from '../config/db.js';
+import { sendQuotaWarning, sendQuotaReport } from '../services/quotaEmailService.js';
+import {
+    getFilesFromLatestReport,
+    isFsrmBusy, getFsrmQueueLength
+} from '../services/fsrmReportService.js';
 dotenv.config();
 
 const execFileAsync = promisify(execFile);
 
 const AD = {
-    url:          process.env.AD_URL           || 'ldap://192.168.226.222:389',
-    bindDN:       process.env.AD_BIND_DN       || 'dciadmin@dci.daikin.co.jp',
+    url: process.env.AD_URL || 'ldap://192.168.226.222:389',
+    bindDN: process.env.AD_BIND_DN || 'dciadmin@dci.daikin.co.jp',
     bindPassword: process.env.AD_BIND_PASSWORD || '',
-    baseDN:       process.env.AD_BASE_DN       || 'DC=dci,DC=daikin,DC=co,DC=jp',
+    baseDN: process.env.AD_BASE_DN || 'DC=dci,DC=daikin,DC=co,DC=jp',
 };
 const FSRM_SERVER = process.env.FSRM_SERVER || '192.168.226.223';
-const FSRM_USER   = process.env.FSRM_USER   || 'dci\\dciadmin';
-const FSRM_PASS   = process.env.FSRM_PASS   || '';
+const FSRM_USER = process.env.FSRM_USER || 'dci\\dciadmin';
+const FSRM_PASS = process.env.FSRM_PASS || '';
 
 // ── Job store ─────────────────────────────────────────────────
 const jobs = {};
 
 const fmtBytes = (b) => {
     if (!b || b === 0) return '0 B';
-    const k = 1024, s = ['B','KB','MB','GB','TB'];
+    const k = 1024, s = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(b) / Math.log(k));
-    return `${parseFloat((b / Math.pow(k,i)).toFixed(2))} ${s[i]}`;
+    return `${parseFloat((b / Math.pow(k, i)).toFixed(2))} ${s[i]}`;
 };
-const pctStatus   = p => p >= 100 ? 'Exceeded' : p >= 90 ? 'Critical' : p >= 80 ? 'Warning' : 'OK';
+const pctStatus = p => p >= 100 ? 'Exceeded' : p >= 90 ? 'Critical' : p >= 80 ? 'Warning' : 'OK';
 const parseUsername = s => { const m = s.match(/Name="([^"]+)"/); return m ? m[1] : s; };
 
 // ── LDAP helpers ──────────────────────────────────────────────
@@ -44,39 +46,75 @@ const ldapConnect = () => new Promise((res, rej) => {
 
 const ldapSearch = (client, filter, attrs) => new Promise((res, rej) => {
     const rows = [];
-    client.search(AD.baseDN,
-        { filter, scope: 'sub', attributes: attrs, sizeLimit: 0, paged: { pageSize: 500 } },
-        (err, sr) => {
-            if (err) return rej(err);
-            sr.on('searchEntry', e => {
-                const o = {};
-                (e.pojo?.attributes||[]).forEach(a => { o[a.type] = a.values.length===1 ? a.values[0] : a.values; });
-                if (e.pojo?.objectName) o.dn = e.pojo.objectName;
-                if (Object.keys(o).length) rows.push(o);
+    client.search(AD.baseDN, {
+        filter,
+        scope: 'sub',
+        attributes: attrs,
+        sizeLimit: 0,
+        paged: { pageSize: 500 }
+    }, (err, sr) => {
+        if (err) return rej(err);
+
+        sr.on('searchEntry', e => {
+            // ✅ ใช้ e.object ที่เราเทสแล้วว่ามีข้อมูลแน่นอน
+            const data = e.object;
+            const o = {};
+
+            // ✅ วนลูปเอาทุก Key มาทำให้เป็นตัวเล็ก (ป้องกันเรื่อง displayName vs displayname)
+            Object.keys(data).forEach(key => {
+                o[key.toLowerCase()] = data[key];
             });
-            sr.on('error', e => e.name==='SizeLimitExceededError' ? res(rows) : rej(e));
-            sr.on('end',   () => res(rows));
-        }
-    );
+
+            rows.push(o);
+        });
+
+        sr.on('error', e => {
+            if (e.name === 'SizeLimitExceededError') res(rows);
+            else rej(e);
+        });
+
+        sr.on('end', () => res(rows));
+    });
 });
 
 const lookupEmails = async (usernames) => {
     const map = {};
-    if (!usernames.length) return map;
+    if (!usernames || !usernames.length) return map;
+
+    const cleanedUsernames = usernames.map(u => u.split('\\').pop().trim().toLowerCase());
+    const chunkSize = 100;
+    const chunks = [];
+    for (let i = 0; i < cleanedUsernames.length; i += chunkSize) {
+        chunks.push(cleanedUsernames.slice(i, i + chunkSize));
+    }
+
     try {
         const c = await ldapConnect();
-        const orPart = usernames.map(u => `(sAMAccountName=${u})`).join('');
-        const users  = await ldapSearch(c,
-            `(&(objectClass=user)(objectCategory=person)(|${orPart}))`,
-            ['sAMAccountName','mail','displayName']
-        );
-        c.unbind();
-        users.forEach(u => {
-            if (u.sAMAccountName && u.mail)
-                map[u.sAMAccountName] = { email: u.mail, displayName: u.displayName||u.sAMAccountName };
-        });
+        for (const batch of chunks) {
+            const orPart = batch.map(u => `(sAMAccountName=${u})`).join('');
+            const filter = `(&(objectClass=user)(objectCategory=person)(|${orPart}))`;
+            const users = await ldapSearch(c, filter, ['sAMAccountName', 'mail', 'displayName']);
+
+            if (users && users.length > 0) {
+                users.forEach(u => {
+                    // ✅ เรียกใช้ด้วยตัวเล็กทั้งหมด (ตามที่เรา Force ไว้ใน ldapSearch)
+                    const sam = String(u.samaccountname || '').toLowerCase().trim();
+                    const email = u.mail; // AD ส่ง mail (ตัวเล็ก) อยู่แล้ว
+                    const displayName = u.displayname || sam; // ใช้ displayname (ตัวเล็ก)
+
+                    if (sam && email) {
+                        map[sam] = {
+                            email: email,
+                            displayName: displayName
+                        };
+                    }
+                });
+            }
+        }
+        await c.unbind();
+        console.log(`[AD] Finished: Found ${Object.keys(map).length} emails.`);
     } catch (err) {
-        console.warn('[AD] lookup skipped:', err.message);
+        console.warn('[AD] lookup error:', err.message);
     }
     return map;
 };
@@ -102,8 +140,17 @@ const fetchDiskQuota = async () => {
         writeFileSync(psFile, script, 'utf8');
         const { stdout } = await execFileAsync(
             'powershell',
-            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psFile],
-            { timeout: 300000, maxBuffer: 20*1024*1024 }
+            [
+                '-NoProfile',
+                '-ExecutionPolicy', 'Bypass',
+                '-WindowStyle', 'Hidden', // ✅ เพิ่มตัวนี้ใน Argument
+                '-File', psFile
+            ],
+            {
+                timeout: 300000,
+                maxBuffer: 20 * 1024 * 1024,
+                windowsHide: true // ✅ เพิ่มบรรทัดนี้เพื่อซ่อนหน้าต่างดำ (CMD/PowerShell)
+            }
         );
         let data = JSON.parse(stdout.trim() || '[]');
         if (!Array.isArray(data)) data = [data];
@@ -112,7 +159,7 @@ const fetchDiskQuota = async () => {
         console.error('[WinRM] error:', err.message);
         return [];
     } finally {
-        try { if (existsSync(psFile)) unlinkSync(psFile); } catch {}
+        try { if (existsSync(psFile)) unlinkSync(psFile); } catch { }
     }
 };
 
@@ -126,18 +173,18 @@ const buildListFromDB = async () => {
             FROM Quota_Users ORDER BY PctUsed DESC
         `);
         return r.recordset.map(row => ({
-            username:     row.Username,
-            name:         row.DisplayName,
-            email:        row.Email,
-            sizeUsed:     row.SizeUsed,
-            sizeLimit:    row.SizeLimit,
+            username: row.Username,
+            name: row.DisplayName,
+            email: row.Email,
+            sizeUsed: row.SizeUsed,
+            sizeLimit: row.SizeLimit,
             warningLevel: row.WarningLevel,
-            pctUsed:      parseFloat(row.PctUsed),
-            status:       row.Status,
-            sizeUsedFmt:  row.SizeUsedFmt,
+            pctUsed: parseFloat(row.PctUsed),
+            status: row.Status,
+            sizeUsedFmt: row.SizeUsedFmt,
             sizeLimitFmt: row.SizeLimitFmt,
-            warningFmt:   row.WarningFmt,
-            lastSynced:   row.LastSynced,
+            warningFmt: row.WarningFmt,
+            lastSynced: row.LastSynced,
         }));
     } catch (err) {
         console.warn('[DB] buildListFromDB error:', err.message);
@@ -151,57 +198,63 @@ const saveQuotaToDB = async (list) => {
         const pool = await connectDB();
         for (const u of list) {
             await pool.request()
-                .input('Username',     sql.NVarChar, u.username)
-                .input('DisplayName',  sql.NVarChar, u.name        || u.username)
-                .input('Email',        sql.NVarChar, u.email        || null)
-                .input('SizeUsed',     sql.BigInt,   u.sizeUsed     || 0)
-                .input('SizeLimit',    sql.BigInt,   u.sizeLimit    || 0)
-                .input('WarningLevel', sql.BigInt,   u.warningLevel || 0)
-                .input('PctUsed',      sql.Decimal,  u.pctUsed      || 0)
-                .input('Status',       sql.NVarChar, u.status       || 'OK')
-                .input('SizeUsedFmt',  sql.NVarChar, u.sizeUsedFmt  || '')
+                .input('Username', sql.NVarChar, u.username)
+                .input('DisplayName', sql.NVarChar, u.name || u.username)
+                .input('Email', sql.NVarChar, u.email || null)
+                .input('SizeUsed', sql.BigInt, u.sizeUsed || 0)
+                .input('SizeLimit', sql.BigInt, u.limit || u.sizeLimit || 0)
+                .input('WarningLevel', sql.BigInt, u.warningLevel || 0)
+                .input('PctUsed', sql.Decimal, u.pctUsed || 0)
+                .input('Status', sql.NVarChar, u.status || 'OK')
+                .input('SizeUsedFmt', sql.NVarChar, u.sizeUsedFmt || '')
                 .input('SizeLimitFmt', sql.NVarChar, u.sizeLimitFmt || '')
-                .input('WarningFmt',   sql.NVarChar, u.warningFmt   || '')
+                .input('WarningFmt', sql.NVarChar, u.warningFmt || '')
                 .query(`
                     MERGE Quota_Users AS t USING (SELECT @Username AS U) AS s ON t.Username = s.U
                     WHEN MATCHED THEN UPDATE SET
-                        DisplayName=@DisplayName, Email=@Email, SizeUsed=@SizeUsed, SizeLimit=@SizeLimit,
-                        WarningLevel=@WarningLevel, PctUsed=@PctUsed, Status=@Status,
-                        SizeUsedFmt=@SizeUsedFmt, SizeLimitFmt=@SizeLimitFmt, WarningFmt=@WarningFmt,
-                        LastSynced=GETDATE()
+                        DisplayName = ISNULL(@DisplayName, t.DisplayName), 
+                        Email = ISNULL(@Email, t.Email), 
+                        SizeUsed = @SizeUsed, 
+                        SizeLimit = @SizeLimit,
+                        WarningLevel = @WarningLevel, 
+                        PctUsed = @PctUsed, 
+                        [Status] = @Status,
+                        SizeUsedFmt = @SizeUsedFmt, 
+                        SizeLimitFmt = @SizeLimitFmt, 
+                        WarningFmt = @WarningFmt,
+                        LastSynced = GETDATE()
                     WHEN NOT MATCHED THEN INSERT
-                        (Username,DisplayName,Email,SizeUsed,SizeLimit,WarningLevel,PctUsed,Status,SizeUsedFmt,SizeLimitFmt,WarningFmt)
-                    VALUES (@Username,@DisplayName,@Email,@SizeUsed,@SizeLimit,@WarningLevel,@PctUsed,@Status,@SizeUsedFmt,@SizeLimitFmt,@WarningFmt);
+                        (Username, DisplayName, Email, SizeUsed, SizeLimit, WarningLevel, PctUsed, [Status], SizeUsedFmt, SizeLimitFmt, WarningFmt, LastSynced)
+                    VALUES (@Username, @DisplayName, @Email, @SizeUsed, @SizeLimit, @WarningLevel, @PctUsed, @Status, @SizeUsedFmt, @SizeLimitFmt, @WarningFmt, GETDATE());
                 `);
         }
-        const dur = Date.now()-start;
         await pool.request()
-            .input('TotalUsers', sql.Int,      list.length)
-            .input('DurationMs', sql.Int,      dur)
-            .input('Status',     sql.NVarChar, 'success')
+            .input('TotalUsers', sql.Int, list.length)
+            .input('DurationMs', sql.Int, Date.now() - start)
+            .input('Status', sql.NVarChar, 'success')
             .query(`INSERT INTO Quota_SyncLog (TotalUsers,DurationMs,Status) VALUES (@TotalUsers,@DurationMs,@Status)`);
-        console.log(`[DB] Saved ${list.length} users in ${dur}ms`);
+        console.log(`[DB] Saved ${list.length} users in ${Date.now() - start}ms`);
     } catch (err) {
         console.error('[DB] saveQuotaToDB error:', err.message);
     }
 };
 
 // INSERT log → return ID
-const insertEmailLog = async (u, status, filesFound=0, errorMsg=null, reportFile=null) => {
+const insertEmailLog = async (u, status, filesFound = 0, errorMsg = null, reportFile = null) => {
     try {
         const pool = await connectDB();
         const r = await pool.request()
-            .input('Username',    sql.NVarChar, u.username)
-            .input('DisplayName', sql.NVarChar, u.name         || u.username)
-            .input('Email',       sql.NVarChar, u.email        || null)
-            .input('PctUsed',     sql.Decimal,  u.pctUsed      || 0)
-            .input('SizeUsedFmt', sql.NVarChar, u.sizeUsedFmt  || '')
-            .input('SizeLimitFmt',sql.NVarChar, u.sizeLimitFmt || '')
-            .input('FilesFound',  sql.Int,      filesFound)
-            .input('Status',      sql.NVarChar, status)
-            .input('ErrorMsg',    sql.NVarChar, errorMsg || null)
-            .input('Step',        sql.NVarChar, null)
-            .input('ReportFile',  sql.NVarChar, reportFile || null)
+            .input('Username', sql.NVarChar, u.username)
+            .input('DisplayName', sql.NVarChar, u.name || u.username)
+            .input('Email', sql.NVarChar, u.email || null)
+            .input('PctUsed', sql.Decimal, u.pctUsed || 0)
+            .input('SizeUsedFmt', sql.NVarChar, u.sizeUsedFmt || '')
+            .input('SizeLimitFmt', sql.NVarChar, u.sizeLimitFmt || '')
+            .input('FilesFound', sql.Int, filesFound)
+            .input('Status', sql.NVarChar, status)
+            .input('ErrorMsg', sql.NVarChar, errorMsg || null)
+            .input('Step', sql.NVarChar, null)
+            .input('ReportFile', sql.NVarChar, reportFile || null)
             .query(`INSERT INTO Quota_EmailLog
                 (Username,DisplayName,Email,PctUsed,SizeUsedFmt,SizeLimitFmt,FilesFound,Status,ErrorMsg,Step,ReportFile)
                 OUTPUT INSERTED.ID
@@ -214,16 +267,16 @@ const insertEmailLog = async (u, status, filesFound=0, errorMsg=null, reportFile
 };
 
 // UPDATE log by ID (รองรับ step/progress)
-const updateEmailLog = async (id, status, filesFound=0, errorMsg=null, step=null, reportFile=null) => {
+const updateEmailLog = async (id, status, filesFound = 0, errorMsg = null, step = null, reportFile = null) => {
     if (!id) return;
     try {
         const pool = await connectDB();
         await pool.request()
-            .input('ID',         sql.Int,      id)
-            .input('Status',     sql.NVarChar, status)
-            .input('FilesFound', sql.Int,      filesFound)
-            .input('ErrorMsg',   sql.NVarChar, errorMsg || null)
-            .input('Step',       sql.NVarChar, step || null)
+            .input('ID', sql.Int, id)
+            .input('Status', sql.NVarChar, status)
+            .input('FilesFound', sql.Int, filesFound)
+            .input('ErrorMsg', sql.NVarChar, errorMsg || null)
+            .input('Step', sql.NVarChar, step || null)
             .input('ReportFile', sql.NVarChar, reportFile || null)
             .query(`UPDATE Quota_EmailLog SET Status=@Status, FilesFound=@FilesFound, ErrorMsg=@ErrorMsg,
                     Step=ISNULL(@Step, Step), ReportFile=ISNULL(@ReportFile, ReportFile) WHERE ID=@ID`);
@@ -233,10 +286,10 @@ const updateEmailLog = async (id, status, filesFound=0, errorMsg=null, step=null
 };
 
 // backward compat
-const saveEmailLog = (u, status, filesFound=0, errorMsg=null) =>
+const saveEmailLog = (u, status, filesFound = 0, errorMsg = null) =>
     insertEmailLog(u, status, filesFound, errorMsg);
 
-export const buildList = async (force=false) => {
+export const buildList = async (force = false) => {
     if (!force) {
         const dbList = await buildListFromDB();
         if (dbList?.length > 0) {
@@ -245,23 +298,25 @@ export const buildList = async (force=false) => {
         }
     }
     console.log('[Quota] Fetching from WinRM (async)...');
-    const raw  = await fetchDiskQuota();
+    const raw = await fetchDiskQuota();
     const list = raw.map(q => {
-        const username = parseUsername(q.User||'');
-        const used  = Number(q.DiskSpaceUsed||0);
-        const limit = Number(q.Limit||0);
-        const warn  = Number(q.WarningLimit||0);
-        const pct   = limit > 0 ? Math.round((used/limit)*1000)/10 : 0;
-        return { username, name: username, email: null,
-                 sizeUsed: used, sizeLimit: limit, warningLevel: warn, pctUsed: pct,
-                 sizeUsedFmt: fmtBytes(used), sizeLimitFmt: fmtBytes(limit), warningFmt: fmtBytes(warn),
-                 status: pctStatus(pct) };
+        const username = parseUsername(q.User || '');
+        const used = Number(q.DiskSpaceUsed || 0);
+        const limit = Number(q.Limit || 0);
+        const warn = Number(q.WarningLimit || 0);
+        const pct = limit > 0 ? Math.round((used / limit) * 1000) / 10 : 0;
+        return {
+            username, name: username, email: null,
+            sizeUsed: used, sizeLimit: limit, warningLevel: warn, pctUsed: pct,
+            sizeUsedFmt: fmtBytes(used), sizeLimitFmt: fmtBytes(limit), warningFmt: fmtBytes(warn),
+            status: pctStatus(pct)
+        };
     });
-    const adMap = await lookupEmails(list.map(u=>u.username));
+    const adMap = await lookupEmails(list.map(u => u.username));
     list.forEach(u => {
-        if (adMap[u.username]) { u.email = adMap[u.username].email; u.name = adMap[u.username].displayName||u.username; }
+        if (adMap[u.username]) { u.email = adMap[u.username].email; u.name = adMap[u.username].displayName || u.username; }
     });
-    list.sort((a,b) => b.pctUsed - a.pctUsed);
+    list.sort((a, b) => b.pctUsed - a.pctUsed);
     await saveQuotaToDB(list);
     return list;
 };
@@ -273,7 +328,7 @@ export const buildList = async (force=false) => {
 export const getQuotaUsers = async (req, res) => {
     try {
         const force = req.query.refresh === '1';
-        const list  = await buildList(force);
+        const list = await buildList(force);
         const lastSynced = list[0]?.lastSynced || null;
         res.json({ success: true, count: list.length, data: list, lastSynced });
     } catch (err) {
@@ -293,11 +348,13 @@ export const getQuotaStats = async (_req, res) => {
                    AVG(PctUsed) AS avg
             FROM Quota_Users`);
         const st = r.recordset[0];
-        res.json({ success: true, data: {
-            total:    st.total    ||0, exceeded: st.exceeded||0,
-            critical: st.critical ||0, warning:  st.warning ||0,
-            ok:       st.ok       ||0, avg:      Math.round(st.avg||0),
-        }});
+        res.json({
+            success: true, data: {
+                total: st.total || 0, exceeded: st.exceeded || 0,
+                critical: st.critical || 0, warning: st.warning || 0,
+                ok: st.ok || 0, avg: Math.round(st.avg || 0),
+            }
+        });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
@@ -305,8 +362,8 @@ export const getQuotaStats = async (_req, res) => {
 
 export const getEmailLogs = async (req, res) => {
     try {
-        const pool  = await connectDB();
-        const limit = parseInt(req.query.limit)||100;
+        const pool = await connectDB();
+        const limit = parseInt(req.query.limit) || 100;
         const r = await pool.request()
             .input('limit', sql.Int, limit)
             .query(`SELECT TOP (@limit) * FROM Quota_EmailLog ORDER BY SentAt DESC`);
@@ -319,7 +376,7 @@ export const getEmailLogs = async (req, res) => {
 // GET /quota/fsrm-status — เช็ค FSRM lock
 export const getFsrmStatus = (_req, res) => {
     res.json({
-        busy:      isFsrmBusy(),
+        busy: isFsrmBusy(),
         queueSize: getFsrmQueueLength(),
     });
 };
@@ -378,8 +435,11 @@ export const sendWarningSingle = async (req, res) => {
             });
             const files = result.files ?? result;
             const reportFile = result.reportFile || null;
+            const htmlBase64 = result.htmlBase64 || null;
             await step('กำลังส่งอีเมล...');
-            await sendQuotaWarning(user, files);
+            console.log('[Debug] reportFile:', reportFile);
+            console.log('[Debug] htmlBase64 length:', htmlBase64?.length || 0);
+            await sendQuotaWarning(user, files, reportFile, htmlBase64);
             await updateEmailLog(logId, 'sent', files.length, null, '✅ ส่งสำเร็จ', reportFile);
             jobs[jobId] = {
                 status: 'done', username: user.username, email: user.email,
@@ -414,7 +474,7 @@ export const sendWarningEmails = async (req, res) => {
                 continue;
             }
             jobs[jobId].current = u.username;
-            jobs[jobId].step    = `กำลังส่งให้ ${u.name||u.username} (${jobs[jobId].sent+jobs[jobId].failed+1}/${users.length})`;
+            jobs[jobId].step = `กำลังส่งให้ ${u.name || u.username} (${jobs[jobId].sent + jobs[jobId].failed + 1}/${users.length})`;
 
             // INSERT log ทันทีที่เริ่ม → อัปเดต step ทุก progress
             const logId = await insertEmailLog(u, 'running', 0, null);
@@ -431,8 +491,9 @@ export const sendWarningEmails = async (req, res) => {
                 });
                 const files = result.files ?? result;
                 const reportFile = result.reportFile || null;
+                const htmlBase64 = result.htmlBase64 || null;
                 await step('กำลังส่งอีเมล...');
-                await sendQuotaWarning(u, files);
+                await sendQuotaWarning(u, files, reportFile, htmlBase64);
                 await updateEmailLog(logId, 'sent', files.length, null, '✅ ส่งสำเร็จ', reportFile);
                 jobs[jobId].sent++;
                 jobs[jobId].results.push({ username: u.username, status: 'sent', filesFound: files.length, logId });
@@ -443,7 +504,7 @@ export const sendWarningEmails = async (req, res) => {
             }
         }
         jobs[jobId].status = 'done';
-        jobs[jobId].step   = `✅ เสร็จสิ้น ${jobs[jobId].sent}/${users.length} คน`;
+        jobs[jobId].step = `✅ เสร็จสิ้น ${jobs[jobId].sent}/${users.length} คน`;
     })();
 };
 
@@ -517,7 +578,7 @@ export const cancelJob = async (req, res) => {
     // บันทึก email log ว่า cancelled
     if (username) {
         const u = job.username ? { username: job.username, name: job.username, email: job.email, pctUsed: 0, sizeUsedFmt: '', sizeLimitFmt: '' } : null;
-        if (u) await saveEmailLog(u, 'cancelled', 0, 'ยกเลิกโดยผู้ใช้').catch(() => {});
+        if (u) await saveEmailLog(u, 'cancelled', 0, 'ยกเลิกโดยผู้ใช้').catch(() => { });
     }
 
     userLocks.delete(username);
@@ -567,6 +628,18 @@ export const clearEmailLogs = async (req, res) => {
             await pool.request().query(`DELETE FROM Quota_EmailLog`);
         }
         res.json({ success: true, message: 'Cleared' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+export const getSyncLogs = async (_req, res) => {
+    try {
+        const pool = await connectDB();
+        const r = await pool.request().query(
+            `SELECT TOP 20 * FROM Quota_SyncLog ORDER BY SyncedAt DESC`
+        );
+        res.json({ success: true, data: r.recordset });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }

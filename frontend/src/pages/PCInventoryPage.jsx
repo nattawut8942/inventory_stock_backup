@@ -88,21 +88,31 @@ const PCInventoryPage = () => {
     }
   }, [debouncedSearch]);
 
-  const fetchData = async () => {
+const fetchData = async () => {
     setLoading(true); setError('');
     try {
-      const [invRes, sumRes, mlRes] = await Promise.all([
-        fetch(`${API_BASE}/pc-inventory`).then(r => r.json()),
-        fetch(`${API_BASE}/pc-inventory/summary`).then(r => r.json()),
-        fetch(`${API_BASE}/pc-inventory/multi-login`).then(r => r.json()),
+        const [invRes, sumRes, mlRes] = await Promise.all([
+          fetch(`${API_BASE}/pc-inventory`).then(r => r.json()),
+          fetch(`${API_BASE}/pc-inventory/summary`).then(r => r.json()),
+          fetch(`${API_BASE}/pc-inventory/multi-login`).then(r => r.json()),
       ]);
-      if (!invRes.success) throw new Error(invRes.error || 'Failed to fetch');
-      setInvData(invRes.data || []);
-      setSumData(sumRes.success ? sumRes : null);
-      if (mlRes.success) setMultiLoginData(mlRes);
+        if (!invRes.success) throw new Error(invRes.error || 'Failed to fetch');
+        
+        // ถ้ามี searchQuery อยู่ ให้ search ใหม่แทน set ตรงๆ
+        if (searchQuery.length >= 2) {
+            const res = await fetch(
+                `${API_BASE}/pc-inventory/search?q=${encodeURIComponent(searchQuery)}`
+            ).then(r => r.json());
+            if (res.success) setInvData(res.data || []);
+        } else {
+            setInvData(invRes.data || []);
+        }
+        
+        setSumData(sumRes.success ? sumRes : null);
+        if (mlRes.success) setMultiLoginData(mlRes);
     } catch (err) { setError(err.message); }
     finally { setLoading(false); }
-  };
+};
 
   const fetchDetail = async (hn) => {
     setDetailLoading(true);
@@ -583,11 +593,19 @@ const PCInventoryPage = () => {
                     />
                     {/* ✅ loading indicator while debounce fires */}
                     {searchQuery.length >= 2 && searchQuery !== debouncedSearch && (
-                      <div className="absolute inset-y-0 right-3 flex items-center">
+                      
+                      <div className="absolute inset-y-0 right-8 flex items-center">
                         <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
                       </div>
                     )}
-                  </div>
+                    {searchQuery && (
+                        <button
+                            onClick={() => onSearchInput({ target: { value: '' } })}
+                            className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-red-500 transition-colors">
+                            <X size={13} strokeWidth={3} />
+                        </button>
+                    )}
+                                      </div>
 
                   <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                     <div className="overflow-x-auto">

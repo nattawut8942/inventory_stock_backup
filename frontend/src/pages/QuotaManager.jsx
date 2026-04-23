@@ -14,27 +14,27 @@ import { useQuotaJobs } from '../context/QuotaJobContext';
 const ITEMS_PER_PAGE = 20;
 
 const STATUS_CONFIG = {
-    Exceeded: { label: 'เต็มความจุ', cls: 'bg-red-50 text-red-600 border-red-100',      dot: 'bg-red-500'    },
-    Critical: { label: 'วิกฤต',      cls: 'bg-orange-50 text-orange-600 border-orange-100', dot: 'bg-orange-500' },
-    Warning:  { label: 'เตือน',      cls: 'bg-amber-50 text-amber-600 border-amber-100',   dot: 'bg-amber-500'  },
-    OK:       { label: 'ปกติ',       cls: 'bg-emerald-50 text-emerald-600 border-emerald-100', dot: 'bg-emerald-500' },
+    Exceeded: { label: 'เต็มความจุ', cls: 'bg-red-50 text-red-600 border-red-100', dot: 'bg-red-500' },
+    Critical: { label: 'วิกฤต', cls: 'bg-orange-50 text-orange-600 border-orange-100', dot: 'bg-orange-500' },
+    Warning: { label: 'เตือน', cls: 'bg-amber-50 text-amber-600 border-amber-100', dot: 'bg-amber-500' },
+    OK: { label: 'ปกติ', cls: 'bg-emerald-50 text-emerald-600 border-emerald-100', dot: 'bg-emerald-500' },
 };
 
 // ── STEP definitions สำหรับ progress bar ─────────────────────
 const STEPS = [
-    { key: 'set_owner',   label: 'ตั้งค่า Owner'    },
-    { key: 'run_report',  label: 'Run FSRM Report'  },
-    { key: 'wait_report', label: 'รอ Report เสร็จ'  },
-    { key: 'read_html',   label: 'อ่านไฟล์ HTML'    },
-    { key: 'send_email',  label: 'ส่งอีเมล'          },
-    { key: 'done',        label: 'เสร็จสิ้น'         },
+    { key: 'set_owner', label: 'ตั้งค่า Owner' },
+    { key: 'run_report', label: 'Run FSRM Report' },
+    { key: 'wait_report', label: 'รอ Report เสร็จ' },
+    { key: 'read_html', label: 'อ่านไฟล์ HTML' },
+    { key: 'send_email', label: 'ส่งอีเมล' },
+    { key: 'done', label: 'เสร็จสิ้น' },
 ];
 
 const stepIndex = (step = '') => {
     if (!step) return 0;
     const s = step.toLowerCase();
-    if (s.includes('set') || s.includes('ตั้งค่า'))      return 0;
-    if (s.includes('run') || s.includes('fsrm'))          return 1;
+    if (s.includes('set') || s.includes('ตั้งค่า')) return 0;
+    if (s.includes('run') || s.includes('fsrm')) return 1;
     if (s.includes('รอ') || s.includes('wait') || s.includes('queued') || s.includes('running')) return 2;
     if (s.includes('อ่าน') || s.includes('html') || s.includes('parse')) return 3;
     if (s.includes('ส่ง') || s.includes('email') || s.includes('send')) return 4;
@@ -56,12 +56,12 @@ const Toast = ({ toasts }) => (
                     exit={{ opacity: 0, x: 20, scale: 0.95 }}
                     className={`pointer-events-auto flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-sm font-bold border
                         ${t.type === 'success' ? 'bg-emerald-600 text-white border-emerald-400' :
-                          t.type === 'error'   ? 'bg-red-600 text-white border-red-400' :
-                          t.type === 'warning' ? 'bg-amber-500 text-white border-amber-300' :
-                          'bg-slate-800 text-white border-slate-600'}`}
+                            t.type === 'error' ? 'bg-red-600 text-white border-red-400' :
+                                t.type === 'warning' ? 'bg-amber-500 text-white border-amber-300' :
+                                    'bg-slate-800 text-white border-slate-600'}`}
                 >
                     {t.type === 'success' && <CheckCircle2 size={18} />}
-                    {t.type === 'error'   && <XCircle size={18} />}
+                    {t.type === 'error' && <XCircle size={18} />}
                     {t.type === 'warning' && <AlertTriangle size={18} />}
                     <span>{t.message}</span>
                 </motion.div>
@@ -111,9 +111,9 @@ const StepProgress = ({ step, status }) => {
                     <React.Fragment key={s.key}>
                         <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black transition-all
                             ${status === 'error' && i === idx ? 'bg-red-500 text-white' :
-                              i < idx ? 'bg-indigo-500 text-white' :
-                              i === idx && status !== 'error' ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' :
-                              'bg-slate-100 text-slate-400'}`}>
+                                i < idx ? 'bg-indigo-500 text-white' :
+                                    i === idx && status !== 'error' ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' :
+                                        'bg-slate-100 text-slate-400'}`}>
                             {status === 'error' && i === idx ? '✕' : i < idx ? '✓' : i + 1}
                         </div>
                         {i < STEPS.length - 1 && (
@@ -122,7 +122,7 @@ const StepProgress = ({ step, status }) => {
                     </React.Fragment>
                 ))}
             </div>
-           <div className="flex items-center justify-between mt-1.5">
+            <div className="flex items-center justify-between mt-1.5">
                 <span className="text-[11px] text-slate-500 font-medium truncate">{step || 'รอดำเนินการ...'}</span>
                 <span className="text-[11px] font-bold text-indigo-600 flex-shrink-0">{STEPS[Math.min(idx, 5)]?.label}</span>
             </div>
@@ -137,29 +137,29 @@ const StepProgress = ({ step, status }) => {
 
 // ── Job Item ──────────────────────────────────────────────────
 const JobItem = ({ job, onCancel }) => {
-    const isRunning   = job.status === 'running';
-    const isDone      = job.status === 'done';
-    const isError     = job.status === 'error';
+    const isRunning = job.status === 'running';
+    const isDone = job.status === 'done';
+    const isError = job.status === 'error';
     const isCancelled = job.status === 'cancelled';
 
     return (
         <motion.div layout initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             className={`p-4 rounded-2xl border transition-all shadow-sm
-                ${isDone      ? 'bg-emerald-50/40 border-emerald-100' :
-                  isError     ? 'bg-red-50/40 border-red-100' :
-                  isCancelled ? 'bg-slate-50 border-slate-200' :
-                  'bg-white border-slate-100'}`}
+                ${isDone ? 'bg-emerald-50/40 border-emerald-100' :
+                    isError ? 'bg-red-50/40 border-red-100' :
+                        isCancelled ? 'bg-slate-50 border-slate-200' :
+                            'bg-white border-slate-100'}`}
         >
             <div className="flex items-center gap-3">
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-inner
-                    ${isRunning   ? 'bg-indigo-100 text-indigo-600' :
-                      isDone      ? 'bg-emerald-100 text-emerald-600' :
-                      isCancelled ? 'bg-slate-100 text-slate-400' :
-                      'bg-red-100 text-red-600'}`}>
-                    {isRunning   ? <Loader2 size={16} className="animate-spin" /> :
-                     isDone      ? <CheckCircle2 size={16} /> :
-                     isCancelled ? <X size={16} /> :
-                                   <XCircle size={16} />}
+                    ${isRunning ? 'bg-indigo-100 text-indigo-600' :
+                        isDone ? 'bg-emerald-100 text-emerald-600' :
+                            isCancelled ? 'bg-slate-100 text-slate-400' :
+                                'bg-red-100 text-red-600'}`}>
+                    {isRunning ? <Loader2 size={16} className="animate-spin" /> :
+                        isDone ? <CheckCircle2 size={16} /> :
+                            isCancelled ? <X size={16} /> :
+                                <XCircle size={16} />}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-center gap-2">
@@ -285,11 +285,14 @@ const LogStepProgress = ({ log, activeJob }) => {
     return null;
 };
 
+
+
 // ── Delete Confirm Modal ─────────────────────────────────────
 const DeleteConfirmModal = ({ item, onConfirm, onClose }) => {
     if (!item) return null;
     return (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
                 className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-200">
@@ -327,26 +330,34 @@ const DeleteConfirmModal = ({ item, onConfirm, onClose }) => {
 //  MAIN COMPONENT
 // ════════════════════════════════════════════════════════════
 const QuotaManager = () => {
-    const [tab, setTab]           = useState('quota');
-    const [users, setUsers]       = useState([]);
-    const [stats, setStats]       = useState(null);
-    const [logs,  setLogs]        = useState([]);
-    const [loading, setLoading]   = useState(false);
+    const [tab, setTab] = useState('quota');
+    const [users, setUsers] = useState([]);
+    const [stats, setStats] = useState(null);
+    const [logs, setLogs] = useState([]);
+    const [loading, setLoading] = useState(false);
     const [logsLoading, setLogsLoading] = useState(false);
-    const [lastSynced, setLastSynced]   = useState(null);
+    const [lastSynced, setLastSynced] = useState(null);
 
     const [filter, setFilter] = useState('all');
-    const [query,  setQuery]  = useState('');
-    const [sort,   setSort]   = useState({ key: 'pctUsed', direction: 'desc' });
-    const [page,   setPage]   = useState(1);
+    const [query, setQuery] = useState('');
+    const [sort, setSort] = useState({ key: 'pctUsed', direction: 'desc' });
+    const [page, setPage] = useState(1);
     const [logsPage, setLogsPage] = useState(1);
 
-    const [selected,    setSelected]    = useState(new Set());
-    const [threshold,   setThreshold]   = useState(80);
+    const [selected, setSelected] = useState(new Set());
+    const [threshold, setThreshold] = useState(80);
     const [adminEmails, setAdminEmails] = useState('');
     const [showSettings, setShowSettings] = useState(false);
     const [showSelected, setShowSelected] = useState(false);
+    const [logQuery, setLogQuery] = useState('');
+    const [showSyncLog, setShowSyncLog] = useState(false);
+    const [syncLogs, setSyncLogs] = useState([]);
+    const [syncLogLoading, setSyncLogLoading] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, username, sentAt }
+
+
+
+
 
     const {
         jobItems, setJobItems,
@@ -358,10 +369,10 @@ const QuotaManager = () => {
         clearDoneJobs, restorePolling,
     } = useQuotaJobs();
 
-    const [sendMode,      setSendMode]      = useState('');
-    const [confirmOpen,   setConfirmOpen]   = useState(false);
+    const [sendMode, setSendMode] = useState('');
+    const [confirmOpen, setConfirmOpen] = useState(false);
     const [confirmTarget, setConfirmTarget] = useState(null);
-    const [sending,       setSending]       = useState(false);
+    const [sending, setSending] = useState(false);
 
     const [toasts, setToasts] = useState([]);
     const toastRef = useRef(0);
@@ -421,14 +432,22 @@ const QuotaManager = () => {
     }, [API, pushToast]);
 
     const fetchLogs = useCallback(async () => {
-    setLogsLoading(true);
-    try {
-        const res = await fetch(`${API}/logs?limit=200`).then(r => r.json());
-        setLogs(res.data || []);
-        setLogsPage(1);  // ← เพิ่ม
-    } catch { pushToast('โหลด log ล้มเหลว', 'error'); }
-    setLogsLoading(false);
+        setLogsLoading(true);
+        try {
+            const res = await fetch(`${API}/logs?limit=200`).then(r => r.json());
+            setLogs(res.data || []);
+            setLogsPage(1);  // ← เพิ่ม
+        } catch { pushToast('โหลด log ล้มเหลว', 'error'); }
+        setLogsLoading(false);
     }, [API, pushToast]);
+    const fetchSyncLogs = useCallback(async () => {
+        setSyncLogLoading(true);
+        try {
+            const res = await fetch(`${API}/sync-logs`).then(r => r.json());
+            setSyncLogs(res.data || []);
+        } catch { }
+        setSyncLogLoading(false);
+    }, [API]);
 
     useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
@@ -453,7 +472,7 @@ const QuotaManager = () => {
     // poll logs — ถี่ขึ้นเมื่อมี running jobs (5 วิ) หรือ idle (15 วิ)
     useEffect(() => {
         const hasRunning = Object.keys(activeJobs).length > 0 ||
-                           logs.some(l => l.Status === 'running');
+            logs.some(l => l.Status === 'running');
         const interval = hasRunning ? 5000 : 15000;
         const iv = setInterval(fetchLogs, interval);
         return () => clearInterval(iv);
@@ -471,7 +490,7 @@ const QuotaManager = () => {
                 const res = await r.json();
                 setFsrmBusy(res.busy || false);
                 setFsrmQueue(res.queueSize || 0);
-            } catch {}
+            } catch { }
         };
         checkFsrm();
         const iv = setInterval(checkFsrm, 10000); // ลด frequency เป็น 10s
@@ -494,9 +513,9 @@ const QuotaManager = () => {
         if (query) {
             const q = query.toLowerCase();
             list = list.filter(u =>
-                (u.username||'').toLowerCase().includes(q) ||
-                (u.name||'').toLowerCase().includes(q) ||
-                (u.email||'').toLowerCase().includes(q)
+                (u.username || '').toLowerCase().includes(q) ||
+                (u.name || '').toLowerCase().includes(q) ||
+                (u.email || '').toLowerCase().includes(q)
             );
         }
         // แปลง size string → MB เพื่อ sort
@@ -513,7 +532,7 @@ const QuotaManager = () => {
 
         return [...list].sort((a, b) => {
             // size columns — parse Fmt string
-            if (sort.key === 'sizeUsed')  {
+            if (sort.key === 'sizeUsed') {
                 const av = toMBSort(a.sizeUsedFmt), bv = toMBSort(b.sizeUsedFmt);
                 return sort.direction === 'asc' ? av - bv : bv - av;
             }
@@ -532,10 +551,20 @@ const QuotaManager = () => {
         });
     }, [users, filter, query, sort]);
 
-    const paged        = useMemo(() => filtered.slice((page-1)*ITEMS_PER_PAGE, page*ITEMS_PER_PAGE), [filtered, page]);
-    const pagedLogs    = useMemo(() => logs.slice((logsPage-1)*ITEMS_PER_PAGE, logsPage*ITEMS_PER_PAGE), [logs, logsPage]);
+    const paged = useMemo(() => filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE), [filtered, page]);
+    const filteredLogs = useMemo(() => {
+        if (!logQuery) return logs;
+        const q = logQuery.toLowerCase();
+        return logs.filter(l =>
+            (l.Username || '').toLowerCase().includes(q) ||
+            (l.DisplayName || '').toLowerCase().includes(q) ||
+            (l.Email || '').toLowerCase().includes(q)
+        );
+    }, [logs, logQuery]);
+
+    const pagedLogs = useMemo(() => filteredLogs.slice((logsPage - 1) * ITEMS_PER_PAGE, logsPage * ITEMS_PER_PAGE), [filteredLogs, logsPage]);
     const warningCount = useMemo(() => users.filter(u => u.pctUsed >= threshold).length, [users, threshold]);
-    const overallPct   = useMemo(() => bulkProgress.total === 0 ? 0 : Math.round((bulkProgress.current / bulkProgress.total) * 100), [bulkProgress]);
+    const overallPct = useMemo(() => bulkProgress.total === 0 ? 0 : Math.round((bulkProgress.current / bulkProgress.total) * 100), [bulkProgress]);
 
     // ── getActiveJobForUser — ส่งคืน job object ที่กำลัง run อยู่สำหรับ username นั้น
     const getActiveJobForUser = useCallback((username) => {
@@ -619,7 +648,7 @@ const QuotaManager = () => {
     // ── Cancel job (wrapper ใช้ context) ─────────────────────
     const cancelJobById = useCallback((jobId, username) =>
         ctxCancelJob(jobId, username, pushToast),
-    [ctxCancelJob, pushToast]);
+        [ctxCancelJob, pushToast]);
 
     // ── Delete email log ─────────────────────────────────────
     const deleteLog = useCallback(async (id) => {
@@ -672,7 +701,7 @@ const QuotaManager = () => {
         selected.size
             ? users.filter(u => selected.has(u.username))
             : users.filter(u => u.pctUsed >= threshold),
-    [selected, users, threshold]);
+        [selected, users, threshold]);
 
     const doSend = async () => {
         setConfirmOpen(false);
@@ -687,7 +716,7 @@ const QuotaManager = () => {
             const targets = getTargets().filter(u => u.email);
             const busyUsers = targets.filter(u => isUserBusy(u.username));
             if (busyUsers.length > 0) {
-                pushToast(`⚠️ ${busyUsers.map(u=>u.username).join(', ')} กำลัง run อยู่ จะข้ามไป`, 'warning');
+                pushToast(`⚠️ ${busyUsers.map(u => u.username).join(', ')} กำลัง run อยู่ จะข้ามไป`, 'warning');
             }
             const freTargets = targets.filter(u => !isUserBusy(u.username));
             if (!freTargets.length) { pushToast('ไม่มีผู้ใช้ที่พร้อมส่ง', 'error'); return; }
@@ -708,7 +737,7 @@ const QuotaManager = () => {
                 const iv = setInterval(async () => {
                     try {
                         const job = await fetch(`${API}/job/${bulkJobId}`).then(r => r.json());
-                        setBulkProgress({ current: (job.sent||0)+(job.failed||0), total: freTargets.length });
+                        setBulkProgress({ current: (job.sent || 0) + (job.failed || 0), total: freTargets.length });
 
                         // อัปเดต step ของ user ที่กำลัง run
                         if (job.current) {
@@ -731,7 +760,7 @@ const QuotaManager = () => {
                         // อัปเดต completed items
                         if (job.results?.length) {
                             job.results.forEach(r => {
-                                const isDone  = r.status === 'sent';
+                                const isDone = r.status === 'sent';
                                 const isError = r.status === 'error';
                                 if (isDone || isError) {
                                     finishJob(
@@ -739,7 +768,7 @@ const QuotaManager = () => {
                                         r.username,
                                         isDone ? 'done' : 'error',
                                         {
-                                            step: isDone ? `✅ ส่งสำเร็จ ${r.filesFound||0} files` : `❌ ${r.error||'ล้มเหลว'}`,
+                                            step: isDone ? `✅ ส่งสำเร็จ ${r.filesFound || 0} files` : `❌ ${r.error || 'ล้มเหลว'}`,
                                             filesFound: r.filesFound,
                                         }
                                     );
@@ -770,24 +799,24 @@ const QuotaManager = () => {
             if (!emails.length) { pushToast('กรุณาตั้งค่า Admin Email ก่อน', 'error'); return; }
             try {
                 const summary = {
-                    total:    users.length,
-                    warning:  users.filter(u => u.pctUsed >= 80 && u.pctUsed < 90).length,
+                    total: users.length,
+                    warning: users.filter(u => u.pctUsed >= 80 && u.pctUsed < 90).length,
                     critical: users.filter(u => u.pctUsed >= 90 && u.pctUsed < 100).length,
                     exceeded: users.filter(u => u.pctUsed >= 100).length,
                 };
                 const res = await fetch(`${API}/send-report`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ recipients: emails, summary }),  // ลบ data: users ออก
-            }).then(r => r.json());
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ recipients: emails, summary }),  // ลบ data: users ออก
+                }).then(r => r.json());
                 pushToast(res.message || '✅ ส่ง Report สำเร็จ', 'success');
             } catch { pushToast('ส่ง Report ล้มเหลว', 'error'); }
         }
     };
 
     // ── Selection ─────────────────────────────────────────────
-    const toggleRow  = (u, ck) => setSelected(s => { const n = new Set(s); ck ? n.add(u) : n.delete(u); return n; });
-    const toggleAll  = (ck)    => setSelected(s => { const n = new Set(s); paged.forEach(u => ck ? n.add(u.username) : n.delete(u.username)); return n; });
-    const clearSel   = ()      => setSelected(new Set());
+    const toggleRow = (u, ck) => setSelected(s => { const n = new Set(s); ck ? n.add(u) : n.delete(u); return n; });
+    const toggleAll = (ck) => setSelected(s => { const n = new Set(s); paged.forEach(u => ck ? n.add(u.username) : n.delete(u.username)); return n; });
+    const clearSel = () => setSelected(new Set());
 
     // ── Sort handler ──────────────────────────────────────────
     const handleSort = useCallback((key) => {
@@ -808,6 +837,65 @@ const QuotaManager = () => {
     // ════════════════════════════════════════════════════════
     return (
         <div className="space-y-6">
+            {showSyncLog && (
+                <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+                    <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                        className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-200 overflow-hidden">
+                        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
+                                    <Database size={16} className="text-indigo-500" /> ประวัติ Sync
+                                </h3>
+                                <p className="text-xs text-slate-400 mt-0.5">20 รายการล่าสุด</p>
+                            </div>
+                            <button onClick={() => setShowSyncLog(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+                        </div>
+                        <div className="overflow-auto max-h-[60vh]">
+                            <table className="w-full text-sm">
+                                <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
+                                    <tr>
+                                        {['เวลา', 'จำนวน User', 'ใช้เวลา', 'สถานะ'].map(h => (
+                                            <th key={h} className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider text-slate-400">{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {syncLogLoading ? (
+                                        [...Array(5)].map((_, i) => (
+                                            <tr key={i}>{[...Array(4)].map((_, j) => (
+                                                <td key={j} className="px-4 py-3"><div className="h-4 bg-slate-100 rounded animate-pulse w-24" /></td>
+                                            ))}</tr>
+                                        ))
+                                    ) : syncLogs.length === 0 ? (
+                                        <tr><td colSpan={4} className="py-12 text-center text-slate-400 text-sm">ยังไม่มีประวัติ</td></tr>
+                                    ) : syncLogs.map((l, i) => (
+                                        <tr key={i} className="hover:bg-slate-50/50">
+                                            <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                                                {new Date(l.SyncedAt).toLocaleString('th-TH')}
+                                            </td>
+                                            <td className="px-4 py-3 text-xs font-bold text-indigo-600">{l.TotalUsers}</td>
+                                            <td className="px-4 py-3 text-xs text-slate-500">{l.DurationMs ? `${(l.DurationMs / 1000).toFixed(1)}s` : '—'}</td>
+                                            <td className="px-4 py-3">
+                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border
+                                        ${l.Status === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                        'bg-rose-50 text-rose-700 border-rose-200'}`}>
+                                                    {l.Status === 'success' ? '✓ สำเร็จ' : '✗ ล้มเหลว'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="px-6 py-3 border-t border-slate-100 flex justify-end">
+                            <button onClick={() => setShowSyncLog(false)}
+                                className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                                ปิด
+                            </button>
+                        </div>
+                    </motion.div>
+                </div>
+            )}
             <Toast toasts={toasts} />
             <DeleteConfirmModal
                 item={deleteConfirm}
@@ -821,12 +909,12 @@ const QuotaManager = () => {
                 sub={sendMode === 'single'
                     ? `ส่ง FSRM Report + Email ให้ ${confirmTarget}`
                     : sendMode === 'warning'
-                    ? `จะส่งให้ ${getTargets().filter(u=>u.email && !isUserBusy(u.username)).length} คน (ใช้เวลา ~${getTargets().filter(u=>u.email && !isUserBusy(u.username)).length * 3} นาที)`
-                    : `ส่งให้: ${adminEmails || '(ยังไม่ได้ตั้งค่า)'}`}
+                        ? `จะส่งให้ ${getTargets().filter(u => u.email && !isUserBusy(u.username)).length} คน (ใช้เวลา ~${getTargets().filter(u => u.email && !isUserBusy(u.username)).length * 3} นาที)`
+                        : `ส่งให้: ${adminEmails || '(ยังไม่ได้ตั้งค่า)'}`}
                 note={sendMode === 'warning'
                     ? selected.size > 0
                         ? `ส่งให้รายการที่เลือก ${selected.size} คน — ทีละคนตามคิว`
-                        : `⚠️ ไม่ได้เลือกรายการ จะส่งให้ทุกคนที่เกิน ${threshold}% ทั้งหมด ${getTargets().filter(u=>u.email).length} คน`
+                        : `⚠️ ไม่ได้เลือกรายการ จะส่งให้ทุกคนที่เกิน ${threshold}% ทั้งหมด ${getTargets().filter(u => u.email).length} คน`
                     : sendMode !== 'report' ? 'ระบบจะ run FSRM report แนบรายการไฟล์ขนาดใหญ่ไปในอีเมลด้วย' : null}
             />
 
@@ -841,7 +929,12 @@ const QuotaManager = () => {
                         {lastSynced && (
                             <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                                 <Clock size={11} /> อัปเดตล่าสุด: {lastSynced.toLocaleString('th-TH')}
+                                <button onClick={() => { setShowSyncLog(true); fetchSyncLogs(); }}
+                                    className="text-xs text-slate-400 hover:text-indigo-500 flex items-center gap-1 mt-0.5 transition-colors">
+                                    <History size={11} /> ดูประวัติ Sync
+                                </button>
                             </p>
+
                         )}
                     </div>
                     <div className="flex items-center gap-2">
@@ -857,12 +950,12 @@ const QuotaManager = () => {
                             <Database size={14} className={sending ? 'animate-spin' : ''} /> SYNC SERVER
                         </button>
                         {fsrmBusy && (
-                        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700">
-                            <Loader2 size={13} className="animate-spin" />
-                            FSRM กำลัง run{fsrmQueue > 1 ? ` (คิว ${fsrmQueue})` : ''}
-                        </div>
-                    )}
-                    <button onClick={() => fetchUsers()} disabled={loading}
+                            <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-700">
+                                <Loader2 size={13} className="animate-spin" />
+                                FSRM กำลัง run{fsrmQueue > 1 ? ` (คิว ${fsrmQueue})` : ''}
+                            </div>
+                        )}
+                        <button onClick={() => fetchUsers()} disabled={loading}
                             title="โหลดข้อมูลจาก Database (ไม่ดึงจาก Server)"
                             className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-all">
                             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -902,13 +995,13 @@ const QuotaManager = () => {
 
             {/* ── Stats ── */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard icon={Users}         label="ผู้ใช้ทั้งหมด"        value={stats?.total ?? users.length} color="from-indigo-500 to-indigo-600"
-                    title="แสดงทั้งหมด"       onClick={() => { setFilter('all');      setTab('quota'); setPage(1); }} />
-                <StatCard icon={AlertTriangle} label={`เตือน (≥${threshold}%)`}  value={warningCount}              color="from-amber-400 to-orange-500"
-                    title="กรองเฉพาะที่เตือน" onClick={() => { setFilter('Warning');  setTab('quota'); setPage(1); }} />
-                <StatCard icon={AlertCircle}   label="วิกฤต (≥90%)"              value={stats?.critical ?? 0}      color="from-orange-500 to-red-500"
-                    title="กรองเฉพาะวิกฤต"   onClick={() => { setFilter('Critical'); setTab('quota'); setPage(1); }} />
-                <StatCard icon={XCircle}       label="เต็ม (100%)"               value={stats?.exceeded ?? 0}      color="from-red-500 to-red-600"
+                <StatCard icon={Users} label="ผู้ใช้ทั้งหมด" value={stats?.total ?? users.length} color="from-indigo-500 to-indigo-600"
+                    title="แสดงทั้งหมด" onClick={() => { setFilter('all'); setTab('quota'); setPage(1); }} />
+                <StatCard icon={AlertTriangle} label={`เตือน (≥${threshold}%)`} value={warningCount} color="from-amber-400 to-orange-500"
+                    title="กรองเฉพาะที่เตือน" onClick={() => { setFilter('Warning'); setTab('quota'); setPage(1); }} />
+                <StatCard icon={AlertCircle} label="วิกฤต (≥90%)" value={stats?.critical ?? 0} color="from-orange-500 to-red-500"
+                    title="กรองเฉพาะวิกฤต" onClick={() => { setFilter('Critical'); setTab('quota'); setPage(1); }} />
+                <StatCard icon={XCircle} label="เต็ม (100%)" value={stats?.exceeded ?? 0} color="from-red-500 to-red-600"
                     title="กรองเฉพาะที่เต็ม" onClick={() => { setFilter('Exceeded'); setTab('quota'); setPage(1); }} />
             </div>
 
@@ -936,7 +1029,7 @@ const QuotaManager = () => {
                                     </div>
                                 )}
                             </div>
-                            <button onClick={() => { clearDoneJobs(); setBulkProgress({current:0,total:0}); }}
+                            <button onClick={() => { clearDoneJobs(); setBulkProgress({ current: 0, total: 0 }); }}
                                 className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1 transition-colors">
                                 <X size={12} /> ล้าง
                             </button>
@@ -954,7 +1047,7 @@ const QuotaManager = () => {
             <div className="flex bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm w-fit gap-1">
                 {[
                     { key: 'quota', label: 'Quota Usage', icon: BarChart3 },
-                    { key: 'logs',  label: 'Email Log',   icon: History   },
+                    { key: 'logs', label: 'Email Log', icon: History },
                 ].map(t => (
                     <button key={t.key} onClick={() => setTab(t.key)}
                         className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all
@@ -980,7 +1073,7 @@ const QuotaManager = () => {
                     <div className="bg-white border border-slate-200 rounded-2xl p-3 flex flex-wrap items-center gap-2 shadow-sm"
                         onClick={e => { if (!e.target.closest('.relative')) setShowSelected(false); }}>
                         <div className="flex bg-slate-100 p-1 rounded-xl gap-0.5">
-                            {['all','Exceeded','Critical','Warning','OK'].map(f => (
+                            {['all', 'Exceeded', 'Critical', 'Warning', 'OK'].map(f => (
                                 <button key={f} onClick={() => { setFilter(f); setPage(1); }}
                                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all
                                         ${filter === f ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -1026,9 +1119,9 @@ const QuotaManager = () => {
                                                                 <span className="font-mono text-xs font-bold text-indigo-600">{u.username}</span>
                                                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full
                                                                     ${u.status === 'Exceeded' ? 'bg-red-50 text-red-600' :
-                                                                      u.status === 'Critical'  ? 'bg-orange-50 text-orange-600' :
-                                                                      u.status === 'Warning'   ? 'bg-amber-50 text-amber-600' :
-                                                                      'bg-emerald-50 text-emerald-600'}`}>
+                                                                        u.status === 'Critical' ? 'bg-orange-50 text-orange-600' :
+                                                                            u.status === 'Warning' ? 'bg-amber-50 text-amber-600' :
+                                                                                'bg-emerald-50 text-emerald-600'}`}>
                                                                     {u.pctUsed}%
                                                                 </span>
                                                             </div>
@@ -1092,13 +1185,13 @@ const QuotaManager = () => {
                                                 checked={paged.length > 0 && paged.every(u => selected.has(u.username))}
                                                 onChange={e => toggleAll(e.target.checked)} />
                                         </th>
-                                        <SortTh label="Username"  sortKey="username"  currentSort={sort} onSort={handleSort} />
-                                        <SortTh label="ชื่อ"      sortKey="name"      currentSort={sort} onSort={handleSort} />
-                                        <SortTh label="Email"     sortKey="email"     currentSort={sort} onSort={handleSort} />
-                                        <SortTh label="ใช้ไป"     sortKey="sizeUsed"  currentSort={sort} onSort={handleSort} />
-                                        <SortTh label="โควต้า"    sortKey="sizeLimit" currentSort={sort} onSort={handleSort} />
-                                        <SortTh label="การใช้งาน" sortKey="pctUsed"   currentSort={sort} onSort={handleSort} />
-                                        <SortTh label="สถานะ"     sortKey="status"    currentSort={sort} onSort={handleSort} />
+                                        <SortTh label="Username" sortKey="username" currentSort={sort} onSort={handleSort} />
+                                        <SortTh label="ชื่อ" sortKey="name" currentSort={sort} onSort={handleSort} />
+                                        <SortTh label="Email" sortKey="email" currentSort={sort} onSort={handleSort} />
+                                        <SortTh label="ใช้ไป" sortKey="sizeUsed" currentSort={sort} onSort={handleSort} />
+                                        <SortTh label="โควต้า" sortKey="sizeLimit" currentSort={sort} onSort={handleSort} />
+                                        <SortTh label="การใช้งาน" sortKey="pctUsed" currentSort={sort} onSort={handleSort} />
+                                        <SortTh label="สถานะ" sortKey="status" currentSort={sort} onSort={handleSort} />
                                         <th className="px-4 py-3 text-[11px] font-black uppercase text-slate-400">Action</th>
                                     </tr>
                                 </thead>
@@ -1125,14 +1218,14 @@ const QuotaManager = () => {
                                                 transition={{ delay: i * 0.01 }}
                                                 className={`transition-colors align-middle
                                                     ${selected.has(u.username) ? 'bg-indigo-50/30' :
-                                                      busy ? 'bg-amber-50/30' : 'hover:bg-slate-50/70'}`}>
+                                                        busy ? 'bg-amber-50/30' : 'hover:bg-slate-50/70'}`}>
                                                 <td className="px-4 py-3 w-8">
                                                     <input type="checkbox" checked={selected.has(u.username)}
                                                         onChange={e => toggleRow(u.username, e.target.checked)} />
                                                 </td>
                                                 <td className="px-4 py-3 whitespace-nowrap">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-mono text-xs text-indigo-600 font-bold">{u.username}</span>
+                                                        <span className="font-mono text-sm text-indigo-600 font-bold">{u.username}</span>
                                                         {busy && (
                                                             <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">
                                                                 <Loader2 size={9} className="animate-spin" /> running
@@ -1149,8 +1242,8 @@ const QuotaManager = () => {
                                                                         <div key={s.key}
                                                                             className={`flex-1 h-1 rounded-full transition-all
                                                                                 ${idx < cur ? 'bg-indigo-400' :
-                                                                                  idx === cur ? 'bg-indigo-600 animate-pulse' :
-                                                                                  'bg-slate-100'}`} />
+                                                                                    idx === cur ? 'bg-indigo-600 animate-pulse' :
+                                                                                        'bg-slate-100'}`} />
                                                                     );
                                                                 })}
                                                             </div>
@@ -1161,7 +1254,7 @@ const QuotaManager = () => {
                                                 <td className="px-4 py-3 text-slate-700 font-medium text-xs whitespace-nowrap max-w-[180px] truncate" title={u.name}>
                                                     {u.name || '—'}
                                                 </td>
-                                                <td className="px-4 py-3 text-xs whitespace-nowrap">
+                                                <td className="px-4 py-3 text-sm whitespace-nowrap">
                                                     {u.email
                                                         ? <a href={`mailto:${u.email}`} className="text-indigo-500 hover:underline">{u.email}</a>
                                                         : <span className="text-slate-300 italic">ไม่มี email</span>}
@@ -1192,7 +1285,7 @@ const QuotaManager = () => {
                                                                     <div className="font-bold text-amber-400 flex items-center gap-1.5 mb-1">
                                                                         <Loader2 size={10} className="animate-spin" /> กำลัง run FSRM Report
                                                                     </div>
-                                                                    <div className="text-slate-300 leading-relaxed">ไม่สามารถส่งซ้ำได้<br/>รอให้ดำเนินการเสร็จก่อน</div>
+                                                                    <div className="text-slate-300 leading-relaxed">ไม่สามารถส่งซ้ำได้<br />รอให้ดำเนินการเสร็จก่อน</div>
                                                                     {activeJob && (
                                                                         <div className="mt-1.5 text-[10px] text-slate-400 truncate">{activeJob.step}</div>
                                                                     )}
@@ -1208,7 +1301,7 @@ const QuotaManager = () => {
                                 </tbody>
                             </table>
                         </div>
-                         <Pagination
+                        <Pagination
                             currentPage={page}
                             totalPages={Math.ceil(filtered.length / ITEMS_PER_PAGE)}
                             onPageChange={setPage}
@@ -1226,7 +1319,7 @@ const QuotaManager = () => {
                         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                    {logsLoading ? 'กำลังโหลด...' : `${logs.length} รายการ (หน้า ${logsPage}/${Math.ceil(logs.length / ITEMS_PER_PAGE) || 1})`}
+                                    {logsLoading ? 'กำลังโหลด...' : `${filteredLogs.length} รายการ (หน้า ${logsPage}/${Math.ceil(filteredLogs.length / ITEMS_PER_PAGE) || 1})${logQuery ? ` — "${logQuery}"` : ''}`}
                                 </span>
                                 {Object.keys(activeJobs).length > 0 && (
                                     <span className="flex items-center gap-1.5 text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
@@ -1234,6 +1327,14 @@ const QuotaManager = () => {
                                         กำลังส่ง {Object.keys(activeJobs).length} รายการ
                                     </span>
                                 )}
+                                <div className="relative">
+                                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                    <input type="text" value={logQuery}
+                                        onChange={e => { setLogQuery(e.target.value); setLogsPage(1); }}
+                                        placeholder="ค้นหา..."
+                                        className="bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-100 w-48" />
+                                    {logQuery && <button onClick={() => setLogQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500"><X size={11} /></button>}
+                                </div>
                             </div>
                             <div className="flex items-center gap-2">
                                 {logs.some(l => l.Status === 'running') && (
@@ -1249,6 +1350,7 @@ const QuotaManager = () => {
                                     <RefreshCw size={12} className={logsLoading ? 'animate-spin' : ''} /> Refresh
                                 </button>
                             </div>
+
                         </div>
 
                         {/* Active jobs progress ─── แสดงด้านบนสุดของ log */}
@@ -1275,14 +1377,14 @@ const QuotaManager = () => {
                                             );
                                         })}
                                         <Pagination
-                            currentPage={logsPage}
-                            totalPages={Math.ceil(logs.length / ITEMS_PER_PAGE)}
-                            onPageChange={setLogsPage}
-                            itemsPerPage={ITEMS_PER_PAGE}
-                            totalItems={logs.length}
-                        />
+                                            currentPage={logsPage}
+                                            totalPages={Math.ceil(filteredLogs.length / ITEMS_PER_PAGE)}
+                                            onPageChange={setLogsPage}
+                                            itemsPerPage={ITEMS_PER_PAGE}
+                                            totalItems={filteredLogs.length}
+                                        />
                                     </div>
-                                    
+
                                 </motion.div>
                             )}
                         </AnimatePresence>
@@ -1291,7 +1393,7 @@ const QuotaManager = () => {
                             <table className="w-full text-sm min-w-max">
                                 <thead className="bg-slate-50 border-b border-slate-200">
                                     <tr>
-                                        {['เวลา','Username','ชื่อ','Email','%','ใช้ไป','ไฟล์','สถานะ','หมายเหตุ',''].map(h => (
+                                        {['เวลา', 'Username', 'ชื่อ', 'Email', '%', 'ใช้ไป', 'ไฟล์', 'สถานะ', 'หมายเหตุ', ''].map(h => (
                                             <th key={h} className="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">{h}</th>
                                         ))}
                                     </tr>
@@ -1299,7 +1401,7 @@ const QuotaManager = () => {
                                 <tbody className="divide-y divide-slate-50">
                                     {logsLoading ? (
                                         [...Array(5)].map((_, i) => (
-                                            <tr key={i}>{[...Array(9)].map((_,j) => (
+                                            <tr key={i}>{[...Array(9)].map((_, j) => (
                                                 <td key={j} className="px-3 py-3">
                                                     <div className="h-4 bg-slate-100 rounded animate-pulse w-20" />
                                                 </td>
@@ -1329,7 +1431,7 @@ const QuotaManager = () => {
                                                 </td>
                                                 <td className="px-3 py-2.5">
                                                     <div className="flex items-center gap-1.5">
-                                                        <span className="font-mono text-xs text-indigo-600 font-bold whitespace-nowrap">{l.Username}</span>
+                                                        <span className="font-mono text-sm text-indigo-600 font-bold whitespace-nowrap">{l.Username}</span>
                                                         {isLogBusy && <Loader2 size={10} className="animate-spin text-amber-500 flex-shrink-0" />}
                                                     </div>
                                                     {/* step จาก DB (อัปเดต real-time) */}
@@ -1343,8 +1445,8 @@ const QuotaManager = () => {
                                                                         <div key={s.key}
                                                                             className={`flex-1 h-1 rounded-full transition-all
                                                                                 ${idx < cur ? 'bg-indigo-400' :
-                                                                                  idx === cur ? 'bg-indigo-600 animate-pulse' :
-                                                                                  'bg-slate-100'}`} />
+                                                                                    idx === cur ? 'bg-indigo-600 animate-pulse' :
+                                                                                        'bg-slate-100'}`} />
                                                                     );
                                                                 })}
                                                             </div>
@@ -1357,10 +1459,10 @@ const QuotaManager = () => {
                                                     {!isLogBusy && l.Step && l.Status !== 'sent' && (
                                                         <p className="text-[9px] text-slate-400 mt-0.5 truncate max-w-[160px]" title={l.Step}>{l.Step}</p>
                                                     )}
-                                                    
+
                                                 </td>
                                                 <td className="px-3 py-2.5 text-xs text-slate-700 font-medium whitespace-nowrap max-w-[150px] truncate">{l.DisplayName || '—'}</td>
-                                                <td className="px-3 py-2.5 text-xs text-indigo-500 whitespace-nowrap">{l.Email || '—'}</td>
+                                                <td className="px-3 py-2.5 text-sm text-indigo-500 whitespace-nowrap">{l.Email || '—'}</td>
                                                 <td className={`px-3 py-2.5 text-xs font-bold font-mono whitespace-nowrap
                                                     ${l.PctUsed >= 90 ? 'text-orange-600' : l.PctUsed >= 80 ? 'text-yellow-600' : 'text-slate-500'}`}>
                                                     {l.PctUsed || 0}%
@@ -1374,20 +1476,20 @@ const QuotaManager = () => {
                                                         </span>
                                                     ) : (
                                                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-colors
-                                                        ${l.Status === 'sent'    ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                        l.Status === 'error'   ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                                                        l.Status === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                                        l.Status === 'running' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                                                                'bg-slate-50 text-slate-500 border-slate-200'}`}>
-                                                        
-                                                        {l.Status === 'sent' ? (
-                                                            <><span className="mr-1">✓</span> ส่งแล้ว</>
-                                                        ) : l.Status === 'error' ? (
-                                                            <><span className="mr-1">✗</span> ล้มเหลว</>
-                                                        ) : (
-                                                            l.Status
-                                                        )}
-                                                    </span>
+                                                        ${l.Status === 'sent' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                                l.Status === 'error' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                                                    l.Status === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                                        l.Status === 'running' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                                            'bg-slate-50 text-slate-500 border-slate-200'}`}>
+
+                                                            {l.Status === 'sent' ? (
+                                                                <><span className="mr-1">✓</span> ส่งแล้ว</>
+                                                            ) : l.Status === 'error' ? (
+                                                                <><span className="mr-1">✗</span> ล้มเหลว</>
+                                                            ) : (
+                                                                l.Status
+                                                            )}
+                                                        </span>
                                                     )}
                                                 </td>
                                                 <td className="px-3 py-2.5 text-xs max-w-[200px] truncate">
@@ -1414,13 +1516,13 @@ const QuotaManager = () => {
                                 </tbody>
                             </table>
                         </div>
-                          <Pagination
-                currentPage={logsPage}
-                totalPages={Math.ceil(logs.length / ITEMS_PER_PAGE)}
-                onPageChange={setLogsPage}
-                itemsPerPage={ITEMS_PER_PAGE}
-                totalItems={logs.length}
-            />
+                        <Pagination
+                            currentPage={logsPage}
+                            totalPages={Math.ceil(filteredLogs.length / ITEMS_PER_PAGE)}
+                            onPageChange={setLogsPage}
+                            itemsPerPage={ITEMS_PER_PAGE}
+                            totalItems={filteredLogs.length}
+                        />
                     </div>
                 </motion.div>
             )}
