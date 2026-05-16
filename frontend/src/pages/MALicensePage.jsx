@@ -5,7 +5,7 @@ import {
     Plus, Edit2, Trash2, X, Search, ChevronDown, Eye, FileText, Calendar,
     MapPin, Tag, Hash, Building, CreditCard, RefreshCw, CheckCircle, XCircle,
     HardDrive, Globe, Wrench, Printer, ChevronLeft, ChevronRight,
-    ChevronUp, ArrowUpDown, User, List, LayoutGrid
+    ChevronUp, ArrowUpDown, User, List, LayoutGrid, Layers
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AlertModal from '../components/AlertModal';
@@ -14,6 +14,7 @@ import { API_BASE } from '../config/api';
 
 // ─── CONSTANTS ───────────────────────────
 const CATEGORIES = [
+    { key: 'ALL', label: 'All Categories', icon: Layers, color: 'from-slate-700 to-slate-800', bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
     { key: 'HARDWARE', label: 'Hardware MA', icon: Server, color: 'from-blue-500 to-blue-600', bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200' },
     { key: 'SOFTWARE', label: 'Software License', icon: Globe, color: 'from-violet-500 to-purple-600', bg: 'bg-violet-50', text: 'text-violet-600', border: 'border-violet-200' },
     { key: 'SERVICE', label: 'Services', icon: Wrench, color: 'from-emerald-500 to-teal-600', bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200' },
@@ -100,7 +101,7 @@ const MALicensePage = () => {
     const [maTypes, setMaTypes] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    const [activeTab, setActiveTab] = useState('HARDWARE');
+    const [activeTab, setActiveTab] = useState('ALL');
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [cardFilter, setCardFilter] = useState('all');
@@ -153,7 +154,7 @@ const MALicensePage = () => {
 
     const filteredItems = useMemo(() => {
         return items
-            .filter(i => i.Category === activeTab)
+            .filter(i => activeTab === 'ALL' || i.Category === activeTab)
             .filter(i => statusFilter === 'all' || i.Status === statusFilter)
             .filter(i => {
                 if (cardFilter === 'all') return true;
@@ -194,9 +195,20 @@ const MALicensePage = () => {
                 if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
                 return 0;
             });
+        } else if (activeTab === 'ALL') {
+            // ─── PRIORITY SORT FOR "ALL" TAB ───────────────────────────
+            sortableItems.sort((a, b) => {
+                const daysA = getDaysRemaining(a.EndDate);
+                const daysB = getDaysRemaining(b.EndDate);
+
+                const valA = daysA === null ? 999999 : daysA;
+                const valB = daysB === null ? 999999 : daysB;
+
+                return valA - valB;
+            });
         }
         return sortableItems;
-    }, [filteredItems, sortConfig]);
+    }, [filteredItems, sortConfig, activeTab]);
 
     const paginatedItems = useMemo(() => {
         const startIndex = (currentPage - 1) * itemsPerPage;
@@ -288,6 +300,20 @@ const MALicensePage = () => {
             { key: 'CreatedBy', label: 'ผู้บันทึก', width: 'min-w-[100px]' },
             { key: 'CreatedAt', label: 'วันบันทึก', width: 'whitespace-nowrap min-w-[100px]' },
         ];
+        
+        if (cat === 'ALL') {
+            return [
+                { key: 'Category', label: 'กลุ่มหลัก', width: 'min-w-[110px]' },
+                { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
+                { key: 'ItemName', label: 'ชื่อรายการ', width: 'min-w-[160px]' },
+                { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
+                { key: 'EndDate', label: 'วันสิ้นสุด', width: 'whitespace-nowrap min-w-[95px]' },
+                { key: '_duration', label: 'เหลือเวลา', width: 'whitespace-nowrap min-w-[85px]' },
+                { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
+                ...trackingCols,
+            ];
+        }
+
         switch (cat) {
             case 'HARDWARE': return [
                 { key: 'SubType', label: 'ประเภท', width: 'min-w-[100px]' },
@@ -341,11 +367,19 @@ const MALicensePage = () => {
     };
 
     const renderCellValue = (item, col) => {
+        if (col.key === 'Category') {
+            const catItem = CATEGORIES.find(c => c.key === item.Category);
+            return (
+                <span className={`inline-flex items-center gap-1 font-bold text-[10px] uppercase px-2 py-0.5 rounded-md ${catItem?.bg || 'bg-slate-100'} ${catItem?.text || 'text-slate-700'} border ${catItem?.border || 'border-slate-200'}`}>
+                    {catItem ? catItem.label.split(' ')[0] : item.Category}
+                </span>
+            );
+        }
         if (col.key === 'Status') {
             const days = getDaysRemaining(item.EndDate);
             const isAlert = item.Status !== 'Cancelled' && days !== null && days <= ALERT_DAYS;
             return (
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${STATUS_COLORS[item.Status] || STATUS_COLORS.Active} ${isAlert ? 'animate-pulse ring-2 ring-red-400 ring-offset-1' : ''}`}>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${STATUS_COLORS[item.Status] || STATUS_COLORS.Active} ${isAlert ? 'animate-pulse ring-2 ring-red-400 ring-offset-1' : ''}`}>
                     {item.Status}
                 </span>
             );
@@ -353,16 +387,16 @@ const MALicensePage = () => {
         if (col.key === 'EndDate') {
             const days = getDaysRemaining(item.EndDate);
             const isAlert = item.Status !== 'Cancelled' && days !== null && days <= ALERT_DAYS;
-            return <span className={isAlert ? 'text-red-600 font-bold animate-pulse' : ''}>{formatDate(item.EndDate)}</span>;
+            return <span className={`text-sm ${isAlert ? 'text-red-600 font-bold animate-pulse' : 'text-slate-700 font-medium'}`}>{formatDate(item.EndDate)}</span>;
         }
         if (col.key === '_duration') {
             const days = getDaysRemaining(item.EndDate);
             if (days === null) return '-';
-            if (days <= 0) return <span className="text-red-600 font-bold text-[10px] animate-pulse">หมดอายุ</span>;
+            if (days <= 0) return <span className="text-red-600 font-bold text-lg animate-pulse">หมดอายุ</span>;
             const display = days < 30 ? `${days} วัน` : formatDuration(new Date(), item.EndDate);
             const isAlert = days <= ALERT_DAYS;
             return (
-                <span className={`font-bold text-[10px] ${isAlert ? 'text-orange-600' : 'text-emerald-600'}`}>
+                <span className={`font-bold text-lg ${isAlert ? 'text-orange-600' : 'text-emerald-600'}`}>
                     {display}
                 </span>
             );
@@ -433,7 +467,7 @@ const MALicensePage = () => {
                     </div>
 
                     {/* Add Button */}
-                    {isAdmin && (
+                    {isAdmin && activeTab !== 'ALL' && (
                         <button onClick={() => setFormModal({ isOpen: true, item: null })} className={`h-[36px] flex items-center gap-1.5 px-3 rounded-lg font-bold text-xs text-white bg-gradient-to-r ${activeCat?.color} shadow-sm hover:shadow-md transition-all`}>
                             <Plus size={14} />
                             <span className="hidden sm:inline">เพิ่มรายการ</span>
@@ -446,29 +480,29 @@ const MALicensePage = () => {
             {viewMode === 'list' ? (
                 <motion.div key={`list-${activeTab}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                     <div className="overflow-x-auto max-h-[60vh] 2xl:max-h-[70vh] custom-scrollbar relative">
-                        <table className="w-full text-left text-xs min-w-max">
-                            <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+                        <table className="w-full text-left min-w-max">
+                            <thead className="bg-slate-50 text-slate-600 uppercase text-[11px] font-bold tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                                 <tr>
-                                    <th className="px-3 py-2.5 w-8 bg-slate-50">#</th>
+                                    <th className="px-3 py-3 w-8 bg-slate-50 text-center">#</th>
                                     {getColumns(activeTab).map(col => (
-                                        <th key={col.key} className={`px-3 py-2.5 ${col.width} bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors group select-none`} onClick={() => handleSort(col.key)}>
+                                        <th key={col.key} className={`px-3 py-3 ${col.width} bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors group select-none`} onClick={() => handleSort(col.key)}>
                                             <div className="flex items-center gap-1">
                                                 {col.label}
                                                 {sortConfig?.key === col.key ? (
-                                                    sortConfig.direction === 'asc' ? <ChevronUp size={10} className="text-indigo-600" /> : <ChevronDown size={10} className="text-indigo-600" />
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={11} className="text-indigo-600" /> : <ChevronDown size={11} className="text-indigo-600" />
                                                 ) : (
-                                                    <ArrowUpDown size={10} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                    <ArrowUpDown size={11} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                                                 )}
                                             </div>
                                         </th>
                                     ))}
-                                    <th className="px-3 py-2.5 w-12 text-center bg-slate-50">ดู</th>
+                                    <th className="px-3 py-3 w-12 text-center bg-slate-50">ดู</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {filteredItems.length === 0 ? (
                                     <tr>
-                                        <td colSpan={getColumns(activeTab).length + 2} className="p-10 text-center text-slate-400">
+                                        <td colSpan={getColumns(activeTab).length + 2} className="p-10 text-center text-slate-400 text-sm">
                                             ไม่พบรายการ
                                         </td>
                                     </tr>
@@ -487,15 +521,15 @@ const MALicensePage = () => {
 
                                     return (
                                         <motion.tr key={item.ItemID} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.02 }}
-                                            className={`transition-colors cursor-pointer align-top ${rowBgColor}`}
+                                            className={`transition-colors cursor-pointer align-middle ${rowBgColor}`}
                                             onClick={() => setDetailItem(item)}>
-                                            <td className="px-3 py-2 text-slate-400 font-mono text-[10px]">{globalIdx + 1}</td>
+                                            <td className="px-3 py-2.5 text-slate-400 font-mono text-[11px] text-center">{globalIdx + 1}</td>
                                             {getColumns(activeTab).map(col => (
-                                                <td key={col.key} className={`px-3 py-2 text-slate-700 text-[11px] ${col.key === 'ItemName' ? 'font-bold text-xs' : ''} ${col.width}`}>
+                                                <td key={col.key} className={`px-3 py-2.5 text-slate-600 text-xs ${col.key === 'ItemName' || col.key === 'EndDate' || col.key === '_duration' ? 'font-bold text-sm text-slate-800' : ''} ${col.width}`}>
                                                     {renderCellValue(item, col)}
                                                 </td>
                                             ))}
-                                            <td className="px-3 py-2 text-center">
+                                            <td className="px-3 py-2.5 text-center">
                                                 <button onClick={(e) => { e.stopPropagation(); setDetailItem(item); }} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-white rounded transition-colors">
                                                     <Eye size={14} />
                                                 </button>
@@ -520,11 +554,12 @@ const MALicensePage = () => {
                         const isExpired = days !== null && days <= 0;
                         const isCancelled = item.Status === 'Cancelled';
                         
-                        // 🎨 ลอจิกสีพื้นหลังการ์ด
                         const cardBgColor = isCancelled ? 'bg-slate-50 border-slate-200 opacity-75'
                             : isExpired ? 'bg-red-100 border-red-300 ring-1 ring-red-200'
                             : isExpiring ? (days <= 30 ? 'bg-red-50 border-red-200 ring-1 ring-red-100' : 'bg-orange-50 border-orange-200 ring-1 ring-orange-100')
                             : 'bg-white border-slate-200';
+
+                        const currentItemCat = CATEGORIES.find(c => c.key === item.Category);
 
                         return (
                             <motion.div key={item.ItemID} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.02 }}
@@ -533,28 +568,30 @@ const MALicensePage = () => {
                                 {(isExpiring || isExpired) && !isCancelled && <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 m-3 animate-ping"></div>}
                                 
                                 <div className="p-3 border-b border-black/5 flex items-start gap-2.5">
-                                    <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${activeCat?.color} flex items-center justify-center shadow-sm shrink-0`}>
-                                        <activeCat.icon className="w-4 h-4 text-white" />
+                                    <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${currentItemCat?.color || 'from-slate-500 to-slate-600'} flex items-center justify-center shadow-sm shrink-0`}>
+                                        {currentItemCat && <currentItemCat.icon className="w-4 h-4 text-white" />}
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                        <h4 className="font-bold text-slate-800 text-xs truncate">{item.ItemName}</h4>
-                                        <p className="text-[10px] text-slate-500 truncate">{item.SubType}</p>
+                                        <h4 className="font-bold text-slate-800 text-base md:text-lg truncate">{item.ItemName}</h4>
+                                        <p className="text-[17px] text-slate-500 truncate">
+                                            {activeTab === 'ALL' && currentItemCat ? `[${currentItemCat.label.split(' ')[0]}] ` : ''}{item.SubType}
+                                        </p>
                                     </div>
                                 </div>
                                 <div className="p-3 flex-1 space-y-2">
-                                    <div className="flex justify-between items-center text-[10px]">
+                                    <div className="flex justify-between items-center text-[20px]">
                                         <span className="text-slate-500">สถานะ:</span>
                                         {renderCellValue(item, { key: 'Status' })}
                                     </div>
-                                    <div className="flex justify-between items-center text-[10px]">
+                                    <div className="flex justify-between items-center text-[20px]">
                                         <span className="text-slate-500">หมดอายุ:</span>
                                         <span className={(isExpiring || isExpired) && !isCancelled ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-700'}>{formatDate(item.EndDate)}</span>
                                     </div>
-                                    <div className="flex justify-between items-center text-[10px]">
+                                    <div className="flex justify-between items-center text-[20px]">
                                         <span className="text-slate-500">เหลือเวลา:</span>
                                         {renderCellValue(item, { key: '_duration' })}
                                     </div>
-                                    <div className="flex justify-between items-start gap-2 text-[10px] pt-1 border-t border-black/5">
+                                    <div className="flex justify-between items-start gap-2 text-[12px] pt-1 border-t border-black/5">
                                         <span className="text-slate-500 whitespace-nowrap">Vendor:</span>
                                         <span className="font-medium text-slate-700 text-right truncate">{item.VendorName || '-'}</span>
                                     </div>
@@ -590,11 +627,11 @@ const MALicensePage = () => {
                 <Portal>
                     <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden">
-                            <div className={`p-4 bg-gradient-to-r ${activeCat?.color} text-white relative overflow-hidden`}>
+                            <div className={`p-4 bg-gradient-to-r ${CATEGORIES.find(c => c.key === detailItem.Category)?.color || 'from-slate-700 to-slate-800'} text-white relative overflow-hidden`}>
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
                                 <div className="flex justify-between items-start relative z-10">
                                     <div>
-                                        <p className="text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1">{activeCat?.label}</p>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1">{CATEGORIES.find(c => c.key === detailItem.Category)?.label}</p>
                                         <h3 className="font-black text-lg md:text-xl tracking-tight">{detailItem.ItemName}</h3>
                                         <p className="text-white/80 text-xs mt-0.5">{detailItem.SubType}</p>
                                     </div>
@@ -664,7 +701,7 @@ const MALicensePage = () => {
 
             {/* FORM MODAL */}
             {formModal.isOpen && (
-                <FormModal item={formModal.item} category={activeTab} vendors={vendors} locations={locations} maTypes={maTypes} onSave={handleSave} onClose={() => setFormModal({ isOpen: false, item: null })} />
+                <FormModal item={formModal.item} category={activeTab === 'ALL' ? 'HARDWARE' : activeTab} vendors={vendors} locations={locations} maTypes={maTypes} onSave={handleSave} onClose={() => setFormModal({ isOpen: false, item: null })} />
             )}
 
             <AlertModal isOpen={alertModal.isOpen} type={alertModal.type} title={alertModal.title} message={alertModal.message}
@@ -730,9 +767,9 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
         <Portal>
             <div className="fixed inset-0 z-[70] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
                 <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden">
-                    <div className={`p-4 bg-gradient-to-r ${catInfo?.color} text-white`}>
+                    <div className={`p-4 bg-gradient-to-r ${catInfo?.color || 'from-slate-700 to-slate-800'} text-white`}>
                         <div className="flex justify-between items-center">
-                            <h3 className="font-black text-lg">{isEdit ? 'แก้ไขรายการ' : `เพิ่ม ${catInfo?.label} ใหม่`}</h3>
+                            <h3 className="font-black text-lg">{isEdit ? 'แก้ไขรายการ' : `เพิ่ม ${catInfo?.label || ''} ใหม่`}</h3>
                             <button onClick={onClose} className="p-1.5 hover:bg-white/20 rounded-full transition-colors"><X size={18} /></button>
                         </div>
                     </div>
@@ -828,7 +865,7 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                     </form>
                     <div className="p-3 bg-slate-50 border-t border-slate-100 flex gap-2">
                         <button type="button" onClick={onClose} className="flex-1 py-2 bg-white text-slate-600 rounded-lg text-xs font-bold border border-slate-200 hover:bg-slate-100 transition-colors">ยกเลิก</button>
-                        <button type="submit" form="ma-form" className={`flex-1 py-2 text-white rounded-lg text-xs font-bold bg-gradient-to-r ${catInfo?.color} hover:shadow-lg transition-all`}>
+                        <button type="submit" form="ma-form" className={`flex-1 py-2 text-white rounded-lg text-xs font-bold bg-gradient-to-r ${catInfo?.color || 'from-slate-700 to-slate-800'} hover:shadow-lg transition-all`}>
                             {isEdit ? 'บันทึกการแก้ไข' : 'เพิ่มรายการ'}
                         </button>
                     </div>

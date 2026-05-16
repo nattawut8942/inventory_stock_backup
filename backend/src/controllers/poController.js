@@ -21,7 +21,8 @@ export const getPOs = async (req, res) => {
             const detailsResult = await pool.request()
                 .input('PO_ID', sql.NVarChar, po.PO_ID)
                 .query(`
-                    SELECT d.DetailID, d.ProductID, d.ItemName, p.ProductName, d.QtyOrdered, d.QtyReceived, d.UnitCost
+                    SELECT d.DetailID, d.ProductID, d.ItemName, p.ProductName,
+                           d.QtyOrdered, d.QtyReceived, d.UnitCost, d.BG_No
                     FROM dbo.Stock_PODetails d
                     LEFT JOIN dbo.Stock_Products p ON d.ProductID = p.ProductID
                     WHERE d.PO_ID = @PO_ID
@@ -39,11 +40,6 @@ export const getPOs = async (req, res) => {
 // CREATE PO
 export const createPO = async (req, res) => {
     const { PO_ID, VendorName, DueDate, RequestedBy, Section, Remark, Items, BudgetNo, PR_No, DeliveryTo } = req.body;
-    console.log('====== CREATE PO REQUEST ======');
-    console.log('Timestamp:', new Date().toISOString());
-    console.log('BudgetNo received:', BudgetNo, '| Type:', typeof BudgetNo);
-    console.log('Full body:', JSON.stringify(req.body, null, 2));
-    console.log('===============================');
 
     try {
         const pool = getPool();
@@ -51,8 +47,6 @@ export const createPO = async (req, res) => {
         await transaction.begin();
 
         try {
-            console.log('About to INSERT with BudgetNo:', BudgetNo);
-
             // Insert PO Header
             await new sql.Request(transaction)
                 .input('PO_ID', sql.NVarChar, PO_ID)
@@ -65,13 +59,13 @@ export const createPO = async (req, res) => {
                 .input('BudgetNo', sql.NVarChar, BudgetNo || null)
                 .input('DeliveryTo', sql.NVarChar, DeliveryTo || null)
                 .query(`
-                    INSERT INTO dbo.Stock_PurchaseOrders (PO_ID, PR_No, VendorName, DueDate, RequestedBy, Section, Remark, Status, BudgetNo, DeliveryTo)
-                    VALUES (@PO_ID, @PR_No, @VendorName, @DueDate, @RequestedBy, @Section, @Remark, 'Open', @BudgetNo, @DeliveryTo)
+                    INSERT INTO dbo.Stock_PurchaseOrders
+                        (PO_ID, PR_No, VendorName, DueDate, RequestedBy, Section, Remark, Status, BudgetNo, DeliveryTo)
+                    VALUES
+                        (@PO_ID, @PR_No, @VendorName, @DueDate, @RequestedBy, @Section, @Remark, 'Open', @BudgetNo, @DeliveryTo)
                 `);
 
-            console.log('INSERT completed successfully');
-
-            // Insert PO Details
+            // ✅ Insert PO Details พร้อม BG_No
             for (const item of Items) {
                 await new sql.Request(transaction)
                     .input('PO_ID', sql.NVarChar, PO_ID)
@@ -79,9 +73,12 @@ export const createPO = async (req, res) => {
                     .input('ProductID', sql.Int, item.ProductID || null)
                     .input('QtyOrdered', sql.Int, item.QtyOrdered)
                     .input('UnitCost', sql.Decimal(18, 2), item.UnitCost || 0)
+                    .input('BG_No', sql.NVarChar, item.BG_No || null)
                     .query(`
-                        INSERT INTO dbo.Stock_PODetails (PO_ID, ItemName, ProductID, QtyOrdered, QtyReceived, UnitCost)
-                        VALUES (@PO_ID, @ItemName, @ProductID, @QtyOrdered, 0, @UnitCost)
+                        INSERT INTO dbo.Stock_PODetails
+                            (PO_ID, ItemName, ProductID, QtyOrdered, QtyReceived, UnitCost, BG_No)
+                        VALUES
+                            (@PO_ID, @ItemName, @ProductID, @QtyOrdered, 0, @UnitCost, @BG_No)
                     `);
             }
 
@@ -90,7 +87,6 @@ export const createPO = async (req, res) => {
         } catch (err) {
             await transaction.rollback();
             console.error('Create PO Transaction Error:', err);
-            // Check for Duplicate Key
             if (err.number === 2627 || err.message.includes('PRIMARY KEY')) {
                 return res.status(409).json({ error: 'Duplicate PO ID', code: 'DUPLICATE_PO_ID' });
             }
@@ -142,22 +138,23 @@ export const updatePO = async (req, res) => {
                 .input('DeliveryTo', sql.NVarChar, DeliveryTo || null)
                 .query(`
                     UPDATE dbo.Stock_PurchaseOrders
-                    SET VendorName = @VendorName, 
-                        DueDate = @DueDate, 
-                        RequestedBy = @RequestedBy, 
-                        Section = @Section, 
-                        Remark = @Remark,
-                        BudgetNo = @BudgetNo,
-                        PR_No = @PR_No,
-                        DeliveryTo = @DeliveryTo
+                    SET VendorName   = @VendorName,
+                        DueDate      = @DueDate,
+                        RequestedBy  = @RequestedBy,
+                        Section      = @Section,
+                        Remark       = @Remark,
+                        BudgetNo     = @BudgetNo,
+                        PR_No        = @PR_No,
+                        DeliveryTo   = @DeliveryTo
                     WHERE PO_ID = @PO_ID
                 `);
 
-            // 3. Update Details (Delete All & Re-insert)
+            // 3. Delete All & Re-insert Details
             await new sql.Request(transaction)
                 .input('PO_ID', sql.NVarChar, id)
                 .query('DELETE FROM dbo.Stock_PODetails WHERE PO_ID = @PO_ID');
 
+            // ✅ Re-insert พร้อม BG_No
             for (const item of Items) {
                 await new sql.Request(transaction)
                     .input('PO_ID', sql.NVarChar, id)
@@ -165,9 +162,12 @@ export const updatePO = async (req, res) => {
                     .input('ProductID', sql.Int, item.ProductID || null)
                     .input('QtyOrdered', sql.Int, item.QtyOrdered)
                     .input('UnitCost', sql.Decimal(18, 2), item.UnitCost || 0)
+                    .input('BG_No', sql.NVarChar, item.BG_No || null)
                     .query(`
-                        INSERT INTO dbo.Stock_PODetails (PO_ID, ItemName, ProductID, QtyOrdered, QtyReceived, UnitCost)
-                        VALUES (@PO_ID, @ItemName, @ProductID, @QtyOrdered, 0, @UnitCost)
+                        INSERT INTO dbo.Stock_PODetails
+                            (PO_ID, ItemName, ProductID, QtyOrdered, QtyReceived, UnitCost, BG_No)
+                        VALUES
+                            (@PO_ID, @ItemName, @ProductID, @QtyOrdered, 0, @UnitCost, @BG_No)
                     `);
             }
 
@@ -194,7 +194,7 @@ export const deletePO = async (req, res) => {
         await transaction.begin();
 
         try {
-            // 1. Check for Invoices (Usage)
+            // 1. Check for Invoices
             const checkUsage = await new sql.Request(transaction)
                 .input('PO_ID', sql.NVarChar, id)
                 .query('SELECT TOP 1 1 FROM dbo.Stock_Invoices WHERE PO_ID = @PO_ID');

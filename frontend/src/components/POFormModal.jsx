@@ -10,7 +10,6 @@ import AlertModal from './AlertModal';
 
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-// Initialize PDF.js worker safely
 try {
     if (pdfjsLib && pdfjsLib.GlobalWorkerOptions) {
         pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
@@ -39,12 +38,12 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
         PR_No: '',
         DeliveryTo: ''
     });
-    const [poItems, setPoItems] = useState([{ ProductID: null, ItemName: '', QtyOrdered: 1, UnitCost: 0 }]);
+    // ✅ เพิ่ม BG_No ใน default item
+    const [poItems, setPoItems] = useState([{ ProductID: null, ItemName: '', QtyOrdered: 1, UnitCost: 0, BG_No: '' }]);
     const [selectedVendor, setSelectedVendor] = useState({ VendorID: null, VendorName: '' });
 
     const sectionRef = useRef(null);
 
-    // Internal Alert Modal State
     const [resultModal, setResultModal] = useState({
         isOpen: false,
         type: 'success',
@@ -67,16 +66,16 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                     DeliveryTo: initialData.DeliveryTo || ''
                 });
 
-                // Map items
+                // ✅ map BG_No จาก item ด้วย
                 const items = initialData.Items.map(item => ({
                     ProductID: item.ProductID,
                     ItemName: item.ItemName,
                     QtyOrdered: item.QtyOrdered,
-                    UnitCost: item.UnitCost
+                    UnitCost: item.UnitCost,
+                    BG_No: item.BG_No || ''
                 }));
                 setPoItems(items);
 
-                // Set Vendor
                 const foundVendor = vendors.find(v => v.VendorName === initialData.VendorName);
                 if (foundVendor) {
                     setSelectedVendor(foundVendor);
@@ -85,7 +84,6 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                 }
                 setActiveTab('manual');
             } else {
-                // Create Mode
                 setNewPO({
                     PO_ID: generatePONumber(),
                     VendorName: '',
@@ -97,7 +95,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                     PR_No: '',
                     DeliveryTo: ''
                 });
-                setPoItems([{ ProductID: null, ItemName: '', QtyOrdered: 1, UnitCost: 0 }]);
+                setPoItems([{ ProductID: null, ItemName: '', QtyOrdered: 1, UnitCost: 0, BG_No: '' }]);
                 setSelectedVendor({ VendorID: null, VendorName: '' });
                 setActiveTab('manual');
                 setOcrFile(null);
@@ -107,14 +105,12 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
         }
     }, [isOpen, isEditMode, initialData, user, vendors]);
 
-    // Effect to populate form when switching to manual tab with extracted data
     useEffect(() => {
         if (activeTab === 'manual' && extractedFormData) {
             setNewPO(prev => ({
                 ...prev,
                 PO_ID: extractedFormData.poNum || prev.PO_ID,
                 PR_No: extractedFormData.prNum || prev.PR_No,
-                BudgetNo: extractedFormData.bgNum || prev.BudgetNo,
                 Section: extractedFormData.section || prev.Section,
                 DueDate: extractedFormData.dueDate || prev.DueDate,
                 DeliveryTo: extractedFormData.deliveryTo || prev.DeliveryTo
@@ -122,7 +118,6 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
             setExtractedFormData(null);
         }
     }, [activeTab, extractedFormData]);
-
 
     const generatePONumber = () => {
         const now = new Date();
@@ -133,7 +128,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
     };
 
     const addItem = () => {
-        setPoItems([...poItems, { ProductID: null, ItemName: '', QtyOrdered: 1, UnitCost: 0 }]);
+        setPoItems([...poItems, { ProductID: null, ItemName: '', QtyOrdered: 1, UnitCost: 0, BG_No: '' }]);
     };
 
     const removeItem = (index) => {
@@ -150,18 +145,22 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
         return poItems.reduce((sum, item) => sum + (item.QtyOrdered * item.UnitCost), 0);
     };
 
-    const pdfToImage = async (file) => {
+    // ✅ แก้: รองรับ PDF หลายหน้า
+    const pdfToImages = async (file) => {
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        const page = await pdf.getPage(1);
-        const scale = 2.8;
-        const viewport = page.getViewport({ scale });
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-        await page.render({ canvasContext: context, viewport: viewport }).promise;
-        return canvas.toDataURL('image/png');
+        const images = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const scale = 2.8;
+            const viewport = page.getViewport({ scale });
+            const canvas = document.createElement('canvas');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+            images.push(canvas.toDataURL('image/png'));
+        }
+        return images;
     };
 
     const fileToDataUrl = (file) => {
@@ -185,31 +184,22 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
 
         // 2. Vendor Name
         let vendorName = "";
-
-        // ค้นหาตำแหน่งบรรทัดที่มีคำว่า SUPPLIER หรือ VENDOR ก่อน
-        const supplierLineIndex = lines.findIndex(l => l.toUpperCase().includes('SUPPLIER') || l.toUpperCase().includes('VENDOR'));
-
+        const supplierLineIndex = lines.findIndex(l =>
+            l.toUpperCase().includes('SUPPLIER') || l.toUpperCase().includes('VENDOR')
+        );
         if (supplierLineIndex !== -1) {
-            // สำรวจจากบรรทัดถัดจาก SUPPLIER ลงมา (ดูสัก 5 บรรทัด)
             for (let i = 1; i <= 5; i++) {
                 let currentLine = lines[supplierLineIndex + i];
                 if (!currentLine) break;
-
-                // ถ้าเจอบรรทัดที่มีคำว่า CO.,LTD หรือคล้ายๆ กัน ให้หยิบมาแล้วหยุดเลย
                 const matchSuffix = currentLine.match(/(.*?)(CO\.,\s*LTD\.?|COMPANY LIMITED|LTD\.?|CORPORATION)/i);
                 if (matchSuffix) {
-                    // matchSuffix[1] คือข้อความข้างหน้า (เช่น SAMAPHAN TECHNOLOGIES )
-                    // matchSuffix[2] คือคำลงท้าย (เช่น CO.,LTD.)
                     vendorName = (matchSuffix[1] + matchSuffix[2]).trim();
                     break;
                 }
             }
-
-            // Fallback กรณีใน 5 บรรทัดนั้นไม่มีคำว่า CO.,LTD เลย ให้ดึงจากบรรทัดที่ 2 รองจากบรรทัด SUPPLIER มาใช้งาน
             if (!vendorName) {
                 let line2 = lines[supplierLineIndex + 2] || "";
                 let line1 = lines[supplierLineIndex + 1] || "";
-
                 if (line2 && !line2.toUpperCase().includes('ISSUE')) {
                     vendorName = line2.split(/Issue Date|Print Date|PO:/i)[0].trim();
                 } else if (line1) {
@@ -218,111 +208,124 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
             }
         }
 
-        // 3. PR and BG
-        let prNum = "";
-        let bgNum = "";
-        const itemRegex = /(\d+)\s+(.+?)\s+(\d{2}[/.-]\d{2}[/.-]\d{2,4})\s+([\d,.]+)\s+(\w+)\s+([\d,.]+)\s+([\d,.]+)$/;
+        // 3. Parse items + BG_No per item
+        const itemRegex = /^(\d+)\s+(.+?)\s+(\d{2}[/.-]\d{2}[/.-]\d{2,4})\s+([\d,.]+)\s+(\w+)\s+([\d,.]+)\s+([\d,.]+)$/;
+        const bgRegex = /B\/G\s*NO\s*[:\s]*([A-Z0-9]+)/i;
+        const prRegex = /PR\s*[:\s]+([A-Z0-9]+)/i;
 
-        let lastItemIndex = -1;
+        // ✅ helper: ล้าง BG_No เหมือนเดิม
+        const fixBgNo = (raw) => {
+            raw = raw.trim();
+            if (raw.length === 7 && /^\d{2}.{2}\d{3}$/.test(raw)) {
+                const chars = raw.split('');
+                const numToChar = {
+                    '0': 'O', '1': 'I', '2': 'Z', '3': 'E', '4': 'A',
+                    '5': 'S', '6': 'G', '7': 'T', '8': 'B', '9': 'P'
+                };
+                if (/[0-9]/.test(chars[2])) chars[2] = numToChar[chars[2]] || chars[2];
+                if (/[0-9]/.test(chars[3])) chars[3] = numToChar[chars[3]] || chars[3];
+                return chars.join('').toUpperCase();
+            }
+            return raw.toUpperCase();
+        };
+
         const newItems = [];
         let firstDueDate = "";
+        let globalPrNum = "";
+        let globalBgNum = "";
 
-        lines.forEach((line, index) => {
-            const match = line.match(itemRegex);
-            if (match) {
-                // Convert DD/MM/YYYY to YYYY-MM-DD for firstDueDate
-                if (!firstDueDate && match[3]) {
-                    const parts = match[3].split(/[/.-]/);
-                    if (parts.length === 3) {
-                        const y = parts[2].length === 2 ? '20' + parts[2] : parts[2];
-                        firstDueDate = `${y}-${parts[1]}-${parts[0]}`;
-                    }
-                }
-
-                // Fix Qty Parsing: Remove commas, then parse float, then round to integer
-                const qtyRaw = match[4].replace(/,/g, '');
-                const qty = Math.round(parseFloat(qtyRaw)) || 1;
-
-                // Fix Price Parsing: Remove commas, keep decimals
-                const priceRaw = match[6].replace(/,/g, '');
-                const price = parseFloat(priceRaw) || 0;
-
-                newItems.push({
-                    ProductID: null,
-                    ItemName: match[2].trim(),
-                    QtyOrdered: qty,
-                    UnitCost: price
-                });
-                lastItemIndex = index;
+        // ✅ หา item line index ทั้งหมดก่อน
+        const itemLineIndexes = [];
+        lines.forEach((line, idx) => {
+            if (itemRegex.test(line)) {
+                itemLineIndexes.push(idx);
             }
         });
 
-        if (lastItemIndex !== -1) {
-            for (let i = 1; i <= 10; i++) {
-                const searchLine = lines[lastItemIndex + i] || "";
-                if (!prNum) {
-                    const prMatch = searchLine.match(/PR\s*[:\s]*\s*([A-Z0-9]+)/i);
-                    if (prMatch) prNum = prMatch[1];
-                }
-                if (!bgNum) {
-                    const bgMatch = searchLine.match(/B\/G\s?NO\s*[:\s]*\s*([A-Z0-9]+)/i);
-                    if (bgMatch) {
-                        let rawBg = bgMatch[1].trim();
+        itemLineIndexes.forEach((itemIdx, i) => {
+            const match = lines[itemIdx].match(itemRegex);
+            if (!match) return;
 
-                        // Fix BudgetNo Logic: 
-                        // If length is 7 and matches NNDDNNN roughly, force chars at index 2,3 to be letters
-                        if (rawBg.length === 7 && /^\d{2}.{2}\d{3}$/.test(rawBg)) {
-                            const chars = rawBg.split('');
-                            const numToChar = {
-                                '0': 'O', '1': 'I', '2': 'Z', '3': 'E', '4': 'A',
-                                '5': 'S', '6': 'G', '7': 'T', '8': 'B', '9': 'P'
-                            };
-
-                            // Fix index 2 (3rd char)
-                            if (/[0-9]/.test(chars[2])) chars[2] = numToChar[chars[2]] || chars[2];
-
-                            // Fix index 3 (4th char)
-                            if (/[0-9]/.test(chars[3])) chars[3] = numToChar[chars[3]] || chars[3];
-
-                            bgNum = chars.join('').toUpperCase();
-                        } else {
-                            bgNum = rawBg;
-                        }
-                    }
+            // Due date จาก item แรก
+            if (!firstDueDate && match[3]) {
+                const parts = match[3].split(/[/.-]/);
+                if (parts.length === 3) {
+                    const y = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+                    firstDueDate = `${y}-${parts[1]}-${parts[0]}`;
                 }
             }
-        }
+
+            const qtyRaw = match[4].replace(/,/g, '');
+            const qty = Math.round(parseFloat(qtyRaw)) || 1;
+            const priceRaw = match[6].replace(/,/g, '');
+            const price = parseFloat(priceRaw) || 0;
+
+            // ✅ หา BG_No ระหว่าง item นี้กับ item ถัดไป (หรือสิ้นสุดไฟล์)
+            const searchEnd = itemLineIndexes[i + 1] ?? lines.length;
+            let itemBgNum = '';
+            let itemPrNum = '';
+
+            for (let j = itemIdx + 1; j < searchEnd; j++) {
+                const searchLine = lines[j];
+
+                if (!itemBgNum) {
+                    const bgMatch = searchLine.match(bgRegex);
+                    if (bgMatch) {
+                        itemBgNum = fixBgNo(bgMatch[1]);
+                    }
+                }
+                if (!itemPrNum) {
+                    const prMatch = searchLine.match(prRegex);
+                    if (prMatch) {
+                        itemPrNum = prMatch[1];
+                        if (!globalPrNum) globalPrNum = itemPrNum;
+                    }
+                }
+                if (itemBgNum && itemPrNum) break;
+            }
+
+            // fallback: ถ้าไม่เจอ BG ใน block นี้ ใช้ global ที่เจอล่าสุด
+            if (itemBgNum && !globalBgNum) globalBgNum = itemBgNum;
+
+            newItems.push({
+                ProductID: null,
+                ItemName: match[2].trim(),
+                QtyOrdered: qty,
+                UnitCost: price,
+                BG_No: itemBgNum || ''
+            });
+        });
 
         // 4. Section (Who)
         let section = "";
-
-        // Find line starting with "Who:" or "Who " (case insensitive)
         const whoIndex = lines.findIndex(l => l.match(/^[Ww]ho\s*[:]/i));
-
         if (whoIndex !== -1) {
-            // Check current line for value
             const line = lines[whoIndex];
             const match = line.match(/^[Ww]ho\s*[:]\s*(.+)/i);
             if (match && match[1].trim().length > 1) {
                 section = match[1].trim();
             } else if (lines[whoIndex + 1]) {
-                // If value empty, take next line
                 section = lines[whoIndex + 1];
             }
         }
 
-        // 5. Delivery To (PR Opener) - English only, format: firstname.x or similar
+        // 5. Delivery To
         let deliveryTo = "";
-        // Try strict format first: "Delivery To: natthawut.t"
         const deliveryMatch = text.match(/Delivery\s*To\s*[:\s]*\s*([a-zA-Z]+(?:\.[a-zA-Z]+)?)/i);
         if (deliveryMatch) {
             deliveryTo = deliveryMatch[1].trim().toUpperCase();
         }
 
-        console.log('Parsed Section (Strict Who):', section);
-        console.log('Parsed DeliveryTo:', deliveryTo);
-
-        return { poNum, vendorName, prNum, bgNum, section, firstDueDate, deliveryTo, items: newItems };
+        return {
+            poNum,
+            vendorName,
+            prNum: globalPrNum,
+            bgNum: globalBgNum,   // ค่า default สำหรับ header BudgetNo
+            section,
+            firstDueDate,
+            deliveryTo,
+            items: newItems       // ✅ แต่ละ item มี BG_No ของตัวเอง
+        };
     };
 
     const handleOCRExtract = async () => {
@@ -333,20 +336,12 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
         setOcrDebugText('');
 
         try {
-            let imgSource;
-            if (ocrFile.type === 'application/pdf') {
-                setOcrProgress({ step: 'Rendering PDF...', percent: 10 });
-                imgSource = await pdfToImage(ocrFile);
-            } else {
-                imgSource = await fileToDataUrl(ocrFile);
-            }
-
-            setOcrProgress({ step: 'Loading OCR engine...', percent: 25 });
+            setOcrProgress({ step: 'Loading OCR engine...', percent: 10 });
             const worker = await Tesseract.createWorker('eng', 1, {
                 logger: m => {
                     if (m.status === 'recognizing text') {
-                        const p = 30 + (m.progress * 60);
-                        if (p - lastProgressRef.current >= 10 || p >= 90) { // Throttle: Update only every 10%
+                        const p = 30 + (m.progress * 55);
+                        if (p - lastProgressRef.current >= 5 || p >= 85) {
                             lastProgressRef.current = p;
                             setOcrProgress({ step: 'Recognizing text...', percent: p });
                         }
@@ -354,15 +349,28 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                 }
             });
 
-            const { data: { text } } = await worker.recognize(imgSource);
-            setOcrDebugText(text);
+            let allText = '';
 
-            setOcrProgress({ step: 'Parsing data...', percent: 95 });
+            if (ocrFile.type === 'application/pdf') {
+                // ✅ รองรับหลายหน้า
+                setOcrProgress({ step: 'Rendering PDF pages...', percent: 15 });
+                const images = await pdfToImages(ocrFile);
+                for (let i = 0; i < images.length; i++) {
+                    setOcrProgress({ step: `Recognizing page ${i + 1}/${images.length}...`, percent: 20 + (i / images.length) * 65 });
+                    const { data: { text } } = await worker.recognize(images[i]);
+                    allText += '\n' + text;
+                }
+            } else {
+                setOcrProgress({ step: 'Reading image...', percent: 15 });
+                const imgSource = await fileToDataUrl(ocrFile);
+                const { data: { text } } = await worker.recognize(imgSource);
+                allText = text;
+            }
 
-            // Parse and set state
-            console.log('OCR Raw Text:', text);
-            const result = parseDaikinPO(text);
-            console.log('OCR Parsed Result:', result);
+            setOcrDebugText(allText);
+            setOcrProgress({ step: 'Parsing data...', percent: 92 });
+
+            const result = parseDaikinPO(allText);
 
             if (result.vendorName) {
                 const foundVendor = vendors.find(v => v.VendorName.toLowerCase().includes(result.vendorName.toLowerCase()));
@@ -373,7 +381,6 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
             }
 
             if (result.items.length > 0) {
-                // Try to auto-link items with Master Products
                 const linkedItems = result.items.map(item => {
                     const found = products.find(p =>
                         p.ProductName.toLowerCase().trim() === item.ItemName.toLowerCase().trim()
@@ -382,8 +389,8 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                         return {
                             ...item,
                             ProductID: found.ProductID,
-                            ItemName: found.ProductName, // Standardize name to Master
-                            UnitCost: item.UnitCost || found.UnitCost || 0 // Prefer PO cost, fallback to Master
+                            ItemName: found.ProductName,
+                            UnitCost: item.UnitCost || found.UnitCost || 0
                         };
                     }
                     return item;
@@ -391,11 +398,9 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                 setPoItems(linkedItems);
             }
 
-            // Store form data for the Effect to pick up
             setExtractedFormData({
                 poNum: result.poNum,
                 prNum: result.prNum,
-                bgNum: result.bgNum,
                 section: result.section,
                 dueDate: result.firstDueDate,
                 deliveryTo: result.deliveryTo
@@ -404,7 +409,6 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
             setOcrProgress({ step: 'Complete!', percent: 100 });
             await worker.terminate();
 
-            // Switch to manual tab
             setTimeout(() => {
                 setActiveTab('manual');
                 setOcrLoading(false);
@@ -420,8 +424,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
     const handleFormSubmit = async (e) => {
         e.preventDefault();
 
-        // Validation - Require PO, Vendor, Budget, and PR No
-        if (!newPO.PO_ID || !selectedVendor.VendorName || !newPO.BudgetNo) {
+        if (!newPO.PO_ID || !selectedVendor.VendorName) {
             setResultModal({
                 isOpen: true,
                 type: 'error',
@@ -431,7 +434,6 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
             return;
         }
 
-        // Validate Items
         if (poItems.length === 0) {
             setResultModal({
                 isOpen: true,
@@ -442,7 +444,6 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
             return;
         }
 
-        // Validate Vendor - Must match a valid vendor from list
         const validVendor = vendors.find(v => v.VendorName === newPO.VendorName);
         if (!validVendor && newPO.VendorName.trim() !== '') {
             setResultModal({
@@ -470,7 +471,6 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                 <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
                             </div>
 
-                            {/* Tabs - Hide in Edit Mode */}
                             {!isEditMode && (
                                 <div className="flex px-6 gap-4">
                                     <button
@@ -502,9 +502,9 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                         <Upload size={32} />
                                     </div>
                                     <h4 className="font-bold text-slate-700 mb-1">
-                                        {ocrFile ? ocrFile.name : 'คลิกหรือลาไฟล์มาวางที่นี่'}
+                                        {ocrFile ? ocrFile.name : 'คลิกหรือลากไฟล์มาวางที่นี่'}
                                     </h4>
-                                    <p className="text-xs text-slate-400">รองรับไฟล์ PDF, JPG, PNG จากระบบ Daikin</p>
+                                    <p className="text-xs text-slate-400">รองรับไฟล์ PDF (หลายหน้า), JPG, PNG จากระบบ Daikin</p>
                                 </div>
 
                                 {ocrLoading && (
@@ -532,10 +532,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                         เริ่มสแกนและสร้าง PO
                                     </button>
                                     <button
-                                        onClick={() => {
-                                            setOcrFile(null);
-                                            setOcrDebugText('');
-                                        }}
+                                        onClick={() => { setOcrFile(null); setOcrDebugText(''); }}
                                         className="px-4 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200"
                                     >
                                         <RefreshCw size={20} />
@@ -585,16 +582,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                             className="w-full bg-slate-50 border border-slate-200 p-2 md:p-2.5 text-sm rounded-lg outline-none focus:border-indigo-500"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">Budget No.</label>
-                                        <input
-                                            name="BudgetNo"
-                                            value={newPO.BudgetNo}
-                                            onChange={(e) => setNewPO({ ...newPO, BudgetNo: e.target.value })}
-                                            className="w-full bg-slate-50 border border-slate-200 p-2 md:p-2.5 text-sm rounded-lg outline-none focus:border-indigo-500"
-                                            placeholder="ระบุเลขงบประมาณ"
-                                        />
-                                    </div>
+                
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">PR No.</label>
                                         <input
@@ -636,7 +624,6 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                     </div>
                                 </div>
 
-
                                 <div>
                                     <div className="flex justify-between items-center mb-2">
                                         <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">รายการอุปกรณ์</label>
@@ -644,9 +631,10 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                             <Plus size={14} /> เพิ่มรายการ
                                         </button>
                                     </div>
-                                    {/* Header Row */}
+                                    {/* ✅ Header row เพิ่ม BG No. */}
                                     <div className="hidden sm:flex gap-2 items-center px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                         <div className="flex-1">ชื่ออุปกรณ์</div>
+                                        <div className="w-20 text-center">BG No.</div>
                                         <div className="w-16 text-center">จำนวน</div>
                                         <div className="w-24 text-right">ราคา/หน่วย</div>
                                         <div className="w-6"></div>
@@ -663,14 +651,12 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                                             const updated = [...poItems];
                                                             updated[index].ProductID = ProductID;
                                                             updated[index].ItemName = ItemName;
-                                                            // Auto-fill price from master (only if coming from master)
                                                             if (ProductID && LastPrice !== undefined) {
                                                                 updated[index].UnitCost = LastPrice;
                                                             }
                                                             setPoItems(updated);
                                                         }}
                                                     />
-                                                    {/* New Item Warning */}
                                                     {item.ItemName && !item.ProductID && (
                                                         <div className="flex items-center gap-1 mt-1 text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded-md border border-amber-100 animate-in fade-in slide-in-from-top-1">
                                                             <AlertTriangle size={12} />
@@ -679,6 +665,17 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                                     )}
                                                 </div>
                                                 <div className="flex gap-2 items-end sm:items-center w-full sm:w-auto">
+                                                    {/* ✅ BG No. per item */}
+                                                    <div className="flex-1 sm:flex-none">
+                                                        <div className="sm:hidden text-[10px] font-bold text-slate-400 mb-1 uppercase">BG No.</div>
+                                                        <input
+                                                            type="text"
+                                                            placeholder="BG No."
+                                                            value={item.BG_No || ''}
+                                                            onChange={(e) => updateItem(index, 'BG_No', e.target.value)}
+                                                            className="w-full sm:w-20 bg-white border border-slate-200 p-2 rounded-lg text-sm outline-none focus:border-indigo-500 font-mono"
+                                                        />
+                                                    </div>
                                                     <div className="flex-1 sm:flex-none">
                                                         <div className="sm:hidden text-[10px] font-bold text-slate-400 mb-1 uppercase">จำนวน</div>
                                                         <input
@@ -686,7 +683,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                                             min="1"
                                                             value={item.QtyOrdered}
                                                             onChange={(e) => updateItem(index, 'QtyOrdered', parseInt(e.target.value) || 1)}
-                                                            className="w-full sm:w-20 bg-white border border-slate-200 p-2 rounded-lg text-sm text-center outline-none focus:border-indigo-500"
+                                                            className="w-full sm:w-16 bg-white border border-slate-200 p-2 rounded-lg text-sm text-center outline-none focus:border-indigo-500"
                                                         />
                                                     </div>
                                                     <div className="flex-1 sm:flex-none">

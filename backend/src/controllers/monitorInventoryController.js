@@ -11,6 +11,7 @@ export const getInventory = async (req, res) => {
         local_admin_users, wifi_ssid, adapter_type,
         crowdstrike_ver, tanium_ver, uems_ver,
         updated_at, collected_at,
+        factory_layout_id, location_x, location_y, location_updated_at,
         (SELECT STRING_AGG(username, ',') FROM [dbo].[info_mo_active_users]
           WHERE hostname = [dbo].[info_mo_inventory].hostname) as active_usernames,
         (SELECT MAX(logon_time) FROM [dbo].[info_mo_active_users]
@@ -24,7 +25,68 @@ export const getInventory = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+export const getMOLocation = async (req, res) => {
+  try {
+    const { hostname } = req.params;
+    const pool = getPool();
+    const result = await pool.request()
+      .input('hostname', sql.VarChar, hostname)
+      .query(`
+        SELECT m.hostname, m.factory_layout_id, m.location_x, m.location_y,
+               m.location_updated_at, l.image_url, l.name as layout_name
+        FROM [dbo].[info_mo_inventory] m
+        LEFT JOIN dbo.factory_layouts l ON m.factory_layout_id = l.id
+        WHERE m.hostname = @hostname
+      `);
+    res.json({ success: true, data: result.recordset[0] || null });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
 
+export const getMOsByLayout = async (req, res) => {
+  try {
+    const { layout_id } = req.params;
+    const pool = getPool();
+    const result = await pool.request()
+      .input('layout_id', sql.Int, layout_id)
+      .query(`
+        SELECT i.hostname, i.location_x, i.location_y, i.fix_asset, i.manufacturer,
+          (SELECT STRING_AGG(username, ',') FROM [dbo].[info_mo_active_users]
+            WHERE hostname = i.hostname) as username
+        FROM [dbo].[info_mo_inventory] i
+        WHERE i.factory_layout_id = @layout_id
+          AND i.location_x IS NOT NULL AND i.location_y IS NOT NULL
+        ORDER BY i.hostname
+      `);
+    res.json({ success: true, data: result.recordset });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const updateMOLocation = async (req, res) => {
+  try {
+    const { hostname } = req.params;
+    const { factory_layout_id, location_x, location_y } = req.body;
+    const pool = getPool();
+    await pool.request()
+      .input('hostname', sql.VarChar, hostname)
+      .input('factory_layout_id', sql.Int, factory_layout_id || null)
+      .input('location_x', sql.Float, location_x ?? null)
+      .input('location_y', sql.Float, location_y ?? null)
+      .query(`
+        UPDATE [dbo].[info_mo_inventory]
+        SET factory_layout_id = @factory_layout_id,
+            location_x = @location_x, location_y = @location_y,
+            location_updated_at = GETDATE()
+        WHERE hostname = @hostname
+      `);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
 export const getInventoryByHostname = async (req, res) => {
   try {
     const { hostname } = req.params;
@@ -63,6 +125,31 @@ export const getActiveUsersByHostname = async (req, res) => {
     res.json({ success: true, data: result.recordset });
   } catch (err) {
     console.error('getActiveUsersByHostname error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const updateLocation = async (req, res) => {
+  try {
+    const { hostname } = req.params;
+    const { factory_layout_id, location_x, location_y } = req.body;
+    const pool = getPool();
+    await pool.request()
+      .input('hostname', sql.VarChar, hostname)
+      .input('factory_layout_id', sql.Int, factory_layout_id || null)
+      .input('location_x', sql.Float, location_x ?? null)
+      .input('location_y', sql.Float, location_y ?? null)
+      .input('location_updated_at', sql.DateTime2, new Date())
+      .query(`
+        UPDATE [dbo].[info_mo_inventory]
+        SET factory_layout_id   = @factory_layout_id,
+            location_x          = @location_x,
+            location_y          = @location_y,
+            location_updated_at = @location_updated_at
+        WHERE hostname = @hostname
+      `);
+    res.json({ success: true });
+  } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -123,7 +210,10 @@ export const getSummary = async (req, res) => {
 
     const summary = {
       total: data.length,
-
+      
+      noLocation: data
+      .filter(d => d.factory_layout_id === null || d.factory_layout_id === undefined)
+      .map(d => d.hostname),
       noCrowdstrike: data
         .filter(d => !d.crowdstrike_ver || d.crowdstrike_ver.toLowerCase() === 'not installed')
         .map(d => d.hostname),

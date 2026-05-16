@@ -5,11 +5,13 @@ import {
     CheckCircle2, XCircle, Search, X, ChevronUp, ChevronDown,
     ArrowUpDown, Bell, Filter, Settings, Clock, FileText,
     Database, Users, BarChart3, Loader2, Lock, History,
-    AlertOctagon, ShieldCheck, FileWarning
+    AlertOctagon, ShieldCheck, FileWarning, Info, Play
 } from 'lucide-react';
 import Pagination from '../components/Pagination';
 import { API_BASE } from '../config/api';
 import { useQuotaJobs } from '../context/QuotaJobContext';
+import { useAuth } from '../context/AuthContext';
+
 
 const ITEMS_PER_PAGE = 20;
 
@@ -40,6 +42,170 @@ const stepIndex = (step = '') => {
     if (s.includes('ส่ง') || s.includes('email') || s.includes('send')) return 4;
     if (s.includes('สำเร็จ') || s.includes('done') || s.includes('✅')) return 5;
     return 1;
+};
+
+// ════════════════════════════════════════════════════════════
+//  HELP MODAL
+// ════════════════════════════════════════════════════════════
+const HelpModal = ({ open, onClose }) => {
+    if (!open) return null;
+    return (
+        <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl border border-slate-200">
+                <div className="sticky top-0 px-6 py-4 border-b border-slate-100 bg-white flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+                            <Info size={20} />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-black text-slate-800">วิธีใช้งาน Quota Manager</h3>
+                            <p className="text-xs text-slate-400 mt-0.5">คำแนะนำและตัวอย่างการใช้งาน</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="p-6 space-y-5">
+                    {/* ═══ Section 1: Overview ═══ */}
+                    <div className="bg-gradient-to-br from-indigo-50 to-indigo-100/50 rounded-2xl p-5 border border-indigo-200">
+                        <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-indigo-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-sm">1</div>
+                            <div>
+                                <h4 className="font-black text-slate-800 mb-2">📊 ระบบจัดการโควต้าพื้นที่</h4>
+                                <p className="text-sm text-slate-700 leading-relaxed">
+                                    ระบบนี้ช่วยติดตามการใช้พื้นที่ขององค์กรบน File Server และส่งอีเมลแจ้งเตือนให้ผู้ใช้ที่ใช้พื้นที่เกินควรลบไฟล์
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ═══ Section 2: Quota Tab ═══ */}
+                    <div>
+                        <div className="flex items-center gap-2 mb-3">
+                            <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">2</div>
+                            <h4 className="font-black text-slate-800 text-base">📈 แท็บ Quota Usage</h4>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 ml-8">
+                            <div>
+                                <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">SYNC SERVER</p>
+                                <p className="text-sm text-slate-700 leading-relaxed">
+                                    กดปุ่มนี้เพื่อดึงข้อมูล Disk Quota ทั้งหมดจาก Windows Server ใหม่ (ใช้เวลา ~1-2 นาที)
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">ตั้งค่า Threshold</p>
+                                <p className="text-sm text-slate-700 leading-relaxed">
+                                    กำหนดเปอร์เซนต์เตือน เช่น 80% = แจ้งเตือนคนที่ใช้พื้นที่ ≥80% ของโควต้า
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">เลือกรายการ</p>
+                                <p className="text-sm text-slate-700 leading-relaxed">
+                                    กดเลือกแต่ละคนแล้วกดปุ่ม <span className="inline-block bg-amber-50 border border-amber-200 text-amber-600 px-2 py-0.5 rounded text-xs font-bold">ส่ง Warning Email</span> เพื่อส่งแจ้งเตือน
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ═══ Section 3: How Send Works ═══ */}
+                    <div>
+                        <div className="flex items-center gap-2 mb-3">
+                            <div className="w-6 h-6 rounded-lg bg-orange-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">3</div>
+                            <h4 className="font-black text-slate-800 text-base">📧 ขั้นตอนการส่งแจ้งเตือน</h4>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 ml-8">
+                            <div className="space-y-2">
+                                <div className="flex items-start gap-2">
+                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">1</span>
+                                    <p className="text-sm text-slate-700"><span className="font-bold">Set FSRM Owner:</span> ตั้งค่า owner ของการรันรายงาน</p>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">2</span>
+                                    <p className="text-sm text-slate-700"><span className="font-bold">Run FSRM Report:</span> รัน FSRM Report เพื่อดึงรายการไฟล์ขนาดใหญ่</p>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">3</span>
+                                    <p className="text-sm text-slate-700"><span className="font-bold">Wait Report:</span> รอการรันเสร็จ (ใช้เวลา 2-5 นาที)</p>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">4</span>
+                                    <p className="text-sm text-slate-700"><span className="font-bold">Read HTML:</span> อ่านไฟล์ HTML รายงานและแปลงเป็น base64</p>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">5</span>
+                                    <p className="text-sm text-slate-700"><span className="font-bold">Send Email:</span> ส่งอีเมลพร้อมรายงาน</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ═══ Section 4: Status Colors ═══ */}
+                    <div>
+                        <div className="flex items-center gap-2 mb-3">
+                            <div className="w-6 h-6 rounded-lg bg-green-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">4</div>
+                            <h4 className="font-black text-slate-800 text-base">🎨 รหัสสีและสถานะ</h4>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 ml-8 grid grid-cols-2 gap-2">
+                            {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                                <div key={key} className="flex items-center gap-2">
+                                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold border ${cfg.cls}`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot} mr-1`} />
+                                        {cfg.label}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* ═══ Section 5: Email Log ═══ */}
+                    <div>
+                        <div className="flex items-center gap-2 mb-3">
+                            <div className="w-6 h-6 rounded-lg bg-purple-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">5</div>
+                            <h4 className="font-black text-slate-800 text-base">📋 แท็บ Email Log</h4>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 ml-8 space-y-2">
+                            <p className="text-sm text-slate-700">
+                                📊 <span className="font-bold">ประวัติการส่งอีเมล</span> — ดูรายการส่งอีเมลทั้งหมดพร้อมสถานะ (ส่งสำเร็จ / ล้มเหลว)
+                            </p>
+                            <p className="text-sm text-slate-700">
+                                ⏳ <span className="font-bold">กำลังดำเนินการ</span> — แสดง progress bar ของรายการที่กำลังส่งเอกสาร
+                            </p>
+                            <p className="text-sm text-slate-700">
+                                🧹 <span className="font-bold">ลบ log</span> — ลบประวัติการส่งที่ไม่ต้องการแล้ว
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* ═══ Section 6: Tips ═══ */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
+                        <div className="flex items-start gap-3">
+                            <div className="w-6 h-6 rounded-lg bg-blue-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">💡</div>
+                            <div>
+                                <h4 className="font-black text-slate-800 mb-2">💡 เคล็ดลับ</h4>
+                                <ul className="space-y-1.5 text-sm text-slate-700">
+                                    <li>• เลือก <span className="bg-indigo-50 border border-indigo-200 px-1.5 rounded font-mono text-xs">เลือกที่เกิน {'{'}threshold{'}'}%</span> เพื่อเลือกทั้งหมดที่เกินเกณฑ์</li>
+                                    <li>• ระบบจะส่งทีละคนตามคิว (ไม่ส่งพร้อมกัน) เพื่อไม่ให้ FSRM ท่วม</li>
+                                    <li>• หากส่งเสร็จแล้ว log จะปรากฏในแท็บ Email Log</li>
+                                    <li>• ตั้งค่า Admin Email เพื่อรับรายงานสรุปรวม</li>
+                                    <li>• สามารถดูประวัติ Sync ได้จากปุ่ม <History size={11} className="inline" /> ประวัติ Sync</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="sticky bottom-0 px-6 py-4 border-t border-slate-100 bg-white flex justify-end gap-2">
+                    <button onClick={onClose}
+                        className="px-6 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all">
+                        ปิด
+                    </button>
+                </div>
+            </motion.div>
+        </div>
+    );
 };
 
 // ════════════════════════════════════════════════════════════
@@ -330,6 +496,7 @@ const DeleteConfirmModal = ({ item, onConfirm, onClose }) => {
 //  MAIN COMPONENT
 // ════════════════════════════════════════════════════════════
 const QuotaManager = () => {
+    const { user: authUser } = useAuth();
     const [tab, setTab] = useState('quota');
     const [users, setUsers] = useState([]);
     const [stats, setStats] = useState(null);
@@ -354,10 +521,7 @@ const QuotaManager = () => {
     const [syncLogs, setSyncLogs] = useState([]);
     const [syncLogLoading, setSyncLogLoading] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, username, sentAt }
-
-
-
-
+    const [showHelp, setShowHelp] = useState(false);
 
     const {
         jobItems, setJobItems,
@@ -619,7 +783,7 @@ const QuotaManager = () => {
         try {
             const r = await fetch(`${API}/send-warning-single`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user: u }),
+                body: JSON.stringify({ user: u, sentBy: authUser?.username }),
             });
             const res = await r.json();
 
@@ -729,7 +893,7 @@ const QuotaManager = () => {
 
             const res = await fetch(`${API}/send-warning`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ users: freTargets }),
+                body: JSON.stringify({ users: freTargets, sentBy: authUser?.username }),
             }).then(r => r.json()).catch(() => null);
 
             if (res?.jobId) {
@@ -837,6 +1001,8 @@ const QuotaManager = () => {
     // ════════════════════════════════════════════════════════
     return (
         <div className="space-y-6">
+            <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
+
             {showSyncLog && (
                 <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
                     <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
@@ -938,6 +1104,11 @@ const QuotaManager = () => {
                         )}
                     </div>
                     <div className="flex items-center gap-2">
+                        <button onClick={() => setShowHelp(true)}
+                            title="วิธีใช้งาน"
+                            className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50 bg-white transition-all">
+                            <Info size={16} />
+                        </button>
                         <button onClick={() => setShowSettings(!showSettings)}
                             title="ตั้งค่า threshold และ Admin Email"
                             className={`p-2.5 rounded-xl border text-sm transition-all
@@ -1393,7 +1564,7 @@ const QuotaManager = () => {
                             <table className="w-full text-sm min-w-max">
                                 <thead className="bg-slate-50 border-b border-slate-200">
                                     <tr>
-                                        {['เวลา', 'Username', 'ชื่อ', 'Email', '%', 'ใช้ไป', 'ไฟล์', 'สถานะ', 'หมายเหตุ', ''].map(h => (
+                                        {['เวลา', 'Username', 'ชื่อ', 'Email', '%', 'ใช้ไป', 'ไฟล์', 'ส่งโดย', 'สถานะ', 'หมายเหตุ', ''].map(h => (
                                             <th key={h} className="px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">{h}</th>
                                         ))}
                                     </tr>
@@ -1469,6 +1640,9 @@ const QuotaManager = () => {
                                                 </td>
                                                 <td className="px-3 py-2.5 text-xs font-mono text-slate-600 whitespace-nowrap">{l.SizeUsedFmt || '—'}</td>
                                                 <td className="px-3 py-2.5 text-xs text-center font-bold text-emerald-600 whitespace-nowrap">{l.FilesFound || 0}</td>
+                                                <td className="px-3 py-2.5 text-sm font-mono text-indigo-600 whitespace-nowrap">
+                                                    {l.SentBy || '—'}
+                                                </td>
                                                 <td className="px-3 py-2.5 whitespace-nowrap">
                                                     {isLogBusy ? (
                                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-amber-50 text-amber-600 border-amber-200">

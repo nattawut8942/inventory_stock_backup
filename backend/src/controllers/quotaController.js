@@ -240,7 +240,7 @@ const saveQuotaToDB = async (list) => {
 };
 
 // INSERT log → return ID
-const insertEmailLog = async (u, status, filesFound = 0, errorMsg = null, reportFile = null) => {
+const insertEmailLog = async (u, status, filesFound = 0, errorMsg = null, reportFile = null, sentBy = null) => {
     try {
         const pool = await connectDB();
         const r = await pool.request()
@@ -255,10 +255,11 @@ const insertEmailLog = async (u, status, filesFound = 0, errorMsg = null, report
             .input('ErrorMsg', sql.NVarChar, errorMsg || null)
             .input('Step', sql.NVarChar, null)
             .input('ReportFile', sql.NVarChar, reportFile || null)
+            .input('SentBy', sql.NVarChar, sentBy || null)  // ← เพิ่มบรรทัดนี้
             .query(`INSERT INTO Quota_EmailLog
-                (Username,DisplayName,Email,PctUsed,SizeUsedFmt,SizeLimitFmt,FilesFound,Status,ErrorMsg,Step,ReportFile)
+                (Username,DisplayName,Email,PctUsed,SizeUsedFmt,SizeLimitFmt,FilesFound,Status,ErrorMsg,Step,ReportFile,SentBy)
                 OUTPUT INSERTED.ID
-                VALUES (@Username,@DisplayName,@Email,@PctUsed,@SizeUsedFmt,@SizeLimitFmt,@FilesFound,@Status,@ErrorMsg,@Step,@ReportFile)`);
+                VALUES (@Username,@DisplayName,@Email,@PctUsed,@SizeUsedFmt,@SizeLimitFmt,@FilesFound,@Status,@ErrorMsg,@Step,@ReportFile,@SentBy)`);
         return r.recordset[0]?.ID;
     } catch (err) {
         console.warn('[DB] insertEmailLog error:', err.message);
@@ -401,7 +402,8 @@ const userLocks = new Set();
 
 // POST /quota/send-warning-single
 export const sendWarningSingle = async (req, res) => {
-    const { user } = req.body;
+    const { user, sentBy } = req.body;  // ← เพิ่ม sentBy
+    console.log('[Debug] sentBy:', sentBy);  // ← เพิ่มบรรทัดนี้
     if (!user?.email) return res.status(400).json({ success: false, error: 'user.email required' });
 
     // ถ้า user นี้กำลัง run อยู่แล้ว reject ทันที
@@ -418,7 +420,7 @@ export const sendWarningSingle = async (req, res) => {
     userLocks.add(user.username);
 
     // บันทึก log ทันทีที่เริ่ม — return logId กลับไปให้ frontend ใช้เป็น key
-    const logId = await insertEmailLog(user, 'running', 0, null);
+    const logId = await insertEmailLog(user, 'running', 0, null, null, sentBy);
     res.json({ success: true, jobId, logId });
 
     (async () => {
@@ -458,7 +460,8 @@ export const sendWarningSingle = async (req, res) => {
 
 // POST /quota/send-warning — bulk (queue ตามลำดับ)
 export const sendWarningEmails = async (req, res) => {
-    const { users } = req.body;
+    const { users, sentBy } = req.body;  // ← เพิ่ม sentBy
+
     if (!users?.length) return res.status(400).json({ success: false, error: 'users required' });
 
     const jobId = `bulk_${Date.now()}`;

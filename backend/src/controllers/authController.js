@@ -86,7 +86,7 @@ export const login = async (req, res) => {
                     empcode: empCode
                 },
                 SECRET_KEY,
-                { expiresIn: '8h' }
+                { expiresIn: '1h' }
             );
 
             res.json({

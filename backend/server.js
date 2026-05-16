@@ -5,7 +5,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cron from 'node-cron';
-
+import fs from 'fs';
 
 // Config & Services
 import { connectDB } from './src/config/db.js';
@@ -24,16 +24,15 @@ import locationRoutes from './src/routes/locationRoutes.js';
 import reasonRoutes from './src/routes/reasonRoutes.js';
 import maRoutes from './src/routes/maRoutes.js';
 import inkTonerRoutes from './src/routes/inkTonerRoutes.js';
-import pcInventoryRoutes from './src/routes/pcInventoryRoutes.js'; // PC Inventory
-import monitorInventoryRoutes from './src/routes/monitorInventoryRoutes.js'; // Monitor Inventory
+import pcInventoryRoutes from './src/routes/pcInventoryRoutes.js';
+import monitorInventoryRoutes from './src/routes/monitorInventoryRoutes.js';
 import stockCountRoutes from './src/routes/stockCountRoutes.js';
-import budgetRoutes from './src/routes/budgetRoutes.js'; // Added Budget Routes
+import budgetRoutes from './src/routes/budgetRoutes.js';
 import adRoutes from './src/routes/adRoutes.js';
 import quotaRoutes from './src/routes/quotaRoutes.js';
-// Setup Environment
 import { cleanupStaleLogs } from './src/controllers/quotaController.js';
-
-dotenv.config();
+import pcLocationRoutes from './src/routes/pcLocationRoutes.js';
+import cctvRoutes from './src/routes/cctvRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,15 +40,33 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3002;
 
+// ── สร้าง upload folders ถ้ายังไม่มี ────────────────────────────────────
+const folders = [
+    'uploads',
+    'uploads/factory-layouts',
+    'uploads/pc-images',
+    'uploads/cctv-icons',
+];
+folders.forEach(f => {
+    const dir = path.join(__dirname, f);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+        console.log(`[Server] Created missing directory: ${f}`);
+    }
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Static Files (Uploads)
+// Static Files
 const uploadsDir = path.join(__dirname, 'uploads');
 app.use('/uploads', express.static(uploadsDir));
 
-// Database Connection & Init
+const publicDir = path.join(__dirname, 'public');
+app.use('/public', express.static(publicDir));
+
+// ── DB connection with retry ──────────────────────────────────────────────
 const connectWithRetry = async (fn, name, retries = 5) => {
     for (let i = 0; i < retries; i++) {
         try {
@@ -69,37 +86,38 @@ const startServer = async () => {
         await connectWithRetry(connectDB, 'Main DB');
         await connectWithRetry(connectDciDB, 'DCI DB');
 
-        // Routes
-        app.use('/ITinventory/api', authRoutes);         // /api/authen
-        app.use('/ITinventory/api', productRoutes);      // /api/products, /api/types, /api/forecast, /api/upload
-        app.use('/ITinventory/api', vendorRoutes);       // /api/vendors
-        app.use('/ITinventory/api', poRoutes);           // /api/pos
-        app.use('/ITinventory/api', transactionRoutes);  // /api/transactions, /api/invoices, /api/receive
-        app.use('/ITinventory/api', reportRoutes);       // /api/report/export, /api/test-email
-        app.use('/ITinventory/api', userRoutes);         // /api/admin-users
-        app.use('/ITinventory/api', locationRoutes);     // /api/locations
-        app.use('/ITinventory/api', reasonRoutes);       // /api/reasons
-        app.use('/ITinventory/api', maRoutes);            // /api/ma
-        app.use('/ITinventory/api', inkTonerRoutes);      // /api/ink-toner
-        app.use('/ITinventory/api', pcInventoryRoutes);   // /api/pc-inventory, etc.
-        app.use('/ITinventory/api', monitorInventoryRoutes); // /api/mo-inventory, etc.
-        app.use('/ITinventory/api', stockCountRoutes);    // /api/stock-count
-        app.use('/ITinventory/api', budgetRoutes);        // /api/budget
+        // ── Routes ────────────────────────────────────────────────────────
+        app.use('/ITinventory/api', authRoutes);
+        app.use('/ITinventory/api', productRoutes);
+        app.use('/ITinventory/api', vendorRoutes);
+        app.use('/ITinventory/api', poRoutes);
+        app.use('/ITinventory/api', transactionRoutes);
+        app.use('/ITinventory/api', reportRoutes);
+        app.use('/ITinventory/api', userRoutes);
+        app.use('/ITinventory/api', locationRoutes);
+        app.use('/ITinventory/api', reasonRoutes);
+        app.use('/ITinventory/api', maRoutes);
+        app.use('/ITinventory/api', inkTonerRoutes);
+        app.use('/ITinventory/api', pcInventoryRoutes);
+        app.use('/ITinventory/api', monitorInventoryRoutes);
+        app.use('/ITinventory/api', stockCountRoutes);
+        app.use('/ITinventory/api', budgetRoutes);
         app.use('/ITinventory/api', adRoutes);
-        app.use('/ITinventory/api', quotaRoutes);      // /api/quota
+        app.use('/ITinventory/api', quotaRoutes);
+        app.use('/ITinventory/api', pcLocationRoutes);
+        app.use('/ITinventory/api', cctvRoutes);        // ← CCTV
 
+        // ── Cron: Weekly report (Monday 8 AM) ────────────────────────────
         cron.schedule('0 8 * * 1', async () => {
             console.log('Running Weekly report (Every Monday)...');
             await sendDailyReport();
-
-            // ส่ง Quota Report
             try {
-                const { buildList } = await import('./src/controllers/quotaController.js');
+                const { buildList }      = await import('./src/controllers/quotaController.js');
                 const { sendQuotaReport } = await import('./src/services/quotaEmailService.js');
-                const list = await buildList(false);
+                const list    = await buildList(false);
                 const summary = {
-                    total: list.length,
-                    warning: list.filter(u => u.pctUsed >= 80 && u.pctUsed < 90).length,
+                    total:    list.length,
+                    warning:  list.filter(u => u.pctUsed >= 80 && u.pctUsed < 90).length,
                     critical: list.filter(u => u.pctUsed >= 90 && u.pctUsed < 100).length,
                     exceeded: list.filter(u => u.pctUsed >= 100).length,
                 };
@@ -108,30 +126,27 @@ const startServer = async () => {
             } catch (err) {
                 console.error('[Cron] Quota report failed:', err.message);
             }
-        }, {
-            scheduled: true,
-            timezone: "Asia/Bangkok"
-        });
+        }, { scheduled: true, timezone: 'Asia/Bangkok' });
 
-        // ส่งรายงานรายเดือน ทุกวันสิ้นเดือน เวลา 08:00 น
-        cron.schedule('0 8 28-31 * *', async () => {
-            const today = new Date();
+        // ── Cron: Monthly report (last day of month 8 AM) ────────────────
+        cron.schedule('0 8 * * *', async () => {
+            const today    = new Date();
             const tomorrow = new Date(today);
             tomorrow.setDate(today.getDate() + 1);
-
-            // เช็คว่า "พรุ่งนี้" เป็นวันที่ 1 หรือไม่? 
-            // ถ้าใช่ แสดงว่า "วันนี้" คือวันสุดท้ายของเดือน
             if (tomorrow.getDate() === 1) {
-                console.log('Running monthly report (End of Month)...');
-                await sendMonthlyInventoryReport();
+                console.log('[Cron] Running monthly report (End of Month)...');
+                try {
+                    await sendMonthlyInventoryReport();
+                    console.log('[Cron] Monthly report sent successfully');
+                } catch (err) {
+                    console.error('[Cron] Monthly report failed:', err.message);
+                }
             }
-        }, {
-            scheduled: true,
-            timezone: "Asia/Bangkok"
-        });
+        }, { scheduled: true, timezone: 'Asia/Bangkok' });
 
-        cron.schedule('47 2 * * *', async () => {
-            console.log('[Cron] Auto sync quota starting at 02:10 AM...');
+        // ── Cron: Daily quota sync (9 AM) ────────────────────────────────
+        cron.schedule('0 9 * * *', async () => {
+            console.log('[Cron] Auto sync quota starting at 09:00 AM...');
             try {
                 const { buildList } = await import('./src/controllers/quotaController.js');
                 await buildList(true);
@@ -139,12 +154,20 @@ const startServer = async () => {
             } catch (err) {
                 console.error('[Cron] Quota sync failed:', err.message);
             }
-        }, {
-            scheduled: true,
-            timezone: 'Asia/Bangkok'
-        });
+        }, { scheduled: true, timezone: 'Asia/Bangkok' });
 
-        // Error Handling Middleware
+        // ── Cron: CCTV ping all (ทุก 15 นาที) ───────────────────────────
+        cron.schedule('*/15 * * * *', async () => {
+            try {
+                const { pingAllCameras } = await import('./src/controllers/cctvController.js');
+                await pingAllCameras({ body: {} }, { json: () => {} });
+                console.log('[Cron] CCTV ping done at:', new Date().toLocaleString());
+            } catch (err) {
+                console.error('[Cron] CCTV ping failed:', err.message);
+            }
+        }, { scheduled: true, timezone: 'Asia/Bangkok' });
+
+        // Error Handler
         app.use((err, req, res, next) => {
             console.error('Unhandled Error:', err.stack);
             res.status(500).json({ success: false, message: 'Internal Server Error' });
@@ -159,6 +182,7 @@ const startServer = async () => {
         console.error('Failed to start server:', err);
     }
 };
+
 await cleanupStaleLogs();
 
 startServer();

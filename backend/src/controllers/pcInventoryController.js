@@ -69,12 +69,12 @@ export const getInventory = async (req, res) => {
                 i.[os_install_date],i.[last_boot],i.[uptime],i.[bios_version],
                 i.[gpu],i.[resolution],i.[user_count],i.[collected_at],i.[updated_at],
                 i.[fix_asset],i.[bitlocker],i.[bitlocker_key_c],i.[crowdstrike_ver],i.[tanium_ver],i.[uems_ver],
-                -- ✅ FIX: include battery/type fields that were missing from GROUP BY
+                i.[factory_layout_id],i.[location_x],i.[location_y],i.[location_updated_at],
                 i.[battery_status],i.[battery_percent],i.[battery_health],i.[battery_wear],
                 i.[battery_charging],i.[battery_cycle],i.[battery_name],i.[battery_voltage],
                 i.[battery_type],i.[battery_manufacturer],
                 ISNULL(COUNT(DISTINCT au.[username]), 0) AS active_users,
-                ISNULL(STRING_AGG(au.[username], ', ') WITHIN GROUP (ORDER BY au.[username]), '') AS active_usernames,
+                ISNULL(STRING_AGG(au.[username], ', ') WITHIN GROUP (ORDER BY au.[logon_time] DESC), '') AS active_usernames,
                 ISNULL(
                     (SELECT TOP 1 au2.[logon_time]
                      FROM [dbo].[info_pc_active_users] au2
@@ -92,6 +92,7 @@ export const getInventory = async (req, res) => {
                 i.[os_install_date],i.[last_boot],i.[uptime],i.[bios_version],
                 i.[gpu],i.[resolution],i.[user_count],i.[collected_at],i.[updated_at],
                 i.[fix_asset],i.[bitlocker],i.[bitlocker_key_c],i.[crowdstrike_ver],i.[tanium_ver],i.[uems_ver],
+                i.[factory_layout_id],i.[location_x],i.[location_y],i.[location_updated_at],
                 i.[battery_status],i.[battery_percent],i.[battery_health],i.[battery_wear],
                 i.[battery_charging],i.[battery_cycle],i.[battery_name],i.[battery_voltage],
                 i.[battery_type],i.[battery_manufacturer]
@@ -122,7 +123,13 @@ export const getInventoryByHostname = async (req, res) => {
                 [crowdstrike_ver],[tanium_ver],[uems_ver],
                 [pc_status],[wifi_ssid],[adapter_type],
                 [battery_status],[battery_percent],[battery_health],[battery_wear],
-                [battery_charging],[battery_cycle],[battery_name],[battery_voltage],[battery_type],[battery_manufacturer]
+                [battery_charging],[battery_cycle],[battery_name],[battery_voltage],[battery_type],[battery_manufacturer],
+                -- ✅ NEW: added columns
+                [asset_tag],[status],[remark],
+                [secure_boot],[tpm_present],[tpm_enabled],[tpm_version],[uac_level],
+                [last_patch_kb],[last_patch_date],[shutdown_events],
+                [disk_smart_info],[monitor_info],[printer_info],[usb_info],
+                [net_gateway],[net_dns],[net_subnet],[net_dhcp],[net_proxy],[net_proxy_server]
             FROM [dbo].[info_pc_inventory]
             WHERE [hostname] = @hostname
         `);
@@ -235,7 +242,7 @@ export const searchInventory = async (req, res) => {
                 m.[computer_type],m.[manufacturer],m.[model],
                 m.[os_name],m.[os_release],m.[os_build],m.[os_full_version],m.[os_arch],
                 m.[collected_at],m.[updated_at],
-                ISNULL(STRING_AGG(au.[username], ', ') WITHIN GROUP (ORDER BY au.[username]), '') AS active_usernames,
+                ISNULL(STRING_AGG(au.[username], ', ') WITHIN GROUP (ORDER BY au.[logon_time] DESC), '') AS active_usernames,
                 ISNULL(
                     (SELECT TOP 1 au2.[logon_time]
                      FROM [dbo].[info_pc_active_users] au2
@@ -267,11 +274,12 @@ export const getSummary = async (req, res) => {
 
         // Base data for maps (lightweight — only needed columns)
         const baseResult = await db.request().query(`
-            SELECT hostname, bitlocker, crowdstrike_ver, tanium_ver, uems_ver,
-                   os_release, os_build, computer_type, manufacturer, fix_asset,
-                   updated_at, bitlocker_key_c, battery_health, disk_info
-            FROM dbo.info_pc_inventory
-        `);
+    SELECT hostname, bitlocker, crowdstrike_ver, tanium_ver, uems_ver,
+           os_release, os_build, computer_type, manufacturer, fix_asset,
+           updated_at, bitlocker_key_c, battery_health, disk_info,
+           factory_layout_id
+    FROM dbo.info_pc_inventory
+`);;
         const data = baseResult.recordset;
 
         // ✅ PERFORMANCE: compute flag lists in SQL for expensive date/disk/battery checks
@@ -317,6 +325,7 @@ export const getSummary = async (req, res) => {
         const noUems = data.filter(r => !r.uems_ver || r.uems_ver === 'Not Installed').map(r => r.hostname);
         const blDisabled = data.filter(r => isNotebook(r) && (r.bitlocker === 'Disabled' || r.bitlocker === 'Unknown')).map(r => r.hostname);
         const noAsset = data.filter(r => !r.fix_asset || r.fix_asset.trim() === '').map(r => r.hostname);
+        const noLocation = data.filter(r => r.factory_layout_id === null || r.factory_layout_id === undefined || r.factory_layout_id === '').map(r => r.hostname);
         const noBlKeyNotebook = data.filter(r => isNotebook(r) && (!r.bitlocker_key_c || r.bitlocker_key_c.trim() === '')).map(r => r.hostname);
 
         // Use SQL results for performance-sensitive checks
@@ -369,7 +378,7 @@ export const getSummary = async (req, res) => {
             success: true,
             total: data.length,
             noEdr, noTanium, noUems, blDisabled, noAsset,
-            noBlKeyNotebook, inactivePC, lowBatteryHealth, lowDiskCSpace, oldFixAssets,
+            noLocation, noBlKeyNotebook, inactivePC, lowBatteryHealth, lowDiskCSpace, oldFixAssets,
             osVersionMap, osBuildMap, computerTypeMap, crowdstrikeVerMap, taniumVerMap,
         });
     } catch (err) {
@@ -413,6 +422,24 @@ export const getMultiLoginUsers = async (req, res) => {
         }));
         const allHostnames = [...new Set(users.flatMap(u => u.hostnameList))];
         res.json({ success: true, data: users, allHostnames });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+export const getHistory = async (req, res) => {
+    try {
+        const db = await getPool();
+        const request = db.request();
+        request.input('hostname', sql.NVarChar, req.params.hostname);
+        const result = await request.query(`
+            SELECT TOP (200)
+                [id],[hostname],[changed_at],[change_type],[field_name],[old_value],[new_value]
+            FROM [dbo].[info_pc_inventory_history]
+            WHERE [hostname] = @hostname
+            ORDER BY [changed_at] DESC
+        `);
+        res.json({ success: true, data: result.recordset });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }

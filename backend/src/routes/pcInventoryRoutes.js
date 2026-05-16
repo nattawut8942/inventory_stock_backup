@@ -10,7 +10,8 @@ import {
     deleteInventory,
     searchInventory,
     getSummary,
-    getMultiLoginUsers
+    getMultiLoginUsers,
+    getHistory
 } from '../controllers/pcInventoryController.js';
 
 const router = express.Router();
@@ -22,10 +23,10 @@ router.get('/pc-inventory', getInventory);
 router.get('/pc-inventory/search', searchInventory);
 router.get('/pc-inventory/summary', getSummary);
 router.get('/pc-inventory/multi-login', getMultiLoginUsers);   // ← ย้ายมาตรงนี้
+router.get('/pc-inventory/:hostname/history', getHistory);     // ✅ ต้องอยู่ก่อน wildcard
 router.get('/pc-inventory/:hostname', getInventoryByHostname); // wildcard
 router.put('/pc-inventory/:hostname/asset', updateAsset);
 router.get('/pc-inventory/:hostname/software', getSoftwareByHostname);
 router.delete('/pc-inventory/:hostname', deleteInventory);
-
 
 export default router;

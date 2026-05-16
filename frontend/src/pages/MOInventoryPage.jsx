@@ -5,6 +5,8 @@ import { motion } from 'motion/react';
 import { useLocation } from 'react-router-dom';
 import { API_BASE } from '../config/api';
 import Portal from '../components/Portal';
+import LocationSelectorModal from './LocationSelectorModal';
+import MapViewTab from './MapViewTab';
 
 // ─── Debounce hook ────────────────────────────────────────────────────────────
 function useDebounce(value, delay) {
@@ -30,6 +32,7 @@ function resolveFilterKey(key, sumData) {
     notUpdated: sumData.notUpdated,
     oldFixAssets: sumData.oldFixAssets,
     notDomainJoined: sumData.notDomainJoined,
+    noLocation: sumData.noLocation,    // ← เพิ่มบรรทัดนี้
   };
   if (key in direct) return direct[key] || [];
 
@@ -64,6 +67,7 @@ const MOInventoryPage = () => {
   const location = useLocation();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchFieldType, setSearchFieldType] = useState('all'); // ← ADD THIS
   const debouncedSearch = useDebounce(searchQuery, 300); // ✅ FIX: debounce
   const [filterKeys, setFilterKeys] = useState(
     location.state?.filterKey
@@ -88,11 +92,39 @@ const MOInventoryPage = () => {
   const [softwareSortAsc, setSoftwareSortAsc] = useState(true);
   const [softwarePage, setSoftwarePage] = useState(1);
   const softwarePageSize = 20;
+  const [factoryLayouts, setFactoryLayouts] = useState([]);
+  const [locationData, setLocationData] = useState(null);
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
 
+
+  const fetchFactoryLayouts = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/factory-layouts`).then(r => r.json());
+      if (res.success) setFactoryLayouts(res.data || []);
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchMOLocation = async (hn) => {
+    setLocationLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/mo-location/${encodeURIComponent(hn)}`).then(r => r.json());
+      if (res.success) setLocationData(res.data);
+    } catch (err) { setLocationData(null); }
+    finally { setLocationLoading(false); }
+  };
+
+  useEffect(() => {
+    if (view === 'detail' && hostname) {
+      fetchFactoryLayouts();
+      fetchMOLocation(hostname);
+    }
+  }, [view, hostname]);
   // ─── Session Management ───────────────────────────────────────────────────
   const [sessionLoaded, setSessionLoaded] = useState(false);
 
   useEffect(() => {
+    if (sessionLoaded) return;
     const saved = sessionStorage.getItem('mo-inventory-session');
     if (saved) {
       try {
@@ -119,10 +151,12 @@ const MOInventoryPage = () => {
     if (!sessionLoaded) return;
     sessionStorage.setItem('mo-inventory-session', JSON.stringify({
       searchQuery, filterKeys, sortKey, sortAsc, page,
-      softwareSearch, softwareSortKey, softwareSortAsc, softwarePage, view, hostname,
+      softwareSearch, softwareSortKey, softwareSortAsc, softwarePage,
+      view, hostname,
     }));
   }, [searchQuery, filterKeys, sortKey, sortAsc, page,
-    softwareSearch, softwareSortKey, softwareSortAsc, softwarePage, view, hostname, sessionLoaded]);
+    softwareSearch, softwareSortKey, softwareSortAsc, softwarePage,
+    view, hostname, sessionLoaded]);
 
   useEffect(() => {
     if (!sessionLoaded) return;
@@ -132,38 +166,51 @@ const MOInventoryPage = () => {
 
   // ✅ FIX: debounced search fires API — consistent with PCInventoryPage
   const prevSearchRef = useRef('');
+
   useEffect(() => {
     const prev = prevSearchRef.current;
     prevSearchRef.current = debouncedSearch;
     if (debouncedSearch.length >= 2) {
       (async () => {
         try {
-          const res = await fetch(`${API_BASE}/mo-inventory/search?q=${encodeURIComponent(debouncedSearch)}`).then(r => r.json());
+          // ✅ Build URL with searchFieldType
+          let url = `${API_BASE}/mo-inventory/search?q=${encodeURIComponent(debouncedSearch)}`;
+          if (searchFieldType !== 'all') {
+            url += `&field=${encodeURIComponent(searchFieldType)}`;
+          }
+
+          const res = await fetch(url).then(r => r.json());
           if (res.success) { setInvData(res.data || []); setPage(1); }
-        } catch (_) {}
+        } catch (_) { }
       })();
     } else if (debouncedSearch.length === 0 && prev.length > 0) {
       fetchData();
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, searchFieldType]); // ← เพิ่ม searchFieldType
 
   // ─── Data fetching ────────────────────────────────────────────────────────
   const fetchData = async () => {
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
       const [invRes, sumRes] = await Promise.all([
         fetch(`${API_BASE}/mo-inventory`).then(r => r.json()),
         fetch(`${API_BASE}/mo-inventory/summary`).then(r => r.json()),
       ]);
-      if (!invRes.success) throw new Error(invRes.error || 'Failed to fetch');
-      setInvData(invRes.data || []);
+      if (!invRes.success) throw new Error(invRes.error || 'Failed');
+
+      // ✅ ถ้ามี search query อยู่ ให้ search แทน set ตรงๆ (เหมือน PC)
+      if (searchQuery.length >= 2) {
+        const res = await fetch(
+          `${API_BASE}/mo-inventory/search?q=${encodeURIComponent(searchQuery)}`
+        ).then(r => r.json());
+        if (res.success) setInvData(res.data || []);
+      } else {
+        setInvData(invRes.data || []);
+      }
+
       setSumData(sumRes.success ? sumRes.data : null);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
   };
 
   const fetchDetail = async (hn) => {
@@ -226,6 +273,7 @@ const MOInventoryPage = () => {
     setPage(1);
   };
 
+
   const filteredData = useMemo(() => {
     let result = [...invData];
     if (filterKeys.length > 0 && sumData) {
@@ -273,7 +321,8 @@ const MOInventoryPage = () => {
     setSearchQuery(''); setFilterKeys([]); setSortKey('updated_at'); setSortAsc(false);
     setPage(1); setSoftwareSearch(''); setSoftwareSortKey('name'); setSoftwareSortAsc(true);
     setSoftwarePage(1); setView('list'); setHostname(null);
-    showToast('Session cleared - เริ่มใหม่ทั้งหมด');
+    showToast('Session cleared');
+    fetchData(); // ✅ เพิ่ม
   };
 
   // ✅ FIX: validate fix_asset format before saving
@@ -510,6 +559,7 @@ const MOInventoryPage = () => {
               <StatBox id="notUpdated" label="Not Updated > 30d" list={sumData?.notUpdated} textClass="text-red-600" bgClass="bg-red-50" ringClass="ring-red-500" />
               <StatBox id="oldFixAssets" label="Fix Asset > 5 ปี" list={sumData?.oldFixAssets} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" />
               <StatBox id="notDomainJoined" label="Not Domain Joined" list={sumData?.notDomainJoined} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" />
+              <StatBox id="noLocation" label="No Location" list={sumData?.noLocation} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" />
             </div>
 
             {/* Distribution cards */}
@@ -542,7 +592,7 @@ const MOInventoryPage = () => {
             )}
 
             {/* ✅ NEW: Sticky filter bar + Export list button */}
-            <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 mb-3">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
               {filterKeys.length > 0 && (
                 <div className="flex flex-1 items-center gap-2 bg-[#eff4ff] border border-[#bfcfff] rounded-xl px-3.5 py-2 text-[13px] font-medium text-[#2563eb] shadow-sm backdrop-blur-sm">
                   ☞ Filter: <b>{filterKeys.map(k => k.label).join(' + ')}</b>
@@ -563,19 +613,35 @@ const MOInventoryPage = () => {
             </div>
 
             {/* Search box */}
-            <div className="relative mb-3">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Search size={15} /></div>
-              <input type="text"
-                placeholder="ค้นหาทุกฟิลด์: hostname, IP, Serial, Manufacturer ฯลฯ"
-                className="w-full bg-white border border-gray-200 rounded-xl py-2.5 pl-9 pr-4 text-[13px] outline-none shadow-sm focus:border-blue-500 transition-colors"
-                value={searchQuery} onChange={onSearchInput} />
-              {/* ✅ loading indicator while debounce fires */}
-              {searchQuery.length >= 2 && searchQuery !== debouncedSearch && (
-                <div className="absolute inset-y-0 right-3 flex items-center">
-                  <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
-                </div>
-              )}
-            </div>
+           <div className="relative mb-3 flex w-full gap-2">
+  {/* Field Type Selector */}
+  
+
+  {/* Search Input */}
+  <div className="relative flex-1">
+    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Search size={15} /></div>
+    <input type="text"
+      placeholder={
+        searchFieldType === 'all'
+          ? "ค้นหาทุกฟิลด์: hostname, IP, Serial, Manufacturer ฯลฯ"
+          : searchFieldType === 'hostname'
+          ? "ค้นหา Hostname..."
+          : searchFieldType === 'ip_address'
+          ? "ค้นหา IP Address..."
+          : searchFieldType === 'fix_asset'
+          ? "ค้นหา Fix Asset..."
+          : "ค้นหา Serial Number..."
+      }
+      className="w-full bg-white border border-gray-200 rounded-xl py-2.5 pl-9 pr-4 text-[13px] outline-none shadow-sm focus:border-blue-500 transition-colors"
+      value={searchQuery} onChange={onSearchInput} />
+    {/* ✅ loading indicator while debounce fires */}
+    {searchQuery.length >= 2 && searchQuery !== debouncedSearch && (
+      <div className="absolute inset-y-0 right-3 flex items-center">
+        <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+      </div>
+    )}
+  </div>
+</div>
 
             {/* Table */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
@@ -584,8 +650,8 @@ const MOInventoryPage = () => {
                   <thead className="bg-[#f5f6f8] border-b border-gray-200 text-[#9ca3af] text-[10px] uppercase tracking-wider">
                     <tr>
                       {[['hostname', 'Hostname'], ['ip_address', 'IP Address'], ['active_usernames', 'User'],
-                        ['fix_asset', 'Fix Asset'], ['local_admin_users', 'Local Admin'], ['serial_number', 'Serial Number'],
-                        ['os_name', 'OS'], ['os_activation', 'Activation'], ['logon_time', 'Logon Time']].map(([k, lbl]) => (
+                      ['fix_asset', 'Fix Asset'], ['local_admin_users', 'Local Admin'], ['serial_number', 'Serial Number'],
+                      ['os_name', 'OS'], ['os_activation', 'Activation'], ['logon_time', 'Logon Time']].map(([k, lbl]) => (
                         <th key={k} className="py-2.5 px-3 font-semibold cursor-pointer select-none" onClick={() => toggleSort(k)}>
                           {lbl} {sortKey === k ? (sortAsc ? '▲' : '▼') : '↕'}
                         </th>
@@ -682,6 +748,12 @@ const MOInventoryPage = () => {
                     <button onClick={() => { setModalData({ hostname, assetInput: detailData.inv.fix_asset }); setShowAssetModal(true); }}
                       className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors">
                       Edit Asset
+                    </button>
+                    <button
+                      className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                      onClick={() => setShowLocationModal(true)}
+                    >
+                      📍 Edit Location
                     </button>
                     <button onClick={exportMODetail}
                       className="bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5">
@@ -797,7 +869,26 @@ const MOInventoryPage = () => {
                             textCol={!inv.uems_ver || inv.uems_ver.toLowerCase() === 'not installed' ? 'text-red-600' : 'text-green-600'} />
                         </div>
                       </div>
-
+                      <div>
+                        <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">
+                          Map View 📍
+                        </div>
+                        {locationLoading ? (
+                          <div className="flex justify-center items-center py-8 text-gray-500">
+                            <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin mr-2" />
+                            Loading location data...
+                          </div>
+                        ) : (
+                          <MapViewTab
+                            hostname={hostname}
+                            locationData={locationData}
+                            onEditLocation={() => setShowLocationModal(true)}
+                            onSelectPC={(hn) => { setHostname(hn); fetchMOLocation(hn); fetchDetail(hn); }}
+                            locationApiBase="mo-location"
+                            labelMode="hostname"
+                          />
+                        )}
+                      </div>
                       {/* Software */}
                       <div>
                         <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Software ({detailData.software.length})</div>
@@ -863,6 +954,7 @@ const MOInventoryPage = () => {
 
       {/* ── Modals ── */}
       {showAssetModal && (
+        <Portal>
         <div className="fixed inset-0 bg-black/40 z-[999] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-7 w-full max-w-[440px] shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <h3 className="text-[16px] font-bold mb-1">Edit Fix Asset</h3>
@@ -883,9 +975,11 @@ const MOInventoryPage = () => {
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {showDeleteModal && (
+        <Portal>
         <div className="fixed inset-0 bg-black/40 z-[999] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-7 w-full max-w-[400px] shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <h3 className="text-[16px] font-bold mb-2">Delete Monitor Record</h3>
@@ -898,8 +992,23 @@ const MOInventoryPage = () => {
             </div>
           </div>
         </div>
+        </Portal>
       )}
-
+      {showLocationModal && (
+        <Portal>
+        <LocationSelectorModal
+          hostname={hostname}
+          initialLocation={locationData}
+          layouts={factoryLayouts}
+          saveApiBase="mo-location"
+          onSave={() => {
+            setShowLocationModal(false);
+            fetchMOLocation(hostname);
+          }}
+          onClose={() => setShowLocationModal(false)}
+        />
+        </Portal>
+      )}
       {toastMsg && (
         <div className="fixed bottom-5 left-5 bg-[#16a34a] text-white px-4 py-3 rounded-lg text-[13px] font-medium shadow-lg z-[9999] animate-in slide-in-from-bottom-5 duration-300">
           {toastMsg}

@@ -1,7 +1,5 @@
 import nodemailer from 'nodemailer';
 import ExcelJS from 'exceljs';
-import fs from 'fs';        // ✅ เพิ่ม
-import path from 'path';    // ✅ เพิ่ม
 import { sql, getPool } from '../config/db.js';
 
 // ==========================================================
@@ -320,18 +318,7 @@ export const sendMonthlyInventoryReport = async () => {
         worksheet.getCell('B1').font = { bold: true, size: 24, color: { argb: 'FF1E293B' } };
         worksheet.getCell('B1').alignment = { vertical: 'middle', horizontal: 'left' };
  
-        // Logo
-        const logoPath = path.join(process.cwd(), '..', 'APP', 'DAIKIN_logo.svg.png');
-        if (fs.existsSync(logoPath)) {
-            const imageId = workbook.addImage({
-                buffer: fs.readFileSync(logoPath),
-                extension: 'png'
-            });
-            worksheet.addImage(imageId, {
-                tl: { col: 0, row: 0 },
-                ext: { width: 120, height: 55 }
-            });
-        }
+
  
         // Row 2 — ว่าง
         worksheet.addRow([]);

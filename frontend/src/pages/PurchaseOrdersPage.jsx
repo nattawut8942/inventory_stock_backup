@@ -638,7 +638,8 @@ const PurchaseOrdersPage = () => {
                                         initial={{ opacity: 0, scale: 0.95 }}
                                         animate={{ opacity: 1, scale: 1 }}
                                         exit={{ opacity: 0, scale: 0.95 }}
-                                        className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden"
+                                        className="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden"
+
                                     >
                                         {/* Header */}
                                         <div className="p-4 md:p-5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white">
@@ -724,6 +725,7 @@ const PurchaseOrdersPage = () => {
                                                         <thead className="bg-slate-100">
                                                             <tr>
                                                                 <th className="text-left p-3 font-bold text-slate-600">รายการ</th>
+                                                                <th className="text-left p-3 font-bold text-slate-600 w-28">BG No.</th>
                                                                 <th className="text-center p-3 font-bold text-slate-600 w-25">รับแล้ว/สั่งซื้อ</th>
                                                                 <th className="text-center p-3 font-bold text-slate-600 w-28">สถานะ</th>
                                                                 <th className="text-right p-3 font-bold text-slate-600 w-28">ราคาต่อหน่วย</th>
@@ -735,9 +737,18 @@ const PurchaseOrdersPage = () => {
                                                                 return (
                                                                     <tr key={idx} className={`border-t ${isFullyReceived ? 'bg-emerald-100' : 'border-slate-200'}`}>
                                                                         <td className={`p-3 ${isFullyReceived ? 'text-emerald-700 ' : 'text-slate-700'}`}>
-                                                                            {item.ItemName || item.ProductName || `Item #${idx + 1}`}
-                                                                        </td>
-                                                                        <td className="p-3 text-center font-mono">
+                                                                                {item.ItemName || item.ProductName || `Item #${idx + 1}`}
+                                                                            </td>
+                                                                            <td className="p-3">
+                                                                                {item.BG_No ? (
+                                                                                    <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                                                                                        {item.BG_No}
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="text-xs text-slate-300">—</span>
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="p-3 text-center font-mono">
                                                                             <span className="text-slate-600 font-bold">{item.QtyReceived || 0}</span>
                                                                             <span className="text-slate-400"> / {item.QtyOrdered}</span>
                                                                         </td>

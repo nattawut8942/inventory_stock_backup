@@ -1,6 +1,5 @@
 import { sql, getPool } from '../config/db.js';
 
-// Helper for Thai Date
 const getThaiDate = () => new Date();
 
 // Get Stock History for a Product
@@ -16,12 +15,7 @@ export const getStockHistory = async (req, res) => {
                     t.TransType,
                     t.RefInfo,
                     t.UserID,
-                    (
-                        SELECT TOP 1 po.BudgetNo 
-                        FROM dbo.Stock_Invoices inv
-                        JOIN dbo.Stock_PurchaseOrders po ON inv.PO_ID = po.PO_ID
-                        WHERE t.RefInfo LIKE '%Invoice: ' + inv.InvoiceNo + '%'
-                    ) AS BudgetNo
+                    t.BG_No
                 FROM dbo.Stock_Transactions t
                 WHERE t.ProductID = @ProductID
                 ORDER BY t.TransDate DESC
@@ -41,7 +35,7 @@ export const getTransactions = async (req, res) => {
         const pool = getPool();
         const request = pool.request();
         let query = `
-            SELECT t.TransID, t.ProductID, p.ProductName, t.TransType, t.Qty, t.RefInfo, t.UserID, t.TransDate
+            SELECT t.TransID, t.ProductID, p.ProductName, t.TransType, t.Qty, t.RefInfo, t.UserID, t.TransDate, t.BG_No
             FROM dbo.Stock_Transactions t
             LEFT JOIN dbo.Stock_Products p ON t.ProductID = p.ProductID
             WHERE 1=1
@@ -74,7 +68,6 @@ export const getTransactions = async (req, res) => {
 export const getInvoices = async (req, res) => {
     try {
         const pool = getPool();
-
         const result = await pool.request().query(`
             SELECT i.InvoiceID, i.InvoiceNo, i.PO_ID, i.ReceiveDate, i.ReceivedBy,
                    ISNULL(i.Status, 'Active') AS Status,
@@ -91,10 +84,8 @@ export const getInvoices = async (req, res) => {
 };
 
 // Receive Goods (Inbound from PO)
-// Receive Goods (Inbound from PO)
 export const receiveGoods = async (req, res) => {
     const { PO_ID, InvoiceNo, ItemsReceived, UserID } = req.body;
-    console.log('Receive Payload:', JSON.stringify(req.body, null, 2));
 
     let transaction;
     try {
@@ -119,10 +110,10 @@ export const receiveGoods = async (req, res) => {
             .input('ReceiveDate', sql.DateTime, now)
             .input('ReceivedBy', sql.NVarChar, UserID)
             .query(`
-                    INSERT INTO dbo.Stock_Invoices (InvoiceNo, PO_ID, ReceiveDate, ReceivedBy)
-                    VALUES (@InvoiceNo, @PO_ID, @ReceiveDate, @ReceivedBy);
-                    SELECT SCOPE_IDENTITY() AS InvoiceID;
-                `);
+                INSERT INTO dbo.Stock_Invoices (InvoiceNo, PO_ID, ReceiveDate, ReceivedBy)
+                VALUES (@InvoiceNo, @PO_ID, @ReceiveDate, @ReceivedBy);
+                SELECT SCOPE_IDENTITY() AS InvoiceID;
+            `);
 
         const invoiceID = newInvoices.recordset[0].InvoiceID;
 
@@ -131,11 +122,13 @@ export const receiveGoods = async (req, res) => {
             const qty = Number(item.Qty) || 0;
             if (qty <= 0) continue;
 
-            let finalProductID = item.ProductID; // This might be null for manual items
+            // ✅ รับ BG_No จาก item
+            const bgNo = item.BG_No || null;
+
+            let finalProductID = item.ProductID;
 
             // 2a. Handle Manual Items (No ProductID initially)
             if (item.DetailID) {
-                // Check DB for Detail Info
                 const detRes = await new sql.Request(transaction)
                     .input('DetailID', sql.Int, item.DetailID)
                     .query('SELECT ItemName, UnitCost, ProductID FROM dbo.Stock_PODetails WHERE DetailID = @DetailID');
@@ -143,13 +136,9 @@ export const receiveGoods = async (req, res) => {
                 const detail = detRes.recordset[0];
 
                 if (detail) {
-                    // If DB already has ProductID, use it (override client)
                     if (detail.ProductID) {
                         finalProductID = detail.ProductID;
-                    }
-                    // If NO ProductID, try to resolve by Name or Create New
-                    else if (!finalProductID && detail.ItemName) {
-                        // Try find by name in Products table
+                    } else if (!finalProductID && detail.ItemName) {
                         const prodRes = await new sql.Request(transaction)
                             .input('ProductName', sql.NVarChar, detail.ItemName.trim())
                             .query('SELECT ProductID FROM dbo.Stock_Products WHERE ProductName = @ProductName');
@@ -157,28 +146,25 @@ export const receiveGoods = async (req, res) => {
                         if (prodRes.recordset.length > 0) {
                             finalProductID = prodRes.recordset[0].ProductID;
                         } else {
-                            // Create New Product
-                            // First ensure 'Consumable' type exists to prevent FK violation
                             await new sql.Request(transaction).query(`
-                                        IF NOT EXISTS (SELECT 1 FROM dbo.Stock_DeviceTypes WHERE TypeId = 'Consumable')
-                                        BEGIN
-                                            INSERT INTO dbo.Stock_DeviceTypes (TypeId, Label) VALUES ('Consumable', 'Consumable Stock')
-                                        END
-                                    `);
+                                IF NOT EXISTS (SELECT 1 FROM dbo.Stock_DeviceTypes WHERE TypeId = 'Consumable')
+                                BEGIN
+                                    INSERT INTO dbo.Stock_DeviceTypes (TypeId, Label) VALUES ('Consumable', 'Consumable Stock')
+                                END
+                            `);
 
                             const createRes = await new sql.Request(transaction)
                                 .input('ProductName', sql.NVarChar, detail.ItemName.trim())
-                                .input('Qty', sql.Int, qty) // Initial Stock
+                                .input('Qty', sql.Int, qty)
                                 .input('UnitCost', sql.Decimal(18, 2), detail?.UnitCost || 0)
                                 .query(`
-                                        INSERT INTO dbo.Stock_Products (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, IsActive)
-                                        VALUES (@ProductName, 'Consumable', 0, @UnitCost, 0, 1); -- Start 0 stock, we add below
-                                        SELECT SCOPE_IDENTITY() AS NewID;
-                                    `);
+                                    INSERT INTO dbo.Stock_Products (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, IsActive)
+                                    VALUES (@ProductName, 'Consumable', 0, @UnitCost, 0, 1);
+                                    SELECT SCOPE_IDENTITY() AS NewID;
+                                `);
                             finalProductID = createRes.recordset[0].NewID;
                         }
 
-                        // Link PO Detail to this new/found ProductID
                         await new sql.Request(transaction)
                             .input('DetailID', sql.Int, item.DetailID)
                             .input('ProductID', sql.Int, finalProductID)
@@ -187,7 +173,7 @@ export const receiveGoods = async (req, res) => {
                 }
             }
 
-            // 3. Update Stock Level (only if we have a valid ProductID)
+            // 3. Update Stock Level
             if (finalProductID) {
                 await new sql.Request(transaction)
                     .input('ProductID', sql.Int, finalProductID)
@@ -197,14 +183,13 @@ export const receiveGoods = async (req, res) => {
                 console.warn(`Warning: Could not resolve ProductID for DetailID ${item.DetailID}. Stock not updated.`);
             }
 
-            // 4. Update PO Detail 'QtyReceived'
+            // 4. Update PO Detail QtyReceived
             if (item.DetailID) {
                 await new sql.Request(transaction)
                     .input('DetailID', sql.Int, item.DetailID)
                     .input('Qty', sql.Int, qty)
                     .query('UPDATE dbo.Stock_PODetails SET QtyReceived = QtyReceived + @Qty WHERE DetailID = @DetailID');
             } else if (item.ProductID) {
-                // Fallback to update via ProductID and PO_ID if DetailID missing
                 await new sql.Request(transaction)
                     .input('PO_ID', sql.NVarChar, PO_ID)
                     .input('ProductID', sql.Int, item.ProductID)
@@ -212,9 +197,8 @@ export const receiveGoods = async (req, res) => {
                     .query('UPDATE dbo.Stock_PODetails SET QtyReceived = QtyReceived + @Qty WHERE PO_ID = @PO_ID AND ProductID = @ProductID');
             }
 
-            // 5. Log Transaction (only if finalProductID exists)
+            // ✅ 5. Log Transaction พร้อม BG_No
             if (finalProductID) {
-                const now = getThaiDate();
                 await new sql.Request(transaction)
                     .input('ProductID', sql.Int, finalProductID)
                     .input('TransType', sql.VarChar, 'IN')
@@ -222,9 +206,10 @@ export const receiveGoods = async (req, res) => {
                     .input('RefInfo', sql.NVarChar, `Invoice: ${InvoiceNo} (PO: ${PO_ID})`)
                     .input('UserID', sql.NVarChar, UserID)
                     .input('TransDate', sql.DateTime, now)
+                    .input('BG_No', sql.NVarChar, bgNo)
                     .query(`
-                        INSERT INTO dbo.Stock_Transactions (ProductID, TransType, Qty, RefInfo, UserID, TransDate)
-                        VALUES (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate)
+                        INSERT INTO dbo.Stock_Transactions (ProductID, TransType, Qty, RefInfo, UserID, TransDate, BG_No)
+                        VALUES (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate, @BG_No)
                     `);
             }
         }
@@ -259,7 +244,6 @@ export const receiveGoods = async (req, res) => {
 // Cancel Invoice (Reverse receive)
 export const cancelInvoice = async (req, res) => {
     const { InvoiceNo, UserID } = req.body;
-    console.log('Cancel Invoice Payload:', JSON.stringify(req.body, null, 2));
 
     if (!InvoiceNo) {
         return res.status(400).json({ error: 'InvoiceNo is required' });
@@ -291,13 +275,13 @@ export const cancelInvoice = async (req, res) => {
         const txRes = await new sql.Request(transaction)
             .input('RefPattern', sql.NVarChar, `%Invoice: ${InvoiceNo}%`)
             .query(`
-                SELECT TransID, ProductID, Qty FROM dbo.Stock_Transactions
+                SELECT TransID, ProductID, Qty, BG_No FROM dbo.Stock_Transactions
                 WHERE RefInfo LIKE @RefPattern AND TransType = 'IN'
             `);
 
         const relatedTx = txRes.recordset;
 
-        // 3. For each transaction: reverse stock + QtyReceived + log reversal
+        // 3. Reverse each transaction
         const now = getThaiDate();
         for (const tx of relatedTx) {
             const qty = Math.abs(tx.Qty);
@@ -322,7 +306,7 @@ export const cancelInvoice = async (req, res) => {
                     `);
             }
 
-            // 3c. Log reversal transaction
+            // ✅ 3c. Log reversal transaction พร้อม BG_No
             await new sql.Request(transaction)
                 .input('ProductID', sql.Int, tx.ProductID)
                 .input('TransType', sql.VarChar, 'OUT')
@@ -330,9 +314,10 @@ export const cancelInvoice = async (req, res) => {
                 .input('RefInfo', sql.NVarChar, `ยกเลิก Invoice: ${InvoiceNo} (PO: ${PO_ID})`)
                 .input('UserID', sql.NVarChar, UserID || 'system')
                 .input('TransDate', sql.DateTime, now)
+                .input('BG_No', sql.NVarChar, tx.BG_No || null)
                 .query(`
-                    INSERT INTO dbo.Stock_Transactions (ProductID, TransType, Qty, RefInfo, UserID, TransDate)
-                    VALUES (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate)
+                    INSERT INTO dbo.Stock_Transactions (ProductID, TransType, Qty, RefInfo, UserID, TransDate, BG_No)
+                    VALUES (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate, @BG_No)
                 `);
         }
 
@@ -347,8 +332,6 @@ export const cancelInvoice = async (req, res) => {
                 .input('PO_ID', sql.NVarChar, PO_ID)
                 .query(`
                     SELECT
-                        SUM(QtyReceived) AS TotalReceived,
-                        SUM(QtyOrdered) AS TotalOrdered,
                         CASE
                             WHEN SUM(QtyReceived) = 0 THEN 'Open'
                             WHEN COUNT(*) = SUM(CASE WHEN QtyReceived >= QtyOrdered THEN 1 ELSE 0 END) THEN 'Completed'

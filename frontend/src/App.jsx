@@ -24,6 +24,7 @@ import PCInventoryPage from './pages/PCInventoryPage';
 import ADExplorer from './pages/ADExplorer';
 import ADUserDetail from './pages/ADUserDetail';
 import QuotaManager from './pages/QuotaManager';
+import CCTVPage from './pages/CCTVPage';
 
 // App Routes Component
 const AppRoutes = () => {
@@ -56,6 +57,7 @@ const AppRoutes = () => {
                 <Route path="ad-explorer" element={<ADExplorer />} />
                 <Route path="ad-explorer/user/:username" element={<ADUserDetail />} />
                 <Route path="quota-manager" element={<QuotaManager />} />
+                <Route path="cctv-management" element={<CCTVPage />} />
 
                 {/* PO and Receive */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />

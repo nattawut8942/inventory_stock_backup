@@ -166,19 +166,21 @@ export const manualImport = async (req, res) => {
             } else {
                 // Create New Product
                 const insertRes = await new sql.Request(transaction)
-                    .input('ProductName', sql.NVarChar(255), ProductName.trim())
-                    .input('DeviceType', sql.VarChar(50), DeviceType || null)
-                    .input('CurrentStock', sql.Int, qty)
-                    .input('UnitCost', sql.Decimal(18, 2), unitCost)
-                    .input('MinStock', sql.Int, minStock)
-                    .input('MaxStock', sql.Int, maxStock)
-                    .input('Location', sql.NVarChar(100), Location || null)
-                    .query(`
-                        INSERT INTO dbo.Stock_Products 
-                            (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, MaxStock, Location, IsActive, business_priority, priority_label)
-                        OUTPUT INSERTED.ProductID
-                        VALUES (@ProductName, @DeviceType, @CurrentStock, @UnitCost, @MinStock, @MaxStock, @Location, 1, @business_priority, @priority_label)
-                    `);
+    .input('ProductName', sql.NVarChar(255), ProductName.trim())
+    .input('DeviceType', sql.VarChar(50), DeviceType || null)
+    .input('CurrentStock', sql.Int, qty)
+    .input('UnitCost', sql.Decimal(18, 2), unitCost)
+    .input('MinStock', sql.Int, minStock)
+    .input('MaxStock', sql.Int, maxStock)
+    .input('Location', sql.NVarChar(100), Location || null)
+    .input('business_priority', sql.TinyInt, 3)  // ✅ ADD THIS
+    .input('priority_label', sql.NVarChar(20), 'MEDIUM')  // ✅ ADD THIS
+    .query(`
+        INSERT INTO dbo.Stock_Products 
+            (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, MaxStock, Location, IsActive, business_priority, priority_label)
+        OUTPUT INSERTED.ProductID
+        VALUES (@ProductName, @DeviceType, @CurrentStock, @UnitCost, @MinStock, @MaxStock, @Location, 1, @business_priority, @priority_label)
+    `);
                 productID = insertRes.recordset[0].ProductID;
             }
 

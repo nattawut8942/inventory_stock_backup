@@ -548,7 +548,8 @@ const ReceivePage = () => {
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.95 }}
-                                className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden"
+                                className="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden"
+
                             >
                                 {/* Header */}
                                 <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
@@ -625,6 +626,7 @@ const ReceivePage = () => {
                                                 <thead className="bg-slate-50 border-b border-slate-100">
                                                     <tr>
                                                         <th className="text-left p-4 font-bold text-slate-500">รายการ</th>
+                                                        <th className="text-left p-4 font-bold text-slate-500 w-28">BG No.</th>
                                                         <th className="text-center p-4 font-bold text-slate-500 w-32">รับแล้ว/สั่งซื้อ</th>
                                                         <th className="text-center p-4 font-bold text-slate-500 w-28">สถานะ</th>
                                                         <th className="text-right p-4 font-bold text-slate-500 w-28">ราคา</th>
@@ -637,10 +639,19 @@ const ReceivePage = () => {
                                                         return (
                                                             <tr key={idx} className={`border-b border-slate-50 last:border-0 ${isFullyReceived ? 'bg-emerald-100' : ''}`}>
                                                                 <td className={`p-2 font-medium ${isFullyReceived ? 'text-emerald-900' : 'text-slate-700'}`}>
-                                                                    {prodName}
-                                                                </td>
-                                                                <td className="p-2 text-center">
-                                                                    <div className={`inline-flex items-center rounded-lg px-2 py-1 font-mono text-xs ${isFullyReceived ? 'bg-emerald-200/50 text-emerald-800' : 'bg-slate-100'}`}>
+                                                                        {prodName}
+                                                                    </td>
+                                                                    <td className="p-2">
+                                                                        {item.BG_No ? (
+                                                                            <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                                                                                {item.BG_No}
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="text-xs text-slate-300">—</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="p-2 text-center">
+                                                                        <div className={`inline-flex items-center rounded-lg px-2 py-1 font-mono text-xs ${isFullyReceived ? 'bg-emerald-200/50 text-emerald-800' : 'bg-slate-100'}`}>
                                                                         <span className="font-bold">{item.QtyReceived || 0}</span>
                                                                         <span className="mx-1 opacity-50">/</span>
                                                                         <span className="font-bold">{item.QtyOrdered}</span>
@@ -703,7 +714,7 @@ const ReceivePage = () => {
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.95 }}
-                                className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden"
+                                className="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden"
                             >
                                 {/* Header */}
                                 <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
@@ -872,7 +883,8 @@ const ReceivePage = () => {
                                     const items = activePo.Items.map((item, idx) => ({
                                         DetailID: item.DetailID,
                                         ProductID: item.ProductID,
-                                        Qty: parseInt(fd.get(`qty-${idx}`)) || 0
+                                        Qty: parseInt(fd.get(`qty-${idx}`)) || 0,
+                                        BG_No: item.BG_No || null
                                     })).filter(i => i.Qty > 0);
                                     handleReceive(activePo.PO_ID, fd.get('InvoiceNo'), items);
                                 }} className="flex flex-col h-full">
@@ -918,9 +930,16 @@ const ReceivePage = () => {
 
                                                             <div className="flex-1 min-w-0">
                                                                 <p className={`font-bold text-sm truncate ${isFullyReceived ? 'text-emerald-900' : 'text-slate-800'}`}>{prodName}</p>
-                                                                <p className="text-xs text-slate-400 font-medium mt-0.5">
-                                                                    สั่งซื้อ: {item.QtyOrdered} | รับแล้ว: {item.QtyReceived || 0}
-                                                                </p>
+                                                                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                                                        <p className="text-xs text-slate-400 font-medium">
+                                                                            สั่งซื้อ: {item.QtyOrdered} | รับแล้ว: {item.QtyReceived || 0}
+                                                                        </p>
+                                                                        {item.BG_No && (
+                                                                            <span className="text-[10px] font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                                                                                BG: {item.BG_No}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                             </div>
 
                                                             {isFullyReceived ? (

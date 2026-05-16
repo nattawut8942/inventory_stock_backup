@@ -51,9 +51,9 @@ const inlineCls = "w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-
 
 const PRIORITY_OPTIONS = [
   { value: 1, label: 'Critical', sel: 'bg-red-50 text-red-700 border-red-200' },
-  { value: 2, label: 'High',     sel: 'bg-orange-50 text-orange-700 border-orange-200' },
-  { value: 3, label: 'Medium',   sel: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
-  { value: 4, label: 'Low',      sel: 'bg-green-50 text-green-700 border-green-200' },
+  { value: 2, label: 'High', sel: 'bg-orange-50 text-orange-700 border-orange-200' },
+  { value: 3, label: 'Medium', sel: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
+  { value: 4, label: 'Low', sel: 'bg-green-50 text-green-700 border-green-200' },
 ];
 
 const PriorityPicker = ({ name, defaultValue }) => {
@@ -67,11 +67,10 @@ const PriorityPicker = ({ name, defaultValue }) => {
             key={opt.value}
             type="button"
             onClick={() => setSelected(opt.value)}
-            className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
-              selected === opt.value
+            className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${selected === opt.value
                 ? opt.sel
                 : 'border-slate-200 text-slate-400 bg-white hover:border-slate-300 hover:text-slate-600'
-            }`}
+              }`}
           >
             {opt.label}
           </button>
@@ -188,6 +187,7 @@ const InventoryPage = () => {
   const handleQtyConfirm = async () => {
     const product = qtyModal.product;
     if (!product || selectQty <= 0) return;
+    if (!reasonDetail.trim()) return;
     if (qtyModal.mode === 'cart') {
       const existingIndex = cart.findIndex(c => c.ProductID === product.ProductID);
       let newCart = [...cart];
@@ -322,16 +322,16 @@ const InventoryPage = () => {
         const isLow = p.CurrentStock <= p.MinStock && p.MinStock > 0;
         const isCritical = p.business_priority === 1;
         if (isLow && isCritical) return 0;
-        if (isLow)               return 1;
-        if (isCritical)          return 2;
+        if (isLow) return 1;
+        if (isCritical) return 2;
         return 3;
       };
       const diff = urgency(a) - urgency(b);
       return diff !== 0 ? diff : a.ProductName.localeCompare(b.ProductName);
     }
-    if (gridSort === 'stock')  return a.CurrentStock - b.CurrentStock;
-    if (gridSort === 'price')  return (b.LastPrice || 0) - (a.LastPrice || 0);
-    if (gridSort === 'name')   return a.ProductName.localeCompare(b.ProductName);
+    if (gridSort === 'stock') return a.CurrentStock - b.CurrentStock;
+    if (gridSort === 'price') return (b.LastPrice || 0) - (a.LastPrice || 0);
+    if (gridSort === 'name') return a.ProductName.localeCompare(b.ProductName);
     return 0;
   });
 
@@ -486,18 +486,17 @@ const InventoryPage = () => {
           <span className="text-[11px] text-slate-400 font-medium shrink-0">เรียงตาม</span>
           {[
             { key: 'priority', label: '🔴 ความเร่งด่วน' },
-            { key: 'stock',    label: '📦 Stock น้อย→มาก' },
-            { key: 'price',    label: '💰 ราคา มาก→น้อย' },
-            { key: 'name',     label: '🔤 ชื่อ A–Z' },
+            { key: 'stock', label: '📦 Stock น้อย→มาก' },
+            { key: 'price', label: '💰 ราคา มาก→น้อย' },
+            { key: 'name', label: '🔤 ชื่อ A–Z' },
           ].map(opt => (
             <button
               key={opt.key}
               onClick={() => setGridSort(opt.key)}
-              className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all ${
-                gridSort === opt.key
+              className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all ${gridSort === opt.key
                   ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                   : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
-              }`}
+                }`}
             >
               {opt.label}
             </button>
@@ -563,12 +562,11 @@ const InventoryPage = () => {
                       </td>
                       <td className="p-4">
                         {/* ✅ FIX: ใช้ array lookup แทน object literal ใน JSX */}
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
-                          p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
-                          p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
-                          'bg-yellow-100 text-yellow-700 border-yellow-200'
-                        }`}>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
+                            p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                              p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
+                                'bg-yellow-100 text-yellow-700 border-yellow-200'
+                          }`}>
                           {(['', 'Critical', 'High', 'Medium', 'Low'][p.business_priority]) ?? 'Medium'}
                         </span>
                       </td>
@@ -606,79 +604,78 @@ const InventoryPage = () => {
 
         {/* GRID VIEW */}
         {viewMode === 'grid' && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
             {sortedProducts.map((p, idx) => {
-                const inCart = isInCart(p.ProductID);
-                return (
-                    <motion.div key={p.ProductID} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }} className={`group bg-white rounded-2xl border p-3 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${inCart ? 'border-indigo-300 ring-2 ring-indigo-100' : p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'border-red-200' : 'border-slate-100'}`}>
-                      <div className={`absolute top-0 left-0 w-full h-20 bg-gradient-to-br ${getColorGradient(p.DeviceType)} opacity-10 z-0`} />
+              const inCart = isInCart(p.ProductID);
+              return (
+                <motion.div key={p.ProductID} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }} className={`group bg-white rounded-2xl border p-3 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${inCart ? 'border-indigo-300 ring-2 ring-indigo-100' : p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'border-red-200' : 'border-slate-100'}`}>
+                  <div className={`absolute top-0 left-0 w-full h-20 bg-gradient-to-br ${getColorGradient(p.DeviceType)} opacity-10 z-0`} />
 
-                      {/* ✅ Priority badge — มุมซ้ายบน */}
-                      <div className="absolute top-2 left-2 z-20">
-                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
-                          p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
-                          p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                  {/* ✅ Priority badge — มุมซ้ายบน */}
+                  <div className="absolute top-2 left-2 z-20">
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
+                        p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
                           p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
-                          'bg-yellow-100 text-yellow-700 border-yellow-200'
-                        }`}>
-                          {(['', 'Critical', 'High', 'Medium', 'Low'][p.business_priority]) ?? 'Medium'}
-                        </span>
-                      </div>
+                            'bg-yellow-100 text-yellow-700 border-yellow-200'
+                      }`}>
+                      {(['', 'Critical', 'High', 'Medium', 'Low'][p.business_priority]) ?? 'Medium'}
+                    </span>
+                  </div>
 
-                      {/* ✅ Low stock badge — มุมขวาบน (ใต้ปุ่ม action) */}
-                      {p.CurrentStock <= p.MinStock && p.MinStock > 0 && (
-                        <div className="absolute top-2 right-2 z-20">
-                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border bg-red-500 text-white border-red-400 animate-pulse">
-                            Low Stock
-                          </span>
-                        </div>
-                      )}
+                  {/* ✅ Low stock badge — มุมขวาบน (ใต้ปุ่ม action) */}
+                  {p.CurrentStock <= p.MinStock && p.MinStock > 0 && (
+                    <div className="absolute top-2 right-2 z-20">
+                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border bg-red-500 text-white border-red-400 animate-pulse">
+                        Low Stock
+                      </span>
+                    </div>
+                  )}
 
-                      <div className="absolute top-2 right-2 z-20 flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => viewHistory(p)} className="p-1.5 bg-white/90 backdrop-blur text-indigo-600 rounded-full shadow-sm hover:bg-indigo-50" title="ดูประวัติ"><List size={14} /></button>
-                        <button onClick={() => setDetailItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-blue-600 rounded-full shadow-sm hover:bg-blue-50" title="ดูรายละเอียด"><div className="w-3.5 h-3.5 rounded-full border border-current flex items-center justify-center font-bold text-[9px]">i</div></button>
-                        <button onClick={() => setBarcodeItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-emerald-600 rounded-full shadow-sm hover:bg-emerald-50" title="พิมพ์บาร์โค้ด"><Printer size={14} /></button>
-                        {isAdmin && (
-                          <>
-                            <button onClick={() => setEditItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-amber-500 rounded-full shadow-sm hover:bg-amber-50"><Edit2 size={14} /></button>
-                            <button onClick={() => handleDelete(p.ProductID)} className="p-1.5 bg-white/90 backdrop-blur text-red-500 rounded-full shadow-sm hover:bg-red-50"><Trash2 size={14} /></button>
-                          </>
-                        )}
+                  <div className="absolute top-2 right-2 z-20 flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => viewHistory(p)} className="p-1.5 bg-white/90 backdrop-blur text-indigo-600 rounded-full shadow-sm hover:bg-indigo-50" title="ดูประวัติ"><List size={14} /></button>
+                    <button onClick={() => setDetailItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-blue-600 rounded-full shadow-sm hover:bg-blue-50" title="ดูรายละเอียด"><div className="w-3.5 h-3.5 rounded-full border border-current flex items-center justify-center font-bold text-[9px]">i</div></button>
+                    <button onClick={() => setBarcodeItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-emerald-600 rounded-full shadow-sm hover:bg-emerald-50" title="พิมพ์บาร์โค้ด"><Printer size={14} /></button>
+                    {isAdmin && (
+                      <>
+                        <button onClick={() => setEditItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-amber-500 rounded-full shadow-sm hover:bg-amber-50"><Edit2 size={14} /></button>
+                        <button onClick={() => handleDelete(p.ProductID)} className="p-1.5 bg-white/90 backdrop-blur text-red-500 rounded-full shadow-sm hover:bg-red-50"><Trash2 size={14} /></button>
+                      </>
+                    )}
+                  </div>
+                  <div className="relative z-10 flex flex-col items-center text-center">
+                    <div className={`w-28 h-28 mb-3 rounded-xl overflow-hidden shadow-lg flex items-center justify-center border-2 border-white group-hover:scale-105 transition-transform bg-gradient-to-br ${getColorGradient(p.DeviceType)}`}>
+                      {p.ImageURL ? <img src={`${API_URL}${p.ImageURL}`} alt={p.ProductName} className="w-full h-full object-cover" /> : React.createElement(getIcon(p.DeviceType), { size: 40, className: 'text-white' })}
+                    </div>
+                    <h3 className="font-bold text-slate-800 text-xs mb-1 line-clamp-2 min-h-[1.25rem]">{p.ProductName}</h3>
+                    {inCart && <span className="text-[10px] text-indigo-600 font-bold bg-indigo-100 px-1.5 py-0.5 rounded-sm mb-1">ในตะกร้า</span>}
+                    <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full mb-2 shadow-sm text-white" style={{ backgroundColor: getChartColor(p.DeviceType) }}>{p.DeviceType}</span>
+                    <div className="grid grid-cols-2 gap-1 w-full pt-2 border-t border-slate-100 mb-2">
+                      <div>
+                        <p className="text-[11px] text-slate-700 font-bold uppercase">คงเหลือ</p>
+                        <p className={`text-base font-black ${p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'text-red-500' : 'text-emerald-500'}`}>{p.CurrentStock}</p>
                       </div>
-                      <div className="relative z-10 flex flex-col items-center text-center">
-                        <div className={`w-28 h-28 mb-3 rounded-xl overflow-hidden shadow-lg flex items-center justify-center border-2 border-white group-hover:scale-105 transition-transform bg-gradient-to-br ${getColorGradient(p.DeviceType)}`}>
-                          {p.ImageURL ? <img src={`${API_URL}${p.ImageURL}`} alt={p.ProductName} className="w-full h-full object-cover" /> : React.createElement(getIcon(p.DeviceType), { size: 40, className: 'text-white' })}
-                        </div>
-                        <h3 className="font-bold text-slate-800 text-sm mb-1 line-clamp-2 min-h-[2.5rem]">{p.ProductName}</h3>
-                        {inCart && <span className="text-[10px] text-indigo-600 font-bold bg-indigo-100 px-1.5 py-0.5 rounded-sm mb-1">ในตะกร้า</span>}
-                        <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full mb-2 shadow-sm text-white" style={{ backgroundColor: getChartColor(p.DeviceType) }}>{p.DeviceType}</span>
-                        <div className="grid grid-cols-2 gap-2 w-full pt-2 border-t border-slate-100 mb-2">
-                          <div>
-                            <p className="text-[12px] text-slate-700 font-bold uppercase">คงเหลือ</p>
-                            <p className={`text-lg font-black ${p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'text-red-500' : 'text-emerald-500'}`}>{p.CurrentStock}</p>
-                          </div>
-                          <div>
-                            <p className="text-[12px] text-slate-700 font-bold uppercase">ราคา</p>
-                            <p className="text-lg font-black text-slate-700">฿{p.LastPrice?.toLocaleString()}</p>
-                          </div>
-                        </div>
-                        <div className="w-full mb-3 px-1">
-                          <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg p-2">
-                            <div className="p-1.5 bg-white rounded-md shadow-sm text-indigo-500"><Archive size={14} /></div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[10px] text-slate-700 font-bold uppercase leading-none mb-0.5">ที่เก็บ</p>
-                              <p className="text-xs font-bold text-slate-700 truncate">{p.Location || 'Not Assigned'}</p>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex w-full gap-1">
-                          <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 disabled:opacity-50">ใส่ตะกร้า</button>
-                          <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 disabled:opacity-50">เบิก</button>
+                      <div>
+                        <p className="text-[11px] text-slate-700 font-bold uppercase">ราคา</p>
+                        <p className="text-base font-black text-slate-700">฿{p.LastPrice?.toLocaleString()}</p>
+                      </div>
+                    </div>
+                    <div className="w-full mb-3 px-1">
+                      <div className="flex items-center gap-1 bg-slate-50 border border-slate-100 rounded-lg p-1">
+                        <div className="p-0.5 bg-white rounded-md shadow-sm text-indigo-500"><Archive size={14} /></div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] text-slate-700 font-bold uppercase leading-none mb-0.5">Location</p>
+                          <p className="text-[10px] font-bold text-slate-700 truncate">{p.Location || 'Not Assigned'}</p>
                         </div>
                       </div>
-                    </motion.div>
-                  );
-                })}
+                    </div>
+                    <div className="flex w-full gap-1">
+                      <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 disabled:opacity-50">ใส่ตะกร้า</button>
+                      <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 disabled:opacity-50">เบิก</button>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         )}
 
@@ -885,12 +882,11 @@ const InventoryPage = () => {
                         {detailItem.CurrentStock <= detailItem.MinStock && detailItem.MinStock > 0 && (
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-500/70 text-white border border-red-400/50">Low Stock</span>
                         )}
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                          detailItem.business_priority === 1 ? 'bg-red-500/70 text-white border-red-400/50' :
-                          detailItem.business_priority === 2 ? 'bg-orange-400/70 text-white border-orange-300/50' :
-                          detailItem.business_priority === 4 ? 'bg-green-500/70 text-white border-green-400/50' :
-                          'bg-yellow-400/70 text-white border-yellow-300/50'
-                        }`}>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${detailItem.business_priority === 1 ? 'bg-red-500/70 text-white border-red-400/50' :
+                            detailItem.business_priority === 2 ? 'bg-orange-400/70 text-white border-orange-300/50' :
+                              detailItem.business_priority === 4 ? 'bg-green-500/70 text-white border-green-400/50' :
+                                'bg-yellow-400/70 text-white border-yellow-300/50'
+                          }`}>
                           {(['', 'Critical', 'High', 'Medium', 'Low'][detailItem.business_priority]) ?? 'Medium'}
                         </span>
                       </div>
@@ -907,8 +903,8 @@ const InventoryPage = () => {
                 <div className="grid grid-cols-4 gap-1.5 px-4 pt-3 pb-1">
                   {[
                     { label: 'คงเหลือ', value: detailItem.CurrentStock, color: detailItem.CurrentStock <= detailItem.MinStock && detailItem.MinStock > 0 ? 'text-red-500' : 'text-emerald-600' },
-                    { label: 'ขั้นต่ำ',  value: detailItem.MinStock,     color: 'text-slate-700' },
-                    { label: 'สูงสุด',   value: detailItem.MaxStock || '—', color: 'text-slate-700' },
+                    { label: 'ขั้นต่ำ', value: detailItem.MinStock, color: 'text-slate-700' },
+                    { label: 'สูงสุด', value: detailItem.MaxStock || '—', color: 'text-slate-700' },
                     { label: 'ราคา/หน่วย', value: `฿${detailItem.LastPrice?.toLocaleString() ?? '—'}`, color: 'text-slate-700', sm: true },
                   ].map(({ label, value, color, sm }) => (
                     <div key={label} className="bg-slate-50 rounded-xl p-2.5 text-center">
@@ -925,10 +921,10 @@ const InventoryPage = () => {
                   <div className="border-t border-slate-100 divide-y divide-slate-100">
                     {[
                       { label: 'ชื่อสินค้า', value: detailItem.ProductName },
-                      { label: 'หมวดหมู่',   value: detailItem.DeviceType },
-                      { label: 'บาร์โค้ด',   value: detailItem.BarcodeID || '—', mono: true },
-                      { label: 'ที่เก็บ',    value: detailItem.Location || 'ไม่ได้ระบุ' },
-                      { label: 'หน่วยนับ',   value: detailItem.UnitOfMeasure || '—' },
+                      { label: 'หมวดหมู่', value: detailItem.DeviceType },
+                      { label: 'บาร์โค้ด', value: detailItem.BarcodeID || '—', mono: true },
+                      { label: 'ที่เก็บ', value: detailItem.Location || 'ไม่ได้ระบุ' },
+                      { label: 'หน่วยนับ', value: detailItem.UnitOfMeasure || '—' },
                     ].map(({ label, value, mono }) => (
                       <div key={label} className="flex items-center px-4 py-2">
                         <span className="text-[12px] text-slate-400 w-24 shrink-0">{label}</span>
@@ -942,9 +938,9 @@ const InventoryPage = () => {
                   <div className="border-t border-slate-100 divide-y divide-slate-100">
                     {[
                       { label: 'ราคาต่อหน่วย', value: detailItem.LastPrice != null ? `฿${detailItem.LastPrice.toLocaleString()}` : '—' },
-                      { label: 'มูลค่าสต็อค',  value: detailItem.LastPrice != null ? `฿${(detailItem.LastPrice * detailItem.CurrentStock).toLocaleString()}` : '—', accent: true },
-                      { label: 'Vendor',        value: detailItem.VendorName || detailItem.VendorID || '—' },
-                      { label: 'Lead time',     value: detailItem.lead_time_days ? `${detailItem.lead_time_days} วัน` : '—' },
+                      { label: 'มูลค่าสต็อค', value: detailItem.LastPrice != null ? `฿${(detailItem.LastPrice * detailItem.CurrentStock).toLocaleString()}` : '—', accent: true },
+                      { label: 'Vendor', value: detailItem.VendorName || detailItem.VendorID || '—' },
+                      { label: 'Lead time', value: detailItem.lead_time_days ? `${detailItem.lead_time_days} วัน` : '—' },
                     ].map(({ label, value, accent }) => (
                       <div key={label} className="flex items-center px-4 py-2">
                         <span className="text-[12px] text-slate-400 w-24 shrink-0">{label}</span>
@@ -958,12 +954,11 @@ const InventoryPage = () => {
                   <div className="border-t border-slate-100 divide-y divide-slate-100">
                     <div className="flex items-center px-4 py-2">
                       <span className="text-[12px] text-slate-400 w-24 shrink-0">ความสำคัญ</span>
-                      <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${
-                        detailItem.business_priority === 1 ? 'bg-red-50 text-red-700 border-red-200' :
-                        detailItem.business_priority === 2 ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                        detailItem.business_priority === 4 ? 'bg-green-50 text-green-700 border-green-200' :
-                        'bg-yellow-50 text-yellow-700 border-yellow-200'
-                      }`}>
+                      <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${detailItem.business_priority === 1 ? 'bg-red-50 text-red-700 border-red-200' :
+                          detailItem.business_priority === 2 ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                            detailItem.business_priority === 4 ? 'bg-green-50 text-green-700 border-green-200' :
+                              'bg-yellow-50 text-yellow-700 border-yellow-200'
+                        }`}>
                         {(['', 'Critical', 'High', 'Medium', 'Low'][detailItem.business_priority]) ?? 'Medium'}
                       </span>
                     </div>
@@ -1047,16 +1042,36 @@ const InventoryPage = () => {
                         ))}
                       </div>
                       <div className="pt-2">
-                        <div className="flex items-center gap-2 mb-1.5 opacity-70"><FileEdit size={12} /><span className="text-xs font-bold">รายละเอียดเพิ่มเติม (Optional)</span></div>
+                        <div className="flex items-center gap-2 mb-1.5 opacity-70"><FileEdit size={12} /><span className="text-xs font-bold">รายละเอียดเพิ่มเติม <span className="text-red-500">*</span></span></div>
                         <textarea value={reasonDetail} onChange={(e) => setReasonDetail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-100 outline-none resize-none h-20" placeholder="เช่น ระบุชื่อโปรเจกต์ หรือหมายเลขแจ้งซ่อม..." />
                       </div>
                     </div>
                   </div>
                   <div className="p-4 bg-slate-50 border-t border-slate-100 grid grid-cols-2 gap-3">
-                    <button onClick={() => setQtyModal({ isOpen: false, product: null, mode: 'cart' })} className="py-2 text-sm rounded-lg border border-slate-200 bg-white font-bold text-slate-500 hover:bg-slate-100 transition-all">ยกเลิก</button>
-                    <button onClick={handleQtyConfirm} className={`py-2 text-sm rounded-lg font-bold text-white shadow-md transition-all ${qtyModal.mode === 'cart' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
-                      {qtyModal.mode === 'cart' ? 'ยืนยัน' : 'เบิกเลย'}
+                    <button onClick={() => setQtyModal({ isOpen: false, product: null, mode: 'cart' })}
+                            className="py-2 text-sm rounded-lg border border-slate-200 bg-white font-bold text-slate-500 hover:bg-slate-100 transition-all">
+                        ยกเลิก
                     </button>
+
+                    <div className="relative group">
+                        <button onClick={handleQtyConfirm}
+                                disabled={!reasonDetail.trim()}
+                                className={`w-full py-2 text-sm rounded-lg font-bold text-white shadow-md transition-all
+                                    disabled:opacity-40 disabled:cursor-not-allowed
+                                    ${qtyModal.mode === 'cart' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
+                            {qtyModal.mode === 'cart' ? 'ยืนยัน' : 'เบิกเลย'}
+                        </button>
+                        {!reasonDetail.trim() && (
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50 whitespace-nowrap">
+                                <div className="bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded-lg shadow-lg">
+                                    ⚠️ กรุณาใส่รายละเอียดก่อนยืนยัน
+                                </div>
+                                <div className="w-2 h-2 bg-slate-800 rotate-45 mx-auto -mt-1"/>
+                            </div>
+                        )}
+                    </div>
+                  
+        
                   </div>
                 </motion.div>
               </motion.div>
