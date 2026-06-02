@@ -4,7 +4,7 @@ import {
     LayoutDashboard, Package, ShoppingCart, LogOut, Plus,
     ArrowDownToLine, History, Database, FileSpreadsheet, Shield,
     Printer, ChevronDown, FileKey, Monitor, HardDrive,
-    Camera, ChevronLeft, ChevronRight,Cctv
+    Camera, ChevronLeft, ChevronRight,Cctv,Calendar
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import logodaikin from '../../public/DAIKIN_logo.svg.png';
@@ -225,7 +225,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                     <NavItem icon={Shield}     label="AD EXPLORER"       to="/ad-explorer"     onClose={onClose} collapsed={collapsed}/>
                     <Divider collapsed={collapsed}/>
                     <NavItem icon={HardDrive}  label="QUOTA MANAGER"     to="/quota-manager"   onClose={onClose} collapsed={collapsed}/>
-
+                    <NavItem icon={Calendar} label="CALENDAR"          to="/calendar"        onClose={onClose} collapsed={collapsed}/>
                     {user?.role === 'Staff' && (
                         <>
                             <div className={`mt-5 mb-2 border-t border-white/10 ${collapsed ? 'mx-1' : 'mx-3'}`}/>

@@ -25,7 +25,7 @@ import ADExplorer from './pages/ADExplorer';
 import ADUserDetail from './pages/ADUserDetail';
 import QuotaManager from './pages/QuotaManager';
 import CCTVPage from './pages/CCTVPage';
-
+import CalendarPage from './pages/CalendarPage';
 // App Routes Component
 const AppRoutes = () => {
     const { isAuthenticated } = useAuth();
@@ -58,6 +58,7 @@ const AppRoutes = () => {
                 <Route path="ad-explorer/user/:username" element={<ADUserDetail />} />
                 <Route path="quota-manager" element={<QuotaManager />} />
                 <Route path="cctv-management" element={<CCTVPage />} />
+                <Route path="calendar" element={<CalendarPage />} />
 
                 {/* PO and Receive */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />

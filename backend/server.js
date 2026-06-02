@@ -33,6 +33,8 @@ import quotaRoutes from './src/routes/quotaRoutes.js';
 import { cleanupStaleLogs } from './src/controllers/quotaController.js';
 import pcLocationRoutes from './src/routes/pcLocationRoutes.js';
 import cctvRoutes from './src/routes/cctvRoutes.js';
+import calendarRoutes from './src/routes/calendarRoutes.js';
+import { sendCalendarReminder } from './src/services/calendarEmailService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,6 +108,8 @@ const startServer = async () => {
         app.use('/ITinventory/api', quotaRoutes);
         app.use('/ITinventory/api', pcLocationRoutes);
         app.use('/ITinventory/api', cctvRoutes);        // ← CCTV
+        app.use('/ITinventory/api', calendarRoutes);
+
 
         // ── Cron: Weekly report (Monday 8 AM) ────────────────────────────
         cron.schedule('0 8 * * 1', async () => {
@@ -182,6 +186,27 @@ const startServer = async () => {
         console.error('Failed to start server:', err);
     }
 };
+cron.schedule('0 8 * * 1-5', async () => {
+    console.log('[Cron] Sending calendar email reminder...');
+    try {
+        const result = await sendCalendarReminder();
+        console.log('[Cron] Calendar reminder:', result);
+    } catch (err) {
+        console.error('[Cron] Calendar reminder failed:', err.message);
+    }
+}, { scheduled: true, timezone: 'Asia/Bangkok' });
+ 
+ 
+// ── 3. Route ทดสอบ (วางใน startServer ต่อจาก route อื่นๆ) ──
+// เรียก POST /ITinventory/api/calendar/notify/test-email เพื่อทดสอบ
+app.post('/ITinventory/api/calendar/notify/test-email', async (req, res) => {
+    try {
+        const result = await sendCalendarReminder();
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 await cleanupStaleLogs();
 
