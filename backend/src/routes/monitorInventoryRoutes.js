@@ -5,6 +5,7 @@ import {
   searchInventory, getSummary, getSoftware,
   updateAsset, deleteInventory,
   getMOLocation, getMOsByLayout, updateMOLocation,
+  getHistory,   // ✅ เพิ่ม import getHistory
 } from '../controllers/monitorInventoryController.js';
 
 const router = express.Router();
@@ -16,6 +17,7 @@ router.get('/mo-active-users',                     getActiveUsers);
 router.get('/mo-location/layout/:layout_id',       getMOsByLayout);   // ← ก่อน /:hostname
 router.get('/mo-location/:hostname',               getMOLocation);
 router.put('/mo-location/:hostname',               updateMOLocation);
+router.get('/mo-inventory/:hostname/history',      getHistory);       // ✅ ต้องอยู่ก่อน /:hostname
 router.get('/mo-inventory/:hostname',              getInventoryByHostname);
 router.put('/mo-inventory/:hostname/asset',        updateAsset);
 router.get('/mo-inventory/:hostname/software',     getSoftware);

@@ -20,7 +20,8 @@ import {
     Monitor,
     Network,
     HardDrive,
-    Cctv
+    Cctv,
+   
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatThaiDate } from '../utils/formatDate';
@@ -66,6 +67,7 @@ const Header = ({ onMenuClick }) => {
             case '/ad-explorer': return { title: 'ACTIVE DIRECTORY EXPLORER', icon: Network, color: 'text-indigo-600' };
             case '/quota-manager': return { title: 'QUOTA MANAGER', icon: HardDrive, color: 'text-indigo-600' };
             case '/cctv-management': return { title: 'CCTV MANAGEMENT', icon: Cctv, color: 'text-indigo-600' };
+            case '/calendar': return { title: 'CALENDAR', icon: Calendar, color: 'text-indigo-600' };
             default: return { title: 'IT STOCK MANAGEMENT', icon: Package, color: 'text-slate-600' };
         }
     };

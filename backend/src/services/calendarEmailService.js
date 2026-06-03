@@ -16,7 +16,7 @@ const createTransporter = () => nodemailer.createTransport({
 });
 
 // ─── Styles (เดียวกับ emailService.js เดิม) ──────────────────────────────────
-const thStyle = `padding:6px 14px;border:1px solid #ddd;text-align:left;font-size:12px;background-color:transparent;color:#475569;white-space:nowrap;`;
+const thStyle = `padding:6px 14px;border:1px solid #ddd;text-align:left;font-size:12px;background-color:#f8fafc;color:#475569;white-space:nowrap;`;
 const tdStyle = `padding:6px 14px;border:1px solid #ddd;font-size:13px;`;
 
 // ─── Task type config ─────────────────────────────────────────────────────────
@@ -82,60 +82,51 @@ const buildEmailHtml = (todayTasks, tomorrowTasks) => {
 
     const urgentTasks = todayTasks.filter(t => t.task_type === 'urgent');
 
-    // ── task cards (แทน table rows) ──────────────────────────────────────────
+    // ── task cards (Outlook friendly tables) ──────────────────────────────────
     const taskCards = todayTasks.length === 0
-        ? `<div style="text-align:center;padding:40px 20px;color:#9ca3af;">
-               <div style="font-size:40px;margin-bottom:12px;">✅</div>
-               <p style="margin:0;font-size:16px;font-weight:600;color:#6b7280;">ไม่มีงานที่กำหนดไว้วันนี้</p>
-           </div>`
+        ? `<table width="100%" cellpadding="0" cellspacing="0" border="0">
+               <tr><td align="center" style="padding:40px 20px; color:#9ca3af;">
+                   <div style="font-size:40px;margin-bottom:12px;">✅</div>
+                   <p style="margin:0;font-size:16px;font-weight:600;color:#6b7280;">ไม่มีงานที่กำหนดไว้วันนี้</p>
+               </td></tr>
+           </table>`
         : todayTasks.map(t => {
             const cfg     = TYPE_CONFIG[t.task_type] || { emoji: '⚪', label: t.type_label, color: '#6b7280', bg: '#f9fafb' };
             const endDate = t.end_date && t.end_date !== t.start_date ? ` → ${t.end_date}` : '';
             const isUrgent = t.task_type === 'urgent';
             return `
-            <div style="
-                border:1px solid ${isUrgent ? '#fca5a5' : '#e5e7eb'};
-                border-left:5px solid ${cfg.color};
-                border-radius:8px;
-                padding:16px 20px;
-                margin-bottom:12px;
-                background:${isUrgent ? '#fff5f5' : '#ffffff'};
-            ">
-                <table width="100%" cellpadding="0" cellspacing="0">
-                    <tr>
-                        <td style="vertical-align:top;width:36px;">
-                            <span style="font-size:24px;line-height:1;">${cfg.emoji}</span>
-                        </td>
-                        <td style="vertical-align:top;padding-left:12px;">
-                            <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:4px;">
-                                ${t.task_title}
-                            </div>
-                            ${t.description
-                                ? `<div style="font-size:13px;color:#6b7280;margin-bottom:8px;line-height:1.5;">${t.description}</div>`
-                                : ''}
-                            <div style="display:inline-block;">
-                                <span style="
-                                    background:${cfg.bg};
-                                    color:${cfg.color};
-                                    border:1px solid ${cfg.color}55;
-                                    padding:3px 12px;
-                                    border-radius:20px;
-                                    font-size:12px;
-                                    font-weight:700;
-                                ">${cfg.label}</span>
-                            </div>
-                        </td>
-                        <td style="vertical-align:top;text-align:right;white-space:nowrap;padding-left:16px;min-width:130px;">
-                            <div style="font-size:13px;font-weight:600;color:#374151;">
-                                📅 ${t.start_date}${endDate}
-                            </div>
-                            ${t.created_by
-                                ? `<div style="font-size:12px;color:#9ca3af;margin-top:4px;">👤 ${t.created_by}</div>`
-                                : ''}
-                        </td>
-                    </tr>
-                </table>
-            </div>`;
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px; background-color:${isUrgent ? '#fff5f5' : '#ffffff'}; border:1px solid ${isUrgent ? '#fca5a5' : '#e5e7eb'}; border-left: 5px solid ${cfg.color};">
+                <tr>
+                    <td style="padding:16px 20px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td width="36" valign="top" style="font-size:24px;line-height:1;">
+                                    ${cfg.emoji}
+                                </td>
+                                <td valign="top" style="padding-left:12px;">
+                                    <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:4px;">
+                                        ${t.task_title}
+                                    </div>
+                                    ${t.description ? `<div style="font-size:13px;color:#6b7280;margin-bottom:8px;line-height:1.5;">${t.description}</div>` : ''}
+                                    <table cellpadding="0" cellspacing="0" border="0">
+                                        <tr>
+                                            <td style="background-color:${cfg.bg}; color:${cfg.color}; border:1px solid ${cfg.color}; padding:3px 12px; font-size:12px; font-weight:700;">
+                                                ${cfg.label}
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                                <td width="130" valign="top" align="right" style="padding-left:16px; white-space:nowrap;">
+                                    <div style="font-size:13px;font-weight:600;color:#374151;">
+                                        📅 ${t.start_date}${endDate}
+                                    </div>
+                                    ${t.created_by ? `<div style="font-size:12px;color:#9ca3af;margin-top:4px;">👤 ${t.created_by}</div>` : ''}
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>`;
         }).join('');
 
     // ── summary badges ────────────────────────────────────────────────────────
@@ -146,100 +137,129 @@ const buildEmailHtml = (todayTasks, tomorrowTasks) => {
         }, {})
     ).map(([type, count]) => {
         const cfg = TYPE_CONFIG[type] || { emoji: '⚪', label: type, color: '#6b7280', bg: '#f9fafb' };
-        return `<span style="
-            background:${cfg.bg};color:${cfg.color};
-            border:1px solid ${cfg.color}55;
-            padding:4px 12px;border-radius:20px;
-            font-size:12px;font-weight:700;margin:3px;display:inline-block;
-        ">${cfg.emoji} ${cfg.label} (${count})</span>`;
-    }).join('');
+        return `
+        <table align="left" cellpadding="0" cellspacing="0" border="0" style="margin:3px 6px 3px 0;">
+            <tr>
+                <td style="background-color:${cfg.bg}; color:${cfg.color}; border:1px solid ${cfg.color}; padding:4px 12px; font-size:12px; font-weight:700;">
+                    ${cfg.emoji} ${cfg.label} (${count})
+                </td>
+            </tr>
+        </table>`;
+    }).join('') + '<div style="clear:both;"></div>';
 
     // ── tomorrow section ──────────────────────────────────────────────────────
     const tomorrowSection = tomorrowTasks.length > 0 ? `
-        <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:16px 20px;margin-top:8px;">
-            <div style="font-size:13px;font-weight:700;color:#6b7280;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;">
-                📋 งานพรุ่งนี้
-            </div>
-            ${tomorrowTasks.map(t => {
-                const cfg = TYPE_CONFIG[t.task_type] || { emoji: '⚪', label: t.type_label, color: '#6b7280' };
-                return `<div style="font-size:14px;color:#374151;padding:4px 0;border-bottom:1px solid #f3f4f6;">
-                    ${cfg.emoji} <strong>${t.task_title}</strong>
-                    <span style="color:${cfg.color};font-size:12px;margin-left:8px;">${cfg.label}</span>
-                </div>`;
-            }).join('')}
-        </div>` : '';
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc; border:1px solid #e5e7eb; margin-top:8px;">
+        <tr>
+            <td style="padding:16px 20px;">
+                <div style="font-size:13px;font-weight:700;color:#6b7280;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;">
+                    📋 งานพรุ่งนี้
+                </div>
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                ${tomorrowTasks.map(t => {
+                    const cfg = TYPE_CONFIG[t.task_type] || { emoji: '⚪', label: t.type_label, color: '#6b7280' };
+                    return `
+                    <tr>
+                        <td style="font-size:14px;color:#374151;padding:8px 0;border-bottom:1px solid #f3f4f6;">
+                            ${cfg.emoji} <strong>${t.task_title}</strong>
+                            <span style="color:${cfg.color};font-size:12px;margin-left:8px;">${cfg.label}</span>
+                        </td>
+                    </tr>`;
+                }).join('')}
+                </table>
+            </td>
+        </tr>
+    </table>` : '';
 
     // ── urgent banner ─────────────────────────────────────────────────────────
     const urgentBanner = urgentTasks.length > 0 ? `
-        <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:14px 20px;margin-bottom:20px;">
-            <div style="font-size:15px;font-weight:700;color:#dc2626;">
-                ⚠️ มีงานด่วน ${urgentTasks.length} รายการ — กรุณาดำเนินการโดยเร็ว
-            </div>
-            ${urgentTasks.map(t =>
-                `<div style="font-size:13px;color:#ef4444;margin-top:6px;">• ${t.task_title}</div>`
-            ).join('')}
-        </div>` : '';
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fef2f2; border:1px solid #fca5a5; margin-bottom:20px;">
+        <tr>
+            <td style="padding:14px 20px;">
+                <div style="font-size:15px;font-weight:700;color:#dc2626; margin-bottom:6px;">
+                    ⚠️ มีงานด่วน ${urgentTasks.length} รายการ — กรุณาดำเนินการโดยเร็ว
+                </div>
+                ${urgentTasks.map(t => `<div style="font-size:13px;color:#ef4444;margin-top:4px;">• ${t.task_title}</div>`).join('')}
+            </td>
+        </tr>
+    </table>` : '';
 
     return `
 <!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
-<div style="max-width:680px;margin:24px auto;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.1);">
-
-    <!-- Header -->
-    <div style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);padding:28px 32px;">
-        <table width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-                <td>
-                    <div style="font-size:13px;color:#a5b4fc;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em;">IT TASK REMINDER</div>
-                    <div style="font-size:22px;font-weight:800;color:#ffffff;margin-bottom:4px;">📅 ${dateStr}</div>
-                    <div style="font-size:13px;color:#c7d2fe;">ส่งเมื่อเวลา ${timeStr} น.</div>
-                </td>
-                <td style="text-align:right;vertical-align:middle;">
-                    <div style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:50px;padding:10px 20px;display:inline-block;">
-                        <div style="font-size:28px;font-weight:800;color:#ffffff;line-height:1;">${todayTasks.length}</div>
-                        <div style="font-size:11px;color:#c7d2fe;font-weight:600;">งานวันนี้</div>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
+<table width="100%" bgcolor="#f3f4f6" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="center" style="padding: 24px 10px;">
+    
+    <table width="100%" style="max-width:680px; background-color:#ffffff; border:1px solid #e2e8f0; font-family:'Segoe UI',Tahoma,Arial,sans-serif;" cellpadding="0" cellspacing="0" border="0">
+        <!-- Header -->
+        <tr>
+            <td bgcolor="#4f46e5" style="padding: 28px 32px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td align="left">
+                            <div style="font-size:13px;color:#a5b4fc;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em;">IT TASK REMINDER</div>
+                            <div style="font-size:22px;font-weight:800;color:#ffffff;margin-bottom:4px;">📅 ${dateStr}</div>
+                            <div style="font-size:13px;color:#c7d2fe;">ส่งเมื่อเวลา ${timeStr} น.</div>
+                        </td>
+                        <td align="right" valign="middle">
+                            <table cellpadding="0" cellspacing="0" border="0" style="background-color:#6366f1; border: 1px solid #818cf8;">
+                                <tr><td align="center" style="padding:10px 20px;">
+                                    <div style="font-size:28px;font-weight:800;color:#ffffff;line-height:1;">${todayTasks.length}</div>
+                                    <div style="font-size:11px;color:#c7d2fe;font-weight:600;">งานวันนี้</div>
+                                </td></tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        
+        <!-- Summary Bar -->
+        ${todayTasks.length > 0 ? `
+        <tr>
+            <td bgcolor="#f8fafc" style="padding:12px 32px; border-bottom:1px solid #e2e8f0;">
+                ${typeSummary}
+            </td>
+        </tr>` : ''}
+        
+        <!-- Body -->
+        <tr>
+            <td style="padding:28px 32px;">
+                ${urgentBanner}
+                
+                <div style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:16px;">
+                    งานประจำวันนี้
+                </div>
+                
+                ${taskCards}
+                
+                ${tomorrowTasks.length > 0 ? `
+                <div style="margin-top:24px;">
+                    <div style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:12px;">
+                        งานพรุ่งนี้
                     </div>
-                </td>
-            </tr>
-        </table>
-    </div>
-
-    <!-- Summary Bar -->
-    ${todayTasks.length > 0 ? `
-    <div style="background:#f8fafc;padding:12px 32px;border-bottom:1px solid #e2e8f0;">
-        ${typeSummary}
-    </div>` : ''}
-
-    <!-- Body -->
-    <div style="background:#ffffff;padding:28px 32px;">
-        ${urgentBanner}
-
-        <div style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:16px;">
-            งานประจำวันนี้
-        </div>
-
-        ${taskCards}
-
-        ${tomorrowTasks.length > 0 ? `
-        <div style="margin-top:24px;">
-            <div style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:12px;">
-                งานพรุ่งนี้
-            </div>
-            ${tomorrowSection}
-        </div>` : ''}
-    </div>
-
-    <!-- Footer -->
-    <div style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0;text-align:center;">
-        <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.8;">
-            <strong style="color:#6b7280;">IT Inventory Management System</strong><br>
-            ส่งอัตโนมัติทุกวันจันทร์–ศุกร์ เวลา 08:00 น. &nbsp;·&nbsp; หากต้องการแก้ไขผู้รับ กรุณาติดต่อทีม IT
-        </p>
-    </div>
-
-</div>
+                    ${tomorrowSection}
+                </div>` : ''}
+            </td>
+        </tr>
+        
+        <!-- Footer -->
+        <tr>
+            <td bgcolor="#f8fafc" align="center" style="padding:16px 32px; border-top:1px solid #e2e8f0;">
+                <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.8;">
+                    <strong style="color:#6b7280;">IT CALENDAR</strong><br>
+                    ส่งอัตโนมัติทุกวันจันทร์–ศุกร์ เวลา 08:00 น. &nbsp;·&nbsp; หากต้องการแก้ไขผู้รับ กรุณาติดต่อทีม IT
+                </p>
+            </td>
+        </tr>
+    </table>
+    
+</td>
+</tr>
+</table>
 </body>
 </html>`;
 };
@@ -254,15 +274,14 @@ export const sendCalendarReminder = async () => {
 
     try {
         const [todayTasks, tomorrowTasks] = await Promise.all([
-    getTodayTasks(),
-    getTomorrowTasks(),
-    
-]);
-if (todayTasks.length === 0) {
-    console.log('[CalendarEmail] No tasks today, skipping email.');
-    return { success: false, reason: 'No tasks today' };
-}
+            getTodayTasks(),
+            getTomorrowTasks(),
+        ]);
 
+        if (todayTasks.length === 0) {
+            console.log('[CalendarEmail] No tasks for today, skipping email.');
+            return { success: true, message: 'No tasks for today, skipping email.' };
+        }
 
         const now         = new Date();
         const dateShort   = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });

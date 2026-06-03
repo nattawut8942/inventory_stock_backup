@@ -122,3 +122,7 @@ body.modal-open {
   height: 100vh !important;
   max-height: 100vh !important;
 }
+
+.fc .fc-daygrid-day-frame {
+    min-height: 120px !important;
+}

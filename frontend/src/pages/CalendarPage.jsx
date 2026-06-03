@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { API_BASE } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import Portal from '../components/Portal';
 
 // ─── Type config ───────────────────────────────────────────────────────────────
 const TYPE_CONFIG = {
@@ -190,27 +191,34 @@ export default function CalendarPage() {
     };
 
     // ── เปิด modal แก้ไขงาน ──────────────────────────────────────────────────
-    const openEdit = async (id) => {
-        try {
-            const r = await fetch(`${API_BASE}/calendar/tasks/${id}`);
-            const d = await r.json();
-            if (!d.success) return;
-            const t = d.data;
-            setForm({
-                task_id:      t.task_id,
-                task_title:   t.task_title,
-                start_date:   dateToDateTime(t.start_date || ''),
-                end_date:     dateToDateTime(t.end_date   || ''),
-                task_type:    t.task_type,
-                description:  t.description || '',
-                is_recurring: false,
-                recur_days:   [],
-                range_days:   28,
-                created_by:   t.created_by || '',
-            });
-            setModal(true);
-        } catch (e) { console.error(e); }
-    };
+const openEdit = async (id) => {
+    try {
+        console.log('fetching:', `${API_BASE}/calendar/tasks/${id}`);
+        const r = await fetch(`${API_BASE}/calendar/tasks/${id}`);
+        console.log('response status:', r.status);
+        const d = await r.json();
+        console.log('data:', d);
+        if (!d.success) return;
+        const t = d.data;
+        console.log('t.start_date:', t.start_date);
+console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
+        setForm({
+            task_id:      t.task_id,
+            task_title:   t.task_title,
+            start_date:   dateToDateTime(t.start_date || ''),
+            end_date:     dateToDateTime(t.end_date   || ''),
+            task_type:    t.task_type,
+            description:  t.description || '',
+            is_recurring: false,
+            recur_days:   [],
+            range_days:   28,
+            created_by:   t.created_by || '',
+        });
+        
+        setModal(true);
+    } catch (e) { console.error(e); }
+    
+};
 
     const closeModal = () => { setModal(false); setConfirmDel(false); setForm(EMPTY_FORM); };
 
@@ -429,6 +437,7 @@ export default function CalendarPage() {
                 </motion.aside>
 
                 {/* Calendar */}
+               
                 <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
                     className="flex-1 pr-4 sm:pr-6 lg:pr-8 min-w-0">
                     <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-5 hover:shadow-xl transition-shadow duration-300">
@@ -463,7 +472,10 @@ export default function CalendarPage() {
                             editable selectable selectMirror dayMaxEvents
                             height="auto"
                             select={info => openAdd(info.startStr, info.endStr)}
-                            eventClick={info => openEdit(info.event.id)}
+                            eventClick={info => {
+    console.log('clicked event id:', info.event.id);
+    openEdit(info.event.id);
+}}
                             eventDrop={handleEventDrop}
                             eventResize={handleEventDrop}
                             slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
@@ -471,15 +483,17 @@ export default function CalendarPage() {
                         />
                     </div>
                 </motion.main>
+               
             </div>
 
             {/* Modal */}
-            <AnimatePresence>
-            {modal && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={closeModal} />
-                    <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            <Portal>
+                <AnimatePresence>
+                {modal && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={closeModal} />
+                        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0.95, opacity: 0 }} transition={{ type: 'spring', damping: 25 }}
                         className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
 
@@ -665,12 +679,14 @@ export default function CalendarPage() {
                     </motion.div>
                 </motion.div>
             )}
-            </AnimatePresence>
+                </AnimatePresence>
+            </Portal>
 
             {/* Toast */}
-            <AnimatePresence>
-            {toast && (
-                <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            <Portal>
+                <AnimatePresence>
+                {toast && (
+                    <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 20, scale: 0.95 }}
                     className={`fixed bottom-6 right-6 z-[60] flex items-center gap-2.5 px-5 py-3 rounded-2xl shadow-2xl text-sm font-semibold text-white ${toast.ok ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-red-500 to-rose-500'}`}>
@@ -678,7 +694,8 @@ export default function CalendarPage() {
                     {toast.msg}
                 </motion.div>
             )}
-            </AnimatePresence>
+                </AnimatePresence>
+            </Portal>
         </div>
     );
 }

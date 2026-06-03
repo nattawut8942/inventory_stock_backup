@@ -11,7 +11,7 @@ import Pagination from '../components/Pagination';
 import { API_BASE } from '../config/api';
 import { useQuotaJobs } from '../context/QuotaJobContext';
 import { useAuth } from '../context/AuthContext';
-
+import Portal from '../components/Portal';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -50,161 +50,163 @@ const stepIndex = (step = '') => {
 const HelpModal = ({ open, onClose }) => {
     if (!open) return null;
     return (
-        <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl border border-slate-200">
-                <div className="sticky top-0 px-6 py-4 border-b border-slate-100 bg-white flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600">
-                            <Info size={20} />
+        <Portal>
+            <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+                <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                    className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl border border-slate-200">
+                    <div className="sticky top-0 px-6 py-4 border-b border-slate-100 bg-white flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+                                <Info size={20} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-black text-slate-800">วิธีใช้งาน Quota Manager</h3>
+                                <p className="text-xs text-slate-400 mt-0.5">คำแนะนำและตัวอย่างการใช้งาน</p>
+                            </div>
                         </div>
+                        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
+                            <X size={20} />
+                        </button>
+                    </div>
+
+                    <div className="p-6 space-y-5">
+                        {/* ═══ Section 1: Overview ═══ */}
+                        <div className="bg-gradient-to-br from-indigo-50 to-indigo-100/50 rounded-2xl p-5 border border-indigo-200">
+                            <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-indigo-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-sm">1</div>
+                                <div>
+                                    <h4 className="font-black text-slate-800 mb-2">📊 ระบบจัดการโควต้าพื้นที่</h4>
+                                    <p className="text-sm text-slate-700 leading-relaxed">
+                                        ระบบนี้ช่วยติดตามการใช้พื้นที่ขององค์กรบน File Server และส่งอีเมลแจ้งเตือนให้ผู้ใช้ที่ใช้พื้นที่เกินควรลบไฟล์
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ═══ Section 2: Quota Tab ═══ */}
                         <div>
-                            <h3 className="text-lg font-black text-slate-800">วิธีใช้งาน Quota Manager</h3>
-                            <p className="text-xs text-slate-400 mt-0.5">คำแนะนำและตัวอย่างการใช้งาน</p>
+                            <div className="flex items-center gap-2 mb-3">
+                                <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">2</div>
+                                <h4 className="font-black text-slate-800 text-base">📈 แท็บ Quota Usage</h4>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 ml-8">
+                                <div>
+                                    <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">SYNC SERVER</p>
+                                    <p className="text-sm text-slate-700 leading-relaxed">
+                                        กดปุ่มนี้เพื่อดึงข้อมูล Disk Quota ทั้งหมดจาก Windows Server ใหม่ (ใช้เวลา ~1-2 นาที)
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">ตั้งค่า Threshold</p>
+                                    <p className="text-sm text-slate-700 leading-relaxed">
+                                        กำหนดเปอร์เซนต์เตือน เช่น 80% = แจ้งเตือนคนที่ใช้พื้นที่ ≥80% ของโควต้า
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">เลือกรายการ</p>
+                                    <p className="text-sm text-slate-700 leading-relaxed">
+                                        กดเลือกแต่ละคนแล้วกดปุ่ม <span className="inline-block bg-amber-50 border border-amber-200 text-amber-600 px-2 py-0.5 rounded text-xs font-bold">ส่ง Warning Email</span> เพื่อส่งแจ้งเตือน
+                                    </p>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
-                        <X size={20} />
-                    </button>
-                </div>
 
-                <div className="p-6 space-y-5">
-                    {/* ═══ Section 1: Overview ═══ */}
-                    <div className="bg-gradient-to-br from-indigo-50 to-indigo-100/50 rounded-2xl p-5 border border-indigo-200">
-                        <div className="flex items-start gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-indigo-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-sm">1</div>
-                            <div>
-                                <h4 className="font-black text-slate-800 mb-2">📊 ระบบจัดการโควต้าพื้นที่</h4>
-                                <p className="text-sm text-slate-700 leading-relaxed">
-                                    ระบบนี้ช่วยติดตามการใช้พื้นที่ขององค์กรบน File Server และส่งอีเมลแจ้งเตือนให้ผู้ใช้ที่ใช้พื้นที่เกินควรลบไฟล์
+                        {/* ═══ Section 3: How Send Works ═══ */}
+                        <div>
+                            <div className="flex items-center gap-2 mb-3">
+                                <div className="w-6 h-6 rounded-lg bg-orange-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">3</div>
+                                <h4 className="font-black text-slate-800 text-base">📧 ขั้นตอนการส่งแจ้งเตือน</h4>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 ml-8">
+                                <div className="space-y-2">
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">1</span>
+                                        <p className="text-sm text-slate-700"><span className="font-bold">Set FSRM Owner:</span> ตั้งค่า owner ของการรันรายงาน</p>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">2</span>
+                                        <p className="text-sm text-slate-700"><span className="font-bold">Run FSRM Report:</span> รัน FSRM Report เพื่อดึงรายการไฟล์ขนาดใหญ่</p>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">3</span>
+                                        <p className="text-sm text-slate-700"><span className="font-bold">Wait Report:</span> รอการรันเสร็จ (ใช้เวลา 2-5 นาที)</p>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">4</span>
+                                        <p className="text-sm text-slate-700"><span className="font-bold">Read HTML:</span> อ่านไฟล์ HTML รายงานและแปลงเป็น base64</p>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">5</span>
+                                        <p className="text-sm text-slate-700"><span className="font-bold">Send Email:</span> ส่งอีเมลพร้อมรายงาน</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ═══ Section 4: Status Colors ═══ */}
+                        <div>
+                            <div className="flex items-center gap-2 mb-3">
+                                <div className="w-6 h-6 rounded-lg bg-green-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">4</div>
+                                <h4 className="font-black text-slate-800 text-base">🎨 รหัสสีและสถานะ</h4>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 ml-8 grid grid-cols-2 gap-2">
+                                {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                                    <div key={key} className="flex items-center gap-2">
+                                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold border ${cfg.cls}`}>
+                                            <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot} mr-1`} />
+                                            {cfg.label}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* ═══ Section 5: Email Log ═══ */}
+                        <div>
+                            <div className="flex items-center gap-2 mb-3">
+                                <div className="w-6 h-6 rounded-lg bg-purple-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">5</div>
+                                <h4 className="font-black text-slate-800 text-base">📋 แท็บ Email Log</h4>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 ml-8 space-y-2">
+                                <p className="text-sm text-slate-700">
+                                    📊 <span className="font-bold">ประวัติการส่งอีเมล</span> — ดูรายการส่งอีเมลทั้งหมดพร้อมสถานะ (ส่งสำเร็จ / ล้มเหลว)
+                                </p>
+                                <p className="text-sm text-slate-700">
+                                    ⏳ <span className="font-bold">กำลังดำเนินการ</span> — แสดง progress bar ของรายการที่กำลังส่งเอกสาร
+                                </p>
+                                <p className="text-sm text-slate-700">
+                                    🧹 <span className="font-bold">ลบ log</span> — ลบประวัติการส่งที่ไม่ต้องการแล้ว
                                 </p>
                             </div>
                         </div>
-                    </div>
 
-                    {/* ═══ Section 2: Quota Tab ═══ */}
-                    <div>
-                        <div className="flex items-center gap-2 mb-3">
-                            <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">2</div>
-                            <h4 className="font-black text-slate-800 text-base">📈 แท็บ Quota Usage</h4>
-                        </div>
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 ml-8">
-                            <div>
-                                <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">SYNC SERVER</p>
-                                <p className="text-sm text-slate-700 leading-relaxed">
-                                    กดปุ่มนี้เพื่อดึงข้อมูล Disk Quota ทั้งหมดจาก Windows Server ใหม่ (ใช้เวลา ~1-2 นาที)
-                                </p>
-                            </div>
-                            <div>
-                                <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">ตั้งค่า Threshold</p>
-                                <p className="text-sm text-slate-700 leading-relaxed">
-                                    กำหนดเปอร์เซนต์เตือน เช่น 80% = แจ้งเตือนคนที่ใช้พื้นที่ ≥80% ของโควต้า
-                                </p>
-                            </div>
-                            <div>
-                                <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">เลือกรายการ</p>
-                                <p className="text-sm text-slate-700 leading-relaxed">
-                                    กดเลือกแต่ละคนแล้วกดปุ่ม <span className="inline-block bg-amber-50 border border-amber-200 text-amber-600 px-2 py-0.5 rounded text-xs font-bold">ส่ง Warning Email</span> เพื่อส่งแจ้งเตือน
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* ═══ Section 3: How Send Works ═══ */}
-                    <div>
-                        <div className="flex items-center gap-2 mb-3">
-                            <div className="w-6 h-6 rounded-lg bg-orange-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">3</div>
-                            <h4 className="font-black text-slate-800 text-base">📧 ขั้นตอนการส่งแจ้งเตือน</h4>
-                        </div>
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 ml-8">
-                            <div className="space-y-2">
-                                <div className="flex items-start gap-2">
-                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">1</span>
-                                    <p className="text-sm text-slate-700"><span className="font-bold">Set FSRM Owner:</span> ตั้งค่า owner ของการรันรายงาน</p>
-                                </div>
-                                <div className="flex items-start gap-2">
-                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">2</span>
-                                    <p className="text-sm text-slate-700"><span className="font-bold">Run FSRM Report:</span> รัน FSRM Report เพื่อดึงรายการไฟล์ขนาดใหญ่</p>
-                                </div>
-                                <div className="flex items-start gap-2">
-                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">3</span>
-                                    <p className="text-sm text-slate-700"><span className="font-bold">Wait Report:</span> รอการรันเสร็จ (ใช้เวลา 2-5 นาที)</p>
-                                </div>
-                                <div className="flex items-start gap-2">
-                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">4</span>
-                                    <p className="text-sm text-slate-700"><span className="font-bold">Read HTML:</span> อ่านไฟล์ HTML รายงานและแปลงเป็น base64</p>
-                                </div>
-                                <div className="flex items-start gap-2">
-                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">5</span>
-                                    <p className="text-sm text-slate-700"><span className="font-bold">Send Email:</span> ส่งอีเมลพร้อมรายงาน</p>
+                        {/* ═══ Section 6: Tips ═══ */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
+                            <div className="flex items-start gap-3">
+                                <div className="w-6 h-6 rounded-lg bg-blue-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">💡</div>
+                                <div>
+                                    <h4 className="font-black text-slate-800 mb-2">💡 เคล็ดลับ</h4>
+                                    <ul className="space-y-1.5 text-sm text-slate-700">
+                                        <li>• เลือก <span className="bg-indigo-50 border border-indigo-200 px-1.5 rounded font-mono text-xs">เลือกที่เกิน {'{'}threshold{'}'}%</span> เพื่อเลือกทั้งหมดที่เกินเกณฑ์</li>
+                                        <li>• ระบบจะส่งทีละคนตามคิว (ไม่ส่งพร้อมกัน) เพื่อไม่ให้ FSRM ท่วม</li>
+                                        <li>• หากส่งเสร็จแล้ว log จะปรากฏในแท็บ Email Log</li>
+                                        <li>• ตั้งค่า Admin Email เพื่อรับรายงานสรุปรวม</li>
+                                        <li>• สามารถดูประวัติ Sync ได้จากปุ่ม <History size={11} className="inline" /> ประวัติ Sync</li>
+                                    </ul>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* ═══ Section 4: Status Colors ═══ */}
-                    <div>
-                        <div className="flex items-center gap-2 mb-3">
-                            <div className="w-6 h-6 rounded-lg bg-green-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">4</div>
-                            <h4 className="font-black text-slate-800 text-base">🎨 รหัสสีและสถานะ</h4>
-                        </div>
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 ml-8 grid grid-cols-2 gap-2">
-                            {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-                                <div key={key} className="flex items-center gap-2">
-                                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold border ${cfg.cls}`}>
-                                        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot} mr-1`} />
-                                        {cfg.label}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
+                    <div className="sticky bottom-0 px-6 py-4 border-t border-slate-100 bg-white flex justify-end gap-2">
+                        <button onClick={onClose}
+                            className="px-6 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all">
+                            ปิด
+                        </button>
                     </div>
-
-                    {/* ═══ Section 5: Email Log ═══ */}
-                    <div>
-                        <div className="flex items-center gap-2 mb-3">
-                            <div className="w-6 h-6 rounded-lg bg-purple-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">5</div>
-                            <h4 className="font-black text-slate-800 text-base">📋 แท็บ Email Log</h4>
-                        </div>
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 ml-8 space-y-2">
-                            <p className="text-sm text-slate-700">
-                                📊 <span className="font-bold">ประวัติการส่งอีเมล</span> — ดูรายการส่งอีเมลทั้งหมดพร้อมสถานะ (ส่งสำเร็จ / ล้มเหลว)
-                            </p>
-                            <p className="text-sm text-slate-700">
-                                ⏳ <span className="font-bold">กำลังดำเนินการ</span> — แสดง progress bar ของรายการที่กำลังส่งเอกสาร
-                            </p>
-                            <p className="text-sm text-slate-700">
-                                🧹 <span className="font-bold">ลบ log</span> — ลบประวัติการส่งที่ไม่ต้องการแล้ว
-                            </p>
-                        </div>
-                    </div>
-
-                    {/* ═══ Section 6: Tips ═══ */}
-                    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
-                        <div className="flex items-start gap-3">
-                            <div className="w-6 h-6 rounded-lg bg-blue-500 text-white flex items-center justify-center flex-shrink-0 font-bold text-xs">💡</div>
-                            <div>
-                                <h4 className="font-black text-slate-800 mb-2">💡 เคล็ดลับ</h4>
-                                <ul className="space-y-1.5 text-sm text-slate-700">
-                                    <li>• เลือก <span className="bg-indigo-50 border border-indigo-200 px-1.5 rounded font-mono text-xs">เลือกที่เกิน {'{'}threshold{'}'}%</span> เพื่อเลือกทั้งหมดที่เกินเกณฑ์</li>
-                                    <li>• ระบบจะส่งทีละคนตามคิว (ไม่ส่งพร้อมกัน) เพื่อไม่ให้ FSRM ท่วม</li>
-                                    <li>• หากส่งเสร็จแล้ว log จะปรากฏในแท็บ Email Log</li>
-                                    <li>• ตั้งค่า Admin Email เพื่อรับรายงานสรุปรวม</li>
-                                    <li>• สามารถดูประวัติ Sync ได้จากปุ่ม <History size={11} className="inline" /> ประวัติ Sync</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="sticky bottom-0 px-6 py-4 border-t border-slate-100 bg-white flex justify-end gap-2">
-                    <button onClick={onClose}
-                        className="px-6 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all">
-                        ปิด
-                    </button>
-                </div>
-            </motion.div>
-        </div>
+                </motion.div>
+            </div>
+        </Portal>
     );
 };
 
@@ -390,35 +392,37 @@ const QuotaBar = ({ pct, status }) => {
 const ConfirmModal = ({ open, onClose, onConfirm, title, sub, note }) => {
     if (!open) return null;
     return (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
-                <div className="flex items-start gap-3 mb-4">
-                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center flex-shrink-0 text-indigo-600">
-                        <Mail size={22} />
+        <Portal>
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+                <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                    className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
+                    <div className="flex items-start gap-3 mb-4">
+                        <div className="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center flex-shrink-0 text-indigo-600">
+                            <Mail size={22} />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-black text-slate-800">{title}</h3>
+                            <p className="text-sm text-slate-500 mt-0.5">{sub}</p>
+                        </div>
                     </div>
-                    <div>
-                        <h3 className="text-lg font-black text-slate-800">{title}</h3>
-                        <p className="text-sm text-slate-500 mt-0.5">{sub}</p>
+                    {note && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 mb-4 leading-relaxed">
+                            ⚠️ {note}
+                        </div>
+                    )}
+                    <div className="flex gap-3">
+                        <button onClick={onClose}
+                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                            ยกเลิก
+                        </button>
+                        <button onClick={onConfirm}
+                            className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200/50 transition-all flex items-center justify-center gap-2">
+                            <Send size={14} /> ดำเนินการ
+                        </button>
                     </div>
-                </div>
-                {note && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 mb-4 leading-relaxed">
-                        ⚠️ {note}
-                    </div>
-                )}
-                <div className="flex gap-3">
-                    <button onClick={onClose}
-                        className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
-                        ยกเลิก
-                    </button>
-                    <button onClick={onConfirm}
-                        className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200/50 transition-all flex items-center justify-center gap-2">
-                        <Send size={14} /> ดำเนินการ
-                    </button>
-                </div>
-            </motion.div>
-        </div>
+                </motion.div>
+            </div>
+        </Portal>
     );
 };
 
@@ -457,38 +461,40 @@ const LogStepProgress = ({ log, activeJob }) => {
 const DeleteConfirmModal = ({ item, onConfirm, onClose }) => {
     if (!item) return null;
     return (
-        <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+        <Portal>
+            <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
 
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-200">
-                <div className="flex items-start gap-3 mb-4">
-                    <div className="w-11 h-11 rounded-2xl bg-red-50 flex items-center justify-center flex-shrink-0 text-red-500">
-                        <XCircle size={22} />
+                <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-200">
+                    <div className="flex items-start gap-3 mb-4">
+                        <div className="w-11 h-11 rounded-2xl bg-red-50 flex items-center justify-center flex-shrink-0 text-red-500">
+                            <XCircle size={22} />
+                        </div>
+                        <div>
+                            <h3 className="text-base font-black text-slate-800">ยืนยันการลบ</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">รายการนี้จะถูกลบออกจากฐานข้อมูลถาวร</p>
+                        </div>
                     </div>
-                    <div>
-                        <h3 className="text-base font-black text-slate-800">ยืนยันการลบ</h3>
-                        <p className="text-xs text-slate-500 mt-0.5">รายการนี้จะถูกลบออกจากฐานข้อมูลถาวร</p>
+                    <div className="bg-slate-50 rounded-xl px-4 py-3 mb-5 border border-slate-100">
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="font-mono text-xs font-black text-indigo-600">{item.username}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400">{new Date(item.sentAt).toLocaleString('th-TH')}</p>
                     </div>
-                </div>
-                <div className="bg-slate-50 rounded-xl px-4 py-3 mb-5 border border-slate-100">
-                    <div className="flex items-center gap-2 mb-1">
-                        <span className="font-mono text-xs font-black text-indigo-600">{item.username}</span>
+                    <div className="flex gap-3">
+                        <button onClick={onClose}
+                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                            ยกเลิก
+                        </button>
+                        <button onClick={onConfirm}
+                            className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-bold shadow-lg shadow-red-100 transition-all flex items-center justify-center gap-2">
+                            <XCircle size={14} /> ลบ
+                        </button>
                     </div>
-                    <p className="text-[11px] text-slate-400">{new Date(item.sentAt).toLocaleString('th-TH')}</p>
-                </div>
-                <div className="flex gap-3">
-                    <button onClick={onClose}
-                        className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
-                        ยกเลิก
-                    </button>
-                    <button onClick={onConfirm}
-                        className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-bold shadow-lg shadow-red-100 transition-all flex items-center justify-center gap-2">
-                        <XCircle size={14} /> ลบ
-                    </button>
-                </div>
-            </motion.div>
-        </div>
+                </motion.div>
+            </div>
+        </Portal>
     );
 };
 

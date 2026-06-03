@@ -10,7 +10,7 @@ import {
     ExternalLink, Info, Calendar, Eye, Building2,
     Hash, User, Cpu
 } from 'lucide-react';
-
+import Portal from '../components/Portal';
 const ITEMS_PER_PAGE = 20;
 const SESSION_KEY = 'ad_explorer_state';
 
@@ -58,22 +58,24 @@ const Modal = ({ open, onClose, title, children }) => {
 
     if (!open) return null;
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-md px-4" onClick={onClose}>
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl border border-slate-200"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
-                    <h3 className="text-base font-bold text-slate-800">{title}</h3>
-                    <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition-colors">
-                        <X size={18} />
-                    </button>
-                </div>
-                <div className="p-6">{children}</div>
-            </motion.div>
-        </div>
+        <Portal>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-md px-4" onClick={onClose}>
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl border border-slate-200"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+                        <h3 className="text-base font-bold text-slate-800">{title}</h3>
+                        <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition-colors">
+                            <X size={18} />
+                        </button>
+                    </div>
+                    <div className="p-6">{children}</div>
+                </motion.div>
+            </div>
+        </Portal>
     );
 };
 

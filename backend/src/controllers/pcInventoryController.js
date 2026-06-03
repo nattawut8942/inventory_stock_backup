@@ -277,7 +277,7 @@ export const getSummary = async (req, res) => {
     SELECT hostname, bitlocker, crowdstrike_ver, tanium_ver, uems_ver,
            os_release, os_build, computer_type, manufacturer, fix_asset,
            updated_at, bitlocker_key_c, battery_health, disk_info,
-           factory_layout_id
+           factory_layout_id,uptime ,last_patch_kb 
     FROM dbo.info_pc_inventory
 `);;
         const data = baseResult.recordset;
@@ -344,6 +344,13 @@ export const getSummary = async (req, res) => {
             const age = currentYear - year;
             return isNotebook(r) ? age > 3 : age > 5;
         }).map(r => r.hostname);
+        const longUptime = data
+            .filter(d => {
+                if (!d.uptime) return false;
+                const match = d.uptime.match(/^(\d+)d/);
+                return match ? parseInt(match[1], 10) > 5 : false;
+            })
+            .map(d => d.hostname);
 
         // Distribution maps
         const osVersionMap = {};
@@ -351,6 +358,8 @@ export const getSummary = async (req, res) => {
         const computerTypeMap = {};
         const crowdstrikeVerMap = {};
         const taniumVerMap = {};
+        const lastPatchKBMap = {};
+
 
         data.forEach(r => {
             const v = r.os_release || 'Unknown';
@@ -372,14 +381,17 @@ export const getSummary = async (req, res) => {
             const ta = r.tanium_ver || 'Not Installed';
             if (!taniumVerMap[ta]) taniumVerMap[ta] = [];
             taniumVerMap[ta].push(r.hostname);
+              const kb = r.last_patch_kb || 'Unknown';
+                if (!lastPatchKBMap[kb]) lastPatchKBMap[kb] = [];
+                lastPatchKBMap[kb].push(r.hostname);
         });
 
         res.json({
             success: true,
             total: data.length,
             noEdr, noTanium, noUems, blDisabled, noAsset,
-            noLocation, noBlKeyNotebook, inactivePC, lowBatteryHealth, lowDiskCSpace, oldFixAssets,
-            osVersionMap, osBuildMap, computerTypeMap, crowdstrikeVerMap, taniumVerMap,
+            noLocation, noBlKeyNotebook, inactivePC, lowBatteryHealth, lowDiskCSpace, oldFixAssets,longUptime, 
+            osVersionMap, osBuildMap, computerTypeMap, crowdstrikeVerMap, taniumVerMap,lastPatchKBMap,
         });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });

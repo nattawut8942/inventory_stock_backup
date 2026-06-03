@@ -83,6 +83,8 @@ function drawFovCone(ctx, px, py, angleDeg, spreadDeg = 60, len = 80,
     ctx.restore();
 }
 
+
+
 // ── CameraListSection — แยก component เพื่อให้ search/listSearch state
 // ไม่อยู่ใน CCTVPage และไม่ทำให้ CCTVPage re-render เมื่อพิมพ์ค้นหา ──────────
 const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilter,
@@ -1011,7 +1013,6 @@ ctx.shadowBlur = 0;
                     </div>
                 </Portal>
             )}
-
             {/* ── Camera Detail Modal ──────────────────────────────────── */}
             {detailModal && (
                 <Portal>

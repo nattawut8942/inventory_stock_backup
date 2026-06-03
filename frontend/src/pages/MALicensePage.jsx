@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion'; // หรือ 'motion/react'
 import {
     Shield, Clock, AlertTriangle, DollarSign, Server, Monitor, Cpu, Wifi,
@@ -114,6 +114,7 @@ const MALicensePage = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const [sortConfig, setSortConfig] = useState(null);
     const itemsPerPage = 20;
+    const intervalRef = useRef(null); 
 
     const fetchItems = async () => {
         try {
@@ -145,12 +146,21 @@ const MALicensePage = () => {
         } catch (err) { console.error(err); }
     };
 
-    useEffect(() => {
+   useEffect(() => {
+    fetchItems();
+    fetchVendors();
+    fetchLocations();
+    fetchMATypes();
+
+    intervalRef.current = setInterval(() => {
+        console.log('🔄 Auto-refresh:', new Date().toLocaleTimeString());
         fetchItems();
-        fetchVendors();
-        fetchLocations();
-        fetchMATypes();
-    }, []);
+    }, 5 * 60 * 1000);
+
+    return () => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+}, []);
 
     const filteredItems = useMemo(() => {
         return items
@@ -573,9 +583,12 @@ const MALicensePage = () => {
                                     </div>
                                     <div className="min-w-0 flex-1">
                                         <h4 className="font-bold text-slate-800 text-base md:text-lg truncate">{item.ItemName}</h4>
-                                        <p className="text-[17px] text-slate-500 truncate">
-                                            {activeTab === 'ALL' && currentItemCat ? `[${currentItemCat.label.split(' ')[0]}] ` : ''}{item.SubType}
-                                        </p>
+                                         {item.Brand && (
+                                        <div className="flex justify-between items-start gap-2 text-[14px]">
+                                            {/* <span className="text-slate-500 whitespace-nowrap">ยี่ห้อ/รุ่น:</span> */}
+                                            <span className="font-medium text-slate-700 text-right truncate">{item.Brand}</span>
+                                        </div>
+                                    )}
                                     </div>
                                 </div>
                                 <div className="p-3 flex-1 space-y-2">
@@ -591,6 +604,7 @@ const MALicensePage = () => {
                                         <span className="text-slate-500">เหลือเวลา:</span>
                                         {renderCellValue(item, { key: '_duration' })}
                                     </div>
+                                  
                                     <div className="flex justify-between items-start gap-2 text-[12px] pt-1 border-t border-black/5">
                                         <span className="text-slate-500 whitespace-nowrap">Vendor:</span>
                                         <span className="font-medium text-slate-700 text-right truncate">{item.VendorName || '-'}</span>

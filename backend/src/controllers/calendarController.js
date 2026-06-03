@@ -82,31 +82,30 @@ export const getTasks = async (req, res) => {
 export const getTaskById = async (req, res) => {
     try {
         const pool = getPool();
-        const result = await pool.request()
-            .input('id', sql.Int, req.params.id)
-            .query(`
-                SELECT
-                    t.task_id,
-                    t.task_title,
-                    CONVERT(VARCHAR(19), t.start_date, 120) AS start_date,
-                    CONVERT(VARCHAR(19), t.end_date,   120) AS end_date,
-                    t.task_type,
-                    t.description,
-                    t.is_recurring,
-                    t.recurrence_id,
-                    t.created_by,
-                    CONVERT(VARCHAR(19), t.created_at, 120) AS created_at,
-                    CONVERT(VARCHAR(19), t.updated_at, 120) AS updated_at,
-                    lk.type_label,
-                    lk.color_class,
-                    r.mon, r.tue, r.wed, r.thu, r.fri, r.sat, r.sun,
-                    r.range_days
-                FROM  [dbo].[cal_tasks]         t
-                JOIN  [dbo].[lkp_cal_task_type] lk ON t.task_type = lk.type_key
-                LEFT JOIN [dbo].[cal_recurrence] r  ON t.recurrence_id = r.recurrence_id
-                WHERE t.task_id = @id
-            `);
-
+const result = await pool.request()
+    .input('id', sql.Int, req.params.id)
+    .query(`
+        SELECT
+            t.task_id,
+            t.task_title,
+            CONVERT(VARCHAR(19), t.start_date, 120) AS start_date,
+            CONVERT(VARCHAR(19), t.end_date,   120) AS end_date,
+            t.task_type,
+            t.description,
+            t.is_recurring,
+            t.recurrence_id,
+            t.created_by,
+            CONVERT(VARCHAR(19), t.created_at, 120) AS created_at,
+            CONVERT(VARCHAR(19), t.updated_at, 120) AS updated_at,
+            lk.type_label,
+            lk.color_class,
+            r.mon, r.tue, r.wed, r.thu, r.fri, r.sat, r.sun,
+            r.range_days
+        FROM  [dbo].[cal_tasks]         t
+        JOIN  [dbo].[lkp_cal_task_type] lk ON t.task_type = lk.type_key
+        LEFT JOIN [dbo].[cal_recurrence] r  ON t.recurrence_id = r.recurrence_id
+        WHERE t.task_id = @id
+    `);
         if (!result.recordset.length)
             return res.status(404).json({ success: false, error: 'Task not found' });
 

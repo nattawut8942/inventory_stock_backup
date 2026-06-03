@@ -10,6 +10,7 @@ export const getInventory = async (req, res) => {
         os_name, os_release, os_build, os_arch, os_activation,
         local_admin_users, wifi_ssid, adapter_type,
         crowdstrike_ver, tanium_ver, uems_ver,
+        uptime, last_boot, domain,
         updated_at, collected_at,
         factory_layout_id, location_x, location_y, location_updated_at,
         (SELECT STRING_AGG(username, ',') FROM [dbo].[info_mo_active_users]
@@ -25,6 +26,7 @@ export const getInventory = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
 export const getMOLocation = async (req, res) => {
   try {
     const { hostname } = req.params;
@@ -87,6 +89,7 @@ export const updateMOLocation = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
 export const getInventoryByHostname = async (req, res) => {
   try {
     const { hostname } = req.params;
@@ -167,6 +170,7 @@ export const searchInventory = async (req, res) => {
           os_name, os_release, os_build, os_arch, os_activation,
           local_admin_users, wifi_ssid, adapter_type,
           crowdstrike_ver, tanium_ver, uems_ver,
+          uptime, last_boot, domain,
           updated_at, collected_at,
           (SELECT STRING_AGG(username, ',') FROM [dbo].[info_mo_active_users]
             WHERE hostname = [dbo].[info_mo_inventory].hostname) as active_usernames,
@@ -188,11 +192,9 @@ export const getSummary = async (req, res) => {
   try {
     const pool = getPool();
 
-    // Query 1: inventory
     const { recordset: data } = await pool.request()
       .query(`SELECT * FROM [dbo].[info_mo_inventory]`);
 
-    // Query 2: MAX(logon_time) per hostname จาก info_mo_active_users
     const { recordset: logonRows } = await pool.request()
       .query(`
         SELECT hostname, MAX(logon_time) AS last_logon
@@ -210,10 +212,11 @@ export const getSummary = async (req, res) => {
 
     const summary = {
       total: data.length,
-      
+
       noLocation: data
-      .filter(d => d.factory_layout_id === null || d.factory_layout_id === undefined)
-      .map(d => d.hostname),
+        .filter(d => d.factory_layout_id === null || d.factory_layout_id === undefined)
+        .map(d => d.hostname),
+
       noCrowdstrike: data
         .filter(d => !d.crowdstrike_ver || d.crowdstrike_ver.toLowerCase() === 'not installed')
         .map(d => d.hostname),
@@ -234,7 +237,6 @@ export const getSummary = async (req, res) => {
         .filter(d => !d.fix_asset || d.fix_asset.trim() === '')
         .map(d => d.hostname),
 
-      // exclude "not admin"
       adminUsers: data
         .filter(d => {
           const v = (d.local_admin_users || '').toLowerCase().trim();
@@ -242,20 +244,16 @@ export const getSummary = async (req, res) => {
         })
         .map(d => d.hostname),
 
-      // ใช้ MAX(logon_time) จาก info_mo_active_users
-      // นับเฉพาะ host ที่มี session แต่ logon ครั้งล่าสุดเกิน 30 วัน
       notUpdated: data
         .filter(d => {
           const lastLogon = logonMap[d.hostname];
-          if (!lastLogon) return false; // ไม่มี session — ไม่นับ
+          if (!lastLogon) return false;
           const t = new Date(lastLogon).getTime();
           if (isNaN(t)) return false;
           return (now - t) > MS_30_DAYS;
         })
         .map(d => d.hostname),
 
-      // parse CO{YY} จาก fix_asset เช่น "CO19-0001" → 2019
-      // age > 5 ปี = oldFixAssets (MO ไม่มี notebook type ใช้แค่ > 5)
       oldFixAssets: data
         .filter(d => {
           if (!d.fix_asset || d.fix_asset.trim() === '') return false;
@@ -266,12 +264,22 @@ export const getSummary = async (req, res) => {
           return (currentYear - year) > 5;
         })
         .map(d => d.hostname),
+
       notDomainJoined: data
         .filter(d => !d.domain || d.domain.trim() === '' ||
           d.domain.toLowerCase() === 'workgroup')
         .map(d => d.hostname),
-        
-      // ── Distribution maps ───────────────────────────────────────
+
+      // ✅ uptime > 10 วัน — parse "5d 3h 20m" เอาตัวเลขหน้า d
+      longUptime: data
+        .filter(d => {
+          if (!d.uptime) return false;
+          const match = d.uptime.match(/^(\d+)d/);
+          return match ? parseInt(match[1], 10) > 10 : false;
+        })
+        .map(d => d.hostname),
+
+      // ── Distribution maps ────────────────────────────────────────
       crowdstrikeVerMap: {},
       taniumVerMap: {},
       uemsVerMap: {},
@@ -283,7 +291,7 @@ export const getSummary = async (req, res) => {
       osArchMap: {},
       wifiMap: {},
       adapterMap: {},
-      subnetMap: {},   // group by /24 subnet (3 octets)
+      subnetMap: {},
     };
 
     data.forEach(d => {
@@ -299,7 +307,6 @@ export const getSummary = async (req, res) => {
       push(summary.wifiMap, d.wifi_ssid || 'Not Connected', d.hostname);
       push(summary.adapterMap, d.adapter_type || 'Unknown', d.hostname);
 
-      // subnet: ตัด octet สุดท้ายออก → "10.194.46"
       if (d.ip_address) {
         const parts = d.ip_address.trim().split('.');
         if (parts.length === 4) {
@@ -330,7 +337,6 @@ export const getSoftware = async (req, res) => {
   }
 };
 
-// Fix #6 — PUT /mo-inventory/:hostname/asset
 export const updateAsset = async (req, res) => {
   try {
     const { hostname } = req.params;
@@ -347,17 +353,53 @@ export const updateAsset = async (req, res) => {
   }
 };
 
-export const deleteInventory = async (req, res) => {
+export const getHistory = async (req, res) => {
+  try {
+    const { hostname } = req.params;
+    if (!hostname || hostname.trim() === '') {
+      return res.status(400).json({ success: false, error: 'hostname is required' });
+    }
+    const pool = getPool();
+    const result = await pool.request()
+      .input('hostname', sql.VarChar, hostname)
+      .query(`
+        SELECT
+          id,
+          hostname,
+          change_type,
+          field_name,
+          old_value,
+          new_value,
+          changed_at
+        FROM dbo.info_mo_inventory_history
+        WHERE hostname = @hostname
+        ORDER BY changed_at DESC
+      `);
+    res.json({ success: true, data: result.recordset });
+  } catch (err) {
+    console.error('getHistory error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const deleteInventoryWithHistory = async (req, res) => {
   try {
     const { hostname } = req.params;
     const pool = getPool();
     await pool.request().input('hostname', sql.VarChar, hostname)
-      .query(`DELETE FROM [dbo].[info_mo_inventory]    WHERE hostname = @hostname`);
+      .query(`DELETE FROM dbo.info_mo_inventory_history WHERE hostname = @hostname`);
     await pool.request().input('hostname', sql.VarChar, hostname)
-      .query(`DELETE FROM [dbo].[info_mo_active_users] WHERE hostname = @hostname`);
+      .query(`DELETE FROM dbo.info_mo_software WHERE hostname = @hostname`);
+    await pool.request().input('hostname', sql.VarChar, hostname)
+      .query(`DELETE FROM dbo.info_mo_active_users WHERE hostname = @hostname`);
+    await pool.request().input('hostname', sql.VarChar, hostname)
+      .query(`DELETE FROM dbo.info_mo_inventory WHERE hostname = @hostname`);
     res.json({ success: true, message: 'Monitor record deleted' });
   } catch (err) {
     console.error('deleteInventory error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+// ✅ export ชื่อเดิมด้วย เพื่อไม่ให้ routes file เดิมที่ import 'deleteInventory' พัง
+export const deleteInventory = deleteInventoryWithHistory;

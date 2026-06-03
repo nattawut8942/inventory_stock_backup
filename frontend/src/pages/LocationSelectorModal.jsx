@@ -1,7 +1,7 @@
 import { X, MapPin, Trash2, Info } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { API_BASE, API_URL } from '../config/api';
-
+import Portal from '../components/Portal';
 const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onClose, saveApiBase = 'pc-location' }) => {
     const [selectedLayout, setSelectedLayout] = useState(initialLocation?.factory_layout_id || null);
     const [locationX, setLocationX] = useState(initialLocation?.location_x || null);
@@ -152,106 +152,108 @@ const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onC
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
-            {/* ปรับขนาด Modal ให้ลดลงมาหน่อยเป็น max-w-5xl (ประมาณ 1000px) */}
-            <div className="bg-white rounded-2xl w-full max-w-7xl shadow-2xl flex flex-col overflow-hidden border border-gray-200">
-                
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-xl">📍</div>
-                        <div>
-                            <div className="text-lg font-bold text-gray-900">ระบุตำแหน่งคอมพิวเตอร์</div>
-                            <div className="text-sm text-gray-500">{hostname}</div>
-                        </div>
-                    </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                        <X size={24} />
-                    </button>
-                </div>
-
-                <div className="p-6 flex flex-col space-y-4 overflow-hidden">
-                    <div className="shrink-0 flex flex-col sm:flex-row gap-4 items-center">
-                        <div className="flex-1 w-full">
-                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Layout</label>
-                            <select
-                                value={selectedLayout || ''}
-                                onChange={(e) => {
-                                    setSelectedLayout(e.target.value ? parseInt(e.target.value) : null);
-                                    setLocationX(null); setImageLoaded(false);
-                                }}
-                                className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm outline-none bg-white"
-                            >
-                                <option value="">-- เลือกแผนผัง --</option>
-                                {layouts?.map((l) => (
-                                    <option key={l.id} value={l.id}>{l.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="flex gap-4 text-[11px] bg-gray-50 px-4 py-2.5 rounded-xl border border-gray-100 shrink-0">
-                           <div className="flex items-center gap-2">เครื่องนี้ <span className="text-lg">🔵</span></div>
-                           <div className="flex items-center gap-2">อื่น ๆ <span className="text-lg opacity-50">⚫</span></div>
-                        </div>
-                    </div>
-
-                    <div className="relative bg-gray-100 rounded-2xl border border-gray-200 overflow-auto flex items-start justify-center p-2 h-[500px]">
-                        {selectedLayout && currentLayout ? (
-                            <>
-                                <img
-                                    ref={imageRef}
-                                    src={currentLayout.image_url?.startsWith('http') ? currentLayout.image_url : `${API_URL}${currentLayout.image_url}`}
-                                    alt="layout"
-                                    style={{ display: 'none' }}
-                                    onLoad={() => setImageLoaded(true)}
-                                    crossOrigin="anonymous"
-                                />
-                                {imageLoaded ? (
-                                    <canvas
-                                        ref={canvasRef}
-                                        onClick={handleCanvasClick}
-                                        className="max-w-full h-auto cursor-crosshair shadow-sm bg-white"
-                                    />
-                                ) : (
-                                    <div className="self-center flex flex-col items-center gap-2 text-gray-400">
-                                        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                                        <p>Loading Layout...</p>
-                                    </div>
-                                )}
-                            </>
-                        ) : (
-                            <div className="self-center flex flex-col items-center text-gray-400 gap-2">
-                                <Info size={32} />
-                                <p>กรุณาเลือกแผนผังเพื่อดูตำแหน่ง</p>
+        <Portal>
+            <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
+                {/* ปรับขนาด Modal ให้ลดลงมาหน่อยเป็น max-w-5xl (ประมาณ 1000px) */}
+                <div className="bg-white rounded-2xl w-full max-w-7xl shadow-2xl flex flex-col overflow-hidden border border-gray-200">
+                    
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-xl">📍</div>
+                            <div>
+                                <div className="text-lg font-bold text-gray-900">ระบุตำแหน่งคอมพิวเตอร์</div>
+                                <div className="text-sm text-gray-500">{hostname}</div>
                             </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center bg-gray-50">
-                    <button
-                        onClick={async () => {
-                            if (!confirm('ล้างข้อมูลตำแหน่ง?')) return;
-                            setLoading(true);
-                            await fetch(`${API_BASE}/${saveApiBase}/${encodeURIComponent(hostname)}`, { method: 'DELETE' });
-                            setLocationX(null); setLocationY(null); setSelectedLayout(null);
-                            onSave?.(); setLoading(false);
-                        }}
-                        className="text-red-500 font-bold text-sm hover:underline"
-                    >
-                        ล้างตำแหน่ง
-                    </button>
-                    <div className="flex gap-2">
-                        <button onClick={onClose} className="px-6 py-2 border border-gray-300 rounded-xl text-sm font-bold text-gray-600 hover:bg-white transition-colors">ยกเลิก</button>
-                        <button
-                            onClick={handleSave}
-                            disabled={loading || !selectedLayout || locationX === null}
-                            className="px-8 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-50 shadow-lg shadow-blue-200"
-                        >
-                            {loading ? 'Saving...' : 'บันทึกตำแหน่ง'}
+                        </div>
+                        <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                            <X size={24} />
                         </button>
+                    </div>
+
+                    <div className="p-6 flex flex-col space-y-4 overflow-hidden">
+                        <div className="shrink-0 flex flex-col sm:flex-row gap-4 items-center">
+                            <div className="flex-1 w-full">
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Layout</label>
+                                <select
+                                    value={selectedLayout || ''}
+                                    onChange={(e) => {
+                                        setSelectedLayout(e.target.value ? parseInt(e.target.value) : null);
+                                        setLocationX(null); setImageLoaded(false);
+                                    }}
+                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm outline-none bg-white"
+                                >
+                                    <option value="">-- เลือกแผนผัง --</option>
+                                    {layouts?.map((l) => (
+                                        <option key={l.id} value={l.id}>{l.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex gap-4 text-[11px] bg-gray-50 px-4 py-2.5 rounded-xl border border-gray-100 shrink-0">
+                               <div className="flex items-center gap-2">เครื่องนี้ <span className="text-lg">🔵</span></div>
+                               <div className="flex items-center gap-2">อื่น ๆ <span className="text-lg opacity-50">⚫</span></div>
+                            </div>
+                        </div>
+
+                        <div className="relative bg-gray-100 rounded-2xl border border-gray-200 overflow-auto flex items-start justify-center p-2 h-[500px]">
+                            {selectedLayout && currentLayout ? (
+                                <>
+                                    <img
+                                        ref={imageRef}
+                                        src={currentLayout.image_url?.startsWith('http') ? currentLayout.image_url : `${API_URL}${currentLayout.image_url}`}
+                                        alt="layout"
+                                        style={{ display: 'none' }}
+                                        onLoad={() => setImageLoaded(true)}
+                                        crossOrigin="anonymous"
+                                    />
+                                    {imageLoaded ? (
+                                        <canvas
+                                            ref={canvasRef}
+                                            onClick={handleCanvasClick}
+                                            className="max-w-full h-auto cursor-crosshair shadow-sm bg-white"
+                                        />
+                                    ) : (
+                                        <div className="self-center flex flex-col items-center gap-2 text-gray-400">
+                                            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                                            <p>Loading Layout...</p>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="self-center flex flex-col items-center text-gray-400 gap-2">
+                                    <Info size={32} />
+                                    <p>กรุณาเลือกแผนผังเพื่อดูตำแหน่ง</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center bg-gray-50">
+                        <button
+                            onClick={async () => {
+                                if (!confirm('ล้างข้อมูลตำแหน่ง?')) return;
+                                setLoading(true);
+                                await fetch(`${API_BASE}/${saveApiBase}/${encodeURIComponent(hostname)}`, { method: 'DELETE' });
+                                setLocationX(null); setLocationY(null); setSelectedLayout(null);
+                                onSave?.(); setLoading(false);
+                            }}
+                            className="text-red-500 font-bold text-sm hover:underline"
+                        >
+                            ล้างตำแหน่ง
+                        </button>
+                        <div className="flex gap-2">
+                            <button onClick={onClose} className="px-6 py-2 border border-gray-300 rounded-xl text-sm font-bold text-gray-600 hover:bg-white transition-colors">ยกเลิก</button>
+                            <button
+                                onClick={handleSave}
+                                disabled={loading || !selectedLayout || locationX === null}
+                                className="px-8 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-50 shadow-lg shadow-blue-200"
+                            >
+                                {loading ? 'Saving...' : 'บันทึกตำแหน่ง'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </Portal>
     );
 };
 

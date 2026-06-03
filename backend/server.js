@@ -11,6 +11,7 @@ import fs from 'fs';
 import { connectDB } from './src/config/db.js';
 import { connectDciDB } from './src/config/dciDb.js';
 import { sendDailyReport, sendMonthlyInventoryReport } from './src/services/emailService.js';
+import { sendCalendarReminder } from './src/services/calendarEmailService.js';
 
 // Routes
 import authRoutes from './src/routes/authRoutes.js';
@@ -34,13 +35,16 @@ import { cleanupStaleLogs } from './src/controllers/quotaController.js';
 import pcLocationRoutes from './src/routes/pcLocationRoutes.js';
 import cctvRoutes from './src/routes/cctvRoutes.js';
 import calendarRoutes from './src/routes/calendarRoutes.js';
-import { sendCalendarReminder } from './src/services/calendarEmailService.js';
+
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3002;
+
+
 
 // ── สร้าง upload folders ถ้ายังไม่มี ────────────────────────────────────
 const folders = [
@@ -171,6 +175,16 @@ const startServer = async () => {
             }
         }, { scheduled: true, timezone: 'Asia/Bangkok' });
 
+        cron.schedule('0 8 * * 1-5', async () => {
+    console.log('[Cron] Sending calendar email reminder...');
+    try {
+        const result = await sendCalendarReminder();
+        console.log('[Cron] Calendar reminder:', result);
+    } catch (err) {
+        console.error('[Cron] Calendar reminder failed:', err.message);
+    }
+}, { scheduled: true, timezone: 'Asia/Bangkok' });
+
         // Error Handler
         app.use((err, req, res, next) => {
             console.error('Unhandled Error:', err.stack);
@@ -186,19 +200,6 @@ const startServer = async () => {
         console.error('Failed to start server:', err);
     }
 };
-cron.schedule('0 8 * * 1-5', async () => {
-    console.log('[Cron] Sending calendar email reminder...');
-    try {
-        const result = await sendCalendarReminder();
-        console.log('[Cron] Calendar reminder:', result);
-    } catch (err) {
-        console.error('[Cron] Calendar reminder failed:', err.message);
-    }
-}, { scheduled: true, timezone: 'Asia/Bangkok' });
- 
- 
-// ── 3. Route ทดสอบ (วางใน startServer ต่อจาก route อื่นๆ) ──
-// เรียก POST /ITinventory/api/calendar/notify/test-email เพื่อทดสอบ
 app.post('/ITinventory/api/calendar/notify/test-email', async (req, res) => {
     try {
         const result = await sendCalendarReminder();
@@ -207,7 +208,6 @@ app.post('/ITinventory/api/calendar/notify/test-email', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
-
 await cleanupStaleLogs();
 
 startServer();

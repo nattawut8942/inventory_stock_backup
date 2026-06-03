@@ -221,12 +221,15 @@ const PCInventoryPage = () => {
     if (key === 'lowBatteryHealth') return sumData.lowBatteryHealth || [];
     if (key === 'lowDiskCSpace') return sumData.lowDiskCSpace || [];
     if (key === 'oldFixAssets') return sumData.oldFixAssets || [];
+    if (key === 'longUptime') return sumData.longUptime || [];
     if (key.startsWith('os:')) return sumData.osVersionMap[key.slice(3)] || [];
     if (key.startsWith('build:')) return sumData.osBuildMap[key.slice(6)] || [];
     if (key.startsWith('type:')) return (sumData.computerTypeMap || {})[key.slice(5)] || [];
     if (key.startsWith('cs:')) return (sumData.crowdstrikeVerMap || {})[key.slice(3)] || [];
     if (key.startsWith('tanium:')) return (sumData.taniumVerMap || {})[key.slice(7)] || [];
     if (key === 'multiLogin') return multiLoginData.allHostnames || [];
+    if (key.startsWith('patchkb:')) return (sumData.lastPatchKBMap || {})[key.slice(8)] || [];
+
     return [];
   };
 
@@ -605,6 +608,8 @@ const PCInventoryPage = () => {
                     <StatBox id="oldFixAssets" label="Old Fix Assets" list={sumData?.oldFixAssets} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" />
                     <StatBox id="multiLogin" label="Multi-Login Users" list={multiLoginData.allHostnames} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" onSecondaryClick={() => setShowMultiLoginModal(true)} />
                     <StatBox id="noLocation" label="No Location" list={sumData?.noLocation} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" />
+                    <StatBox id="longUptime" label="Uptime > 5 วัน" list={sumData?.longUptime} textClass="text-sky-600" bgClass="bg-sky-50" ringClass="ring-sky-500" />
+
                   </div>
 
                   {sumData && (
@@ -642,7 +647,22 @@ const PCInventoryPage = () => {
                         </div>
                       </div>
                     </div>
+                    
                   )}
+                  {sumData && (
+<div className="bg-white border border-gray-200 rounded-xl p-3 px-3.5 shadow-sm mb-4">
+  <div className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-3">Last Patch KB</div>
+  <div className="flex flex-wrap gap-1.5">
+    {Object.keys(sumData?.lastPatchKBMap || {})
+      .sort((a, b) => (sumData?.lastPatchKBMap[b]?.length || 0) - (sumData?.lastPatchKBMap[a]?.length || 0))
+
+      .slice(0, 8)
+      .map(k => (
+        <SumTag key={`patchkb:${k}`} id={`patchkb:${k}`} label={k} list={sumData.lastPatchKBMap[k]} btnClass="bg-amber-50 text-amber-800 border-amber-200" />
+      ))}
+  </div>
+</div>
+)}
 
                   {/* ✅ NEW: Sticky active-filter bar + Export list button */}
                   <div
