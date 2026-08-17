@@ -3,13 +3,13 @@ import { motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { API_BASE, API_URL } from '../config/api'; // เพิ่ม API_URL ตรงนี้
+import { API_BASE, API_URL } from '../config/api';
 import MOInventoryPage from './MOInventoryPage';
 import LocationSelectorModal from './LocationSelectorModal';
 import MapViewTab from './MapViewTab';
-import Portal from '../components/Portal'; // ← ADD THIS
+import Portal from '../components/Portal';
+import AlertModal from '../components/AlertModal';
 
-// ─── Debounce hook ────────────────────────────────────────────────────────────
 function useDebounce(value, delay) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -21,12 +21,20 @@ function useDebounce(value, delay) {
 const getFullImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith('http')) return path;
-  // ตรวจสอบว่า path มี / นำหน้าหรือไม่ ถ้าไม่มีให้เติม
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  // ถ้าใน DB ไม่ได้เก็บคำว่า uploads มาด้วย ให้ใส่เพิ่มเข้าไป
   const finalPath = cleanPath.startsWith('/uploads') ? cleanPath : `/uploads${cleanPath}`;
   return `${API_URL}${finalPath}`;
 };
+
+const SEARCH_FIELD_OPTIONS = [
+  { value: 'all', label: 'ทุกฟิลด์', placeholder: 'ค้นหาทุกฟิลด์: hostname, IP, Serial, CPU, Software ฯลฯ' },
+  { value: 'hostname', label: 'Hostname', placeholder: 'ค้นหา Hostname...' },
+  { value: 'ip_address', label: 'IP Address', placeholder: 'ค้นหา IP Address...' },
+  { value: 'active_usernames', label: 'User', placeholder: 'ค้นหา Username...' },
+  { value: 'model', label: 'Model', placeholder: 'ค้นหา Model...' },
+  { value: 'manufacturer', label: 'Manufacturer', placeholder: 'ค้นหา Manufacturer...' },
+  { value: 'serial_number', label: 'Serial Number', placeholder: 'ค้นหา Serial Number...' },
+];
 
 const PCInventoryPage = () => {
 
@@ -46,7 +54,7 @@ const PCInventoryPage = () => {
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFieldType, setSearchFieldType] = useState('all');
-  const debouncedSearch = useDebounce(searchQuery, 300); // ✅ FIX: debounce search
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [filterKeys, setFilterKeys] = useState(
     location.state?.filterKey
       ? [{ key: location.state.filterKey, label: location.state.filterLabel }]
@@ -61,12 +69,12 @@ const PCInventoryPage = () => {
   const [detailData, setDetailData] = useState({ inv: null, users: [], software: [] });
 
   const [softwareSearch, setSoftwareSearch] = useState('');
-  const [softwareSortKey, setSoftwareSortKey] = useState('name');  // ✅ FIX: track sort key properly
+  const [softwareSortKey, setSoftwareSortKey] = useState('name');
   const [softwareSortAsc, setSoftwareSortAsc] = useState(true);
   const [softwarePage, setSoftwarePage] = useState(1);
   const softwarePageSize = 20;
 
-  const [toastMsg, setToastMsg] = useState('');
+  const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [showBlModal, setShowBlModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -79,7 +87,6 @@ const PCInventoryPage = () => {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyData, setHistoryData] = useState([]);
 
-  // ✅ NEW: sticky filter bar ref
   const filterBarRef = useRef(null);
 
   useEffect(() => {
@@ -96,15 +103,12 @@ const PCInventoryPage = () => {
       fetchPCLocation(hostname);
     }
   }, [view, hostname]);
- 
 
-  // ✅ FIX: debounced search effect — replaces inline onSearchInput API call
   const prevSearchRef = useRef('');
  useEffect(() => {
     if (debouncedSearch.length >= 2) {
       (async () => {
         try {
-          // ✅ Build URL with searchFieldType
           let url = `${API_BASE}/pc-inventory/search?q=${encodeURIComponent(debouncedSearch)}`;
           if (searchFieldType !== 'all') {
             url += `&field=${encodeURIComponent(searchFieldType)}`;
@@ -129,11 +133,12 @@ const PCInventoryPage = () => {
       ]);
       if (!invRes.success) throw new Error(invRes.error || 'Failed to fetch');
 
-      // ถ้ามี searchQuery อยู่ ให้ search ใหม่แทน set ตรงๆ
       if (searchQuery.length >= 2) {
-        const res = await fetch(
-          `${API_BASE}/pc-inventory/search?q=${encodeURIComponent(searchQuery)}`
-        ).then(r => r.json());
+        let url = `${API_BASE}/pc-inventory/search?q=${encodeURIComponent(searchQuery)}`;
+        if (searchFieldType !== 'all') {
+          url += `&field=${encodeURIComponent(searchFieldType)}`;
+        }
+        const res = await fetch(url).then(r => r.json());
         if (res.success) setInvData(res.data || []);
       } else {
         setInvData(invRes.data || []);
@@ -229,11 +234,12 @@ const PCInventoryPage = () => {
     if (key.startsWith('tanium:')) return (sumData.taniumVerMap || {})[key.slice(7)] || [];
     if (key === 'multiLogin') return multiLoginData.allHostnames || [];
     if (key.startsWith('patchkb:')) return (sumData.lastPatchKBMap || {})[key.slice(8)] || [];
+    if (key.startsWith('location:')) return (sumData.locationMap || {})[key.slice(9)] || [];
+    if (key === 'inactive') return sumData.inactive || [];
 
     return [];
   };
 
-  // ✅ FIX: search input only updates state (debounce handles API call)
   const onSearchInput = (e) => {
     setSearchQuery(e.target.value);
     setPage(1);
@@ -253,7 +259,6 @@ const PCInventoryPage = () => {
     setPage(1);
   };
 
-  // ✅ FIX: software sort toggle — properly handle key change vs direction toggle
   const toggleSoftwareSort = (key) => {
     if (softwareSortKey === key) setSoftwareSortAsc(prev => !prev);
     else { setSoftwareSortKey(key); setSoftwareSortAsc(true); }
@@ -268,7 +273,6 @@ const PCInventoryPage = () => {
       result = result.filter(d => intersection.has(d.hostname));
     }
 
-    // ✅ FIX 1: Add searchFieldType filter for 1 char search
     if (searchQuery.length === 1) {
       const q = searchQuery.toLowerCase();
       if (searchFieldType === 'all') {
@@ -289,22 +293,26 @@ const PCInventoryPage = () => {
       return 0;
     });
     return result;
-    // ✅ FIX 2: Add searchFieldType to dependencies
   }, [invData, filterKeys, searchQuery, searchFieldType, sortKey, sortAsc, sumData]);
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize));
   const currentList = filteredData.slice((page - 1) * pageSize, page * pageSize);
 
-  const showToast = (msg) => {
-    setToastMsg(msg);
-    setTimeout(() => setToastMsg(''), 3000);
-  };
+const showToast = (msg) => {
+  const isError = msg.startsWith('❌');
+  const cleanMsg = msg.replace(/^(✓|❌)\s*/, '');
+  setAlertModal({
+    isOpen: true,
+    type: isError ? 'error' : 'success',
+    title: isError ? 'เกิดข้อผิดพลาด' : 'สำเร็จ',
+    message: cleanMsg,
+  });
+};
 
-  const saveAsset = async () => {
-    // ✅ FIX: validate fix_asset format before saving
+const saveAsset = async () => {
     const asset = (modalData.assetInput || '').trim();
     if (asset && !/^[A-Za-z0-9\-_.]+$/.test(asset)) {
-      alert('รูปแบบ Fix Asset ไม่ถูกต้อง กรุณาใช้ตัวอักษร ตัวเลข หรือ - _ . เท่านั้น');
+      // ข้อความ validation แสดงอยู่ใต้ input ในโมดัลอยู่แล้ว ไม่ต้อง alert ซ้ำ
       return;
     }
     try {
@@ -316,10 +324,12 @@ const PCInventoryPage = () => {
       if (!data.success) throw new Error(data.error);
       showToast('✓ บันทึกข้อมูล Fix Asset เรียบร้อย');
       setShowAssetModal(false); fetchDetail(modalData.hostname);
-    } catch (err) { alert(err.message); }
+    } catch (err) {
+      showToast(`❌ ${err.message}`);
+    }
   };
 
-  const saveBl = async () => {
+const saveBl = async () => {
     try {
       const res = await fetch(`${API_BASE}/pc-inventory/${encodeURIComponent(modalData.hostname)}/bitlocker`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -329,19 +339,23 @@ const PCInventoryPage = () => {
       if (!data.success) throw new Error(data.error);
       showToast('✓ บันทึกข้อมูล BitLocker เรียบร้อย');
       setShowBlModal(false); fetchDetail(modalData.hostname);
-    } catch (err) { alert(err.message); }
+    } catch (err) {
+      showToast(`❌ ${err.message}`);
+    }
   };
 
-  const confirmDelete = async () => {
+const confirmDelete = async () => {
     try {
       const res = await fetch(`${API_BASE}/pc-inventory/${encodeURIComponent(modalData.hostname)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       setShowDeleteModal(false); setView('list'); setHostname(null);
-    } catch (err) { alert(err.message); }
+      showToast('✓ ลบข้อมูลเรียบร้อย');
+    } catch (err) {
+      showToast(`❌ ${err.message}`);
+    }
   };
 
-  // ✅ NEW: Export filtered list to XLSX
   const exportFilteredList = () => {
     try {
       if (filteredData.length === 0) { showToast('❌ ไม่มีข้อมูลที่จะ export'); return; }
@@ -367,7 +381,6 @@ const PCInventoryPage = () => {
         d.updated_at ? new Date(d.updated_at).toLocaleString('th-TH') : '',
       ]);
       const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-      // auto column width
       ws['!cols'] = headers.map((h, i) => ({
         wch: Math.max(h.length, ...rows.map(r => String(r[i] || '').length), 10),
       }));
@@ -387,7 +400,6 @@ const PCInventoryPage = () => {
       if (!detailData.inv) { showToast('❌ ไม่มีข้อมูล PC ที่จะ export'); return; }
       const wb = XLSX.utils.book_new();
 
-      // Sheet 1: PC Information
       const invFields = [
         ['Field', 'Value'],
         ['Hostname', detailData.inv.hostname],
@@ -440,7 +452,6 @@ const PCInventoryPage = () => {
       const ws1 = XLSX.utils.aoa_to_sheet(invFields);
       XLSX.utils.book_append_sheet(wb, ws1, 'PC Info');
 
-      // Sheet 2: Active Users
       const usersData = [
         ['Username', 'Session Name', 'Session ID', 'State', 'Logon Time'],
         ...detailData.users.map(u => [
@@ -450,7 +461,6 @@ const PCInventoryPage = () => {
       ];
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(usersData), 'Active Users');
 
-      // Sheet 3: Installed Software
       const softData = [
         ['Name', 'Version', 'Publisher', 'Install Location', 'Size (MB)'],
         ...detailData.software.map(s => [
@@ -549,9 +559,11 @@ const PCInventoryPage = () => {
     return result;
   }, [detailData.software, softwareSearch, softwareSortKey, softwareSortAsc]);
 
+  const currentSearchPlaceholder = SEARCH_FIELD_OPTIONS.find(o => o.value === searchFieldType)?.placeholder
+    || SEARCH_FIELD_OPTIONS[0].placeholder;
+
   return (
     <div className="space-y-6">
-      {/* Inventory Type Tabs */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex gap-2">
         <button
           onClick={() => setInventoryType('pc')}
@@ -609,7 +621,8 @@ const PCInventoryPage = () => {
                     <StatBox id="multiLogin" label="Multi-Login Users" list={multiLoginData.allHostnames} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" onSecondaryClick={() => setShowMultiLoginModal(true)} />
                     <StatBox id="noLocation" label="No Location" list={sumData?.noLocation} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" />
                     <StatBox id="longUptime" label="Uptime > 5 วัน" list={sumData?.longUptime} textClass="text-sky-600" bgClass="bg-sky-50" ringClass="ring-sky-500" />
-
+                    <StatBox id="inactive" label="ไม่ได้ใช้งาน" list={sumData?.inactive}
+  textClass="text-gray-500" bgClass="bg-gray-100" ringClass="ring-gray-400" />
                   </div>
 
                   {sumData && (
@@ -664,7 +677,26 @@ const PCInventoryPage = () => {
 </div>
 )}
 
-                  {/* ✅ NEW: Sticky active-filter bar + Export list button */}
+                  {/* ✅ NEW: Location Distribution — grouped by factory_layouts.name (see backend locationMap) */}
+                  {sumData && sumData.locationMap && Object.keys(sumData.locationMap).length > 0 && (
+                    <div className="bg-white border border-gray-200 rounded-xl p-3 px-3.5 shadow-sm mb-4">
+                      <div className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-3">Location / โซน</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.keys(sumData.locationMap)
+                          .sort((a, b) => sumData.locationMap[b].length - sumData.locationMap[a].length)
+                          .map(k => (
+                            <SumTag
+                              key={`location:${k}`}
+                              id={`location:${k}`}
+                              label={k}
+                              list={sumData.locationMap[k]}
+                              btnClass="bg-[#fdf2f8] text-[#be185d] border-[#fbcfe8]"
+                            />
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div
                     ref={filterBarRef}
                     className="flex flex-wrap items-center gap-2 mb-3"
@@ -680,7 +712,6 @@ const PCInventoryPage = () => {
                       </div>
                     )}
 
-                    {/* ✅ NEW: Export list button — always visible in list view */}
                     <button
                       onClick={exportFilteredList}
                       className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 shadow-sm transition-all active:scale-95 whitespace-nowrap"
@@ -692,24 +723,22 @@ const PCInventoryPage = () => {
 
                     <div className="relative mb-3 flex w-full gap-2">
 
-                    {/* Search Input */}
+                    {/* ✅ NEW: Search field dropdown — driven by SEARCH_FIELD_OPTIONS */}
+                    <select
+                      value={searchFieldType}
+                      onChange={(e) => { setSearchFieldType(e.target.value); setPage(1); }}
+                      className="bg-white border border-gray-200 rounded-xl py-2.5 px-3 text-[13px] font-medium text-gray-700 outline-none shadow-sm focus:border-blue-500 transition-colors shrink-0 cursor-pointer"
+                    >
+                      {SEARCH_FIELD_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+
                     <div className="relative flex-1">
                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Search size={15} /></div>
                       <input
                         type="text"
-                        placeholder={
-                          searchFieldType === 'all'
-                            ? "ค้นหาทุกฟิลด์: hostname, IP, Serial, CPU, Software ฯลฯ"
-                            : searchFieldType === 'hostname'
-                              ? "ค้นหา Hostname..."
-                              : searchFieldType === 'ip_address'
-                                ? "ค้นหา IP Address..."
-                                : searchFieldType === 'active_usernames'
-                                  ? "ค้นหา Username..."
-                                  : searchFieldType === 'fix_asset'
-                                    ? "ค้นหา Fix Asset..."
-                                    : "ค้นหา Serial Number..."
-                        }
+                        placeholder={currentSearchPlaceholder}
                         className="w-full bg-white border border-gray-200 rounded-xl py-2.5 pl-9 pr-4 text-[13px] outline-none shadow-sm focus:border-blue-500 transition-colors"
                         value={searchQuery}
                         onChange={onSearchInput}
@@ -752,7 +781,9 @@ const PCInventoryPage = () => {
                           ) : currentList.length === 0 ? (
                             <tr><td colSpan="10"><div className="text-center py-12 text-sm text-gray-400">🖥️ ไม่พบข้อมูล</div></td></tr>
                           ) : currentList.map(d => (
-                            <tr key={d.hostname} className="hover:bg-[#eff4ff] cursor-pointer transition-colors group" onClick={() => { setHostname(d.hostname); setView('detail'); }}>
+                            <tr key={d.hostname}
+  className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' ? 'opacity-50' : ''}`}
+  onClick={() => { setHostname(d.hostname); setView('detail'); }}>
                               <td className="py-2 px-3 text-[13px] font-medium text-gray-900">{d.hostname || '—'}</td>
                               <td className="py-2 px-3 text-[13px] font-mono text-gray-900 font-medium">{d.ip_address || '—'}</td>
                               <td className="py-2 px-3 text-[13px] font-medium text-blue-600">
@@ -762,15 +793,13 @@ const PCInventoryPage = () => {
                                   const skip = /^(UMFD|DWM|NT AUTHORITY|NETWORK|LOCAL|SYSTEM|ANONYMOUS)/i;
                                   const found = raw.split(',').map(u => {
                                     return u.trim()
-                                      .replace(/^[^\\]*\\/, '')  // ลบ domain prefix
-                                      .replace(/\$$/, '')         // ลบ $ suffix
+                                      .replace(/^[^\\]*\\/, '')
+                                      .replace(/\$$/, '')
                                       .trim();
                                   }).find(u => {
                                     if (!u) return false;
                                     if (skip.test(u)) return false;
-                                    // ✅ skip ถ้า clean username ตรงกับ hostname (machine account)
                                     if (u.toLowerCase() === (d.hostname || '').toLowerCase()) return false;
-                                    // ✅ skip ถ้าดูเหมือน machine name (มี _ หรือ - และไม่มี .)
                                     if (/^[A-Z0-9]+-[A-Z0-9_-]+$/i.test(u) && !u.includes('.')) return false;
                                     return true;
                                   });
@@ -829,7 +858,6 @@ const PCInventoryPage = () => {
                             alt={hostname}
                             className="w-full h-full object-cover rounded-[12px]"
                             onError={(e) => {
-                              // ถ้าโหลดรูป PC ไม่ขึ้น ให้โชว์ Icon แทน
                               e.target.style.display = 'none';
                               const span = document.createElement('span');
                               span.innerText = (detailData.inv.computer_type || '').toLowerCase().includes('notebook') ? '💻' : '🖥️';
@@ -859,11 +887,34 @@ const PCInventoryPage = () => {
                         </div>
                       </div>
                       <div className="flex gap-2">
+                      <button
+  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+    detailData.inv.pc_status === 'Inactive'
+      ? 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'
+      : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'
+  }`}
+  onClick={async () => {
+    const newStatus = detailData.inv.pc_status === 'Inactive' ? 'Active' : 'Inactive';
+    try {
+      const res = await fetch(`${API_BASE}/pc-inventory/${encodeURIComponent(hostname)}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pc_status: newStatus }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      showToast(`✓ เปลี่ยนสถานะเป็น ${newStatus === 'Inactive' ? 'ไม่ได้ใช้งาน' : 'ใช้งานปกติ'}`);
+      fetchDetail(hostname);
+    } catch (err) { showToast(`❌ ${err.message}`); }
+  }}
+>
+  {detailData.inv.pc_status === 'Inactive' ? '✓ Reactivate' : '⏸ Mark Inactive'}
+</button>
                         <button className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors" onClick={() => { setModalData({ hostname, assetInput: detailData.inv.fix_asset }); setShowAssetModal(true); }}>Edit Asset</button>
                         {isNotebookType(detailData.inv) && (
                           <button className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors" onClick={() => { setModalData({ hostname, keyC: detailData.inv.bitlocker_key_c, keyD: detailData.inv.bitlocker_key_d, pin: detailData.inv.bitlocker_pin }); setShowBlModal(true); }}>BitLocker Key</button>
                         )}
-                        {/* ✅ NEW: Edit Location button */}
+                        
                         <button
                           className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
                           onClick={() => setShowLocationModal(true)}
@@ -887,7 +938,6 @@ const PCInventoryPage = () => {
 
                       return (
                         <div className="space-y-6">
-                          {/* CURRENT SESSIONS */}
                           <div>
                             <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Sessions ปัจจุบัน</div>
                             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
@@ -918,7 +968,6 @@ const PCInventoryPage = () => {
                             </div>
                           </div>
 
-                          {/* INFORMATION */}
                           <div>
                             <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Information</div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-[1px] bg-gray-200 border border-gray-200 rounded-xl overflow-hidden">
@@ -930,7 +979,6 @@ const PCInventoryPage = () => {
                               <InfoCell label="MAC Address" value={detailData.inv.mac_address} fontCls="font-mono text-[12px] text-gray-500" />
                               <InfoCell label="Domain" value={detailData.inv.domain} />
                               <InfoCell label="Fix Asset" value={detailData.inv.fix_asset} textCol="text-blue-600" />
-                              {/* ✅ NEW: asset_tag, status, remark */}
                               <InfoCell label="Asset Tag" value={detailData.inv.asset_tag} textCol="text-blue-600" />
                               <InfoCell label="Status" value={detailData.inv.status} textCol={
                                 detailData.inv.status === 'Active' ? 'text-emerald-600' :
@@ -948,7 +996,6 @@ const PCInventoryPage = () => {
                             </div>
                           </div>
 
-                          {/* HARDWARE */}
                           <div>
                             <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Hardware</div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-[1px] bg-gray-200 border border-gray-200 rounded-xl overflow-hidden">
@@ -964,7 +1011,6 @@ const PCInventoryPage = () => {
                               <InfoCell label="GPU" value={detailData.inv.gpu} />
                               <InfoCell label="Resolution" value={detailData.inv.resolution} />
                               <InfoCell label="BIOS Version" value={detailData.inv.bios_version} fontCls="font-mono text-[12px] text-gray-500" />
-                              {/* ✅ PARSED: Disk SMART — each disk = its own InfoCell in the same grid */}
                               {(detailData.inv.disk_smart_info || '').split('||').map(s => s.trim()).filter(Boolean).map((disk, i) => {
                                 const parts = disk.split('|');
                                 const model = parts[0]?.trim() || '—';
@@ -989,7 +1035,6 @@ const PCInventoryPage = () => {
                                 );
                               })}
 
-                              {/* ✅ PARSED: Monitor — each monitor = its own InfoCell in the same grid */}
                               {(detailData.inv.monitor_info || '').split('||').map(s => s.trim()).filter(Boolean).map((m, i) => {
                                 const parts = m.split('|');
                                 const brand = parts[0]?.trim() || '—';
@@ -1005,7 +1050,6 @@ const PCInventoryPage = () => {
                                 );
                               })}
 
-                              {/* ✅ Printer — clickable InfoCell button */}
                               {detailData.inv.printer_info && (() => {
                                 const printers = detailData.inv.printer_info.split('||').map(s => s.trim()).filter(Boolean);
                                 const def = printers.find(p => p.includes('[DEFAULT]'))?.replace(/\|Port:.+$/, '').replace('[DEFAULT]', '').trim();
@@ -1021,7 +1065,6 @@ const PCInventoryPage = () => {
                                 );
                               })()}
 
-                              {/* ✅ USB Devices — clickable InfoCell button */}
                               {detailData.inv.usb_info && (() => {
                                 const usbs = detailData.inv.usb_info.split('||').map(s => s.trim()).filter(Boolean);
                                 const preview = usbs.slice(0, 2).map(u => u.split('|')[0].trim()).join(', ');
@@ -1040,7 +1083,6 @@ const PCInventoryPage = () => {
                             </div>
                           </div>
 
-                          {/* SYSTEMS */}
                           <div>
                             <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Systems</div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-[1px] bg-gray-200 border border-gray-200 rounded-xl overflow-hidden">
@@ -1057,7 +1099,6 @@ const PCInventoryPage = () => {
                               <InfoCell label="Activation Status" value={detailData.inv.os_activation} />
                               {detailData.inv.last_patch_kb && <InfoCell label="Last Patch KB" value={detailData.inv.last_patch_kb} fontCls="font-mono text-[12px] text-gray-500" />}
                               {detailData.inv.last_patch_date && <InfoCell label="Last Patch Date" value={fmtDate(detailData.inv.last_patch_date)} fontCls="font-mono text-[12px] text-gray-500" />}
-                              {/* ✅ Shutdown Events — clickable InfoCell button */}
                               {detailData.inv.shutdown_events && (() => {
                                 const events = detailData.inv.shutdown_events.split('||').map(s => s.trim()).filter(Boolean);
                                 const latest = events[0]?.split('|');
@@ -1076,7 +1117,6 @@ const PCInventoryPage = () => {
                                   </button>
                                 );
                               })()}
-                              {/* ✅ Timeline / History — clickable InfoCell button */}
                               {historyData.length > 0 && (() => {
                                 const latest = historyData[0];
                                 const isAdded = latest.change_type === 'software_added';
@@ -1099,7 +1139,6 @@ const PCInventoryPage = () => {
                             </div>
                           </div>
 
-                          {/* BATTERY / POWER */}
                           {isNotebookType(detailData.inv) && (detailData.inv.battery_percent || detailData.inv.battery_health || detailData.inv.battery_status) && (
                             <div>
                               <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Battery / Power</div>
@@ -1118,7 +1157,6 @@ const PCInventoryPage = () => {
                             </div>
                           )}
 
-                          {/* SECURITY */}
                           <div>
                             <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Security</div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-[1px] bg-gray-200 border border-gray-200 rounded-xl overflow-hidden">
@@ -1126,7 +1164,6 @@ const PCInventoryPage = () => {
                               <InfoCell label="CrowdStrike Ver" value={detailData.inv.crowdstrike_ver} fontCls="font-mono text-[12px] text-gray-500" />
                               <InfoCell label="Tanium Ver" value={detailData.inv.tanium_ver} fontCls="font-mono text-[12px] text-gray-500" />
                               <InfoCell label="UEMS Ver" value={detailData.inv.uems_ver} fontCls="font-mono text-[12px] text-gray-500" />
-                              {/* ✅ NEW: Secure Boot, TPM, UAC */}
                               <InfoCell label="Secure Boot" value={detailData.inv.secure_boot} textCol={
                                 (detailData.inv.secure_boot || '').toLowerCase() === 'enabled' ? 'text-green-600' :
                                   (detailData.inv.secure_boot || '').toLowerCase() === 'disabled' ? 'text-red-600' : undefined
@@ -1151,7 +1188,6 @@ const PCInventoryPage = () => {
                             </div>
                           </div>
 
-                          {/* ✅ NEW: NETWORK */}
                           {(detailData.inv.net_gateway || detailData.inv.net_dns || detailData.inv.net_subnet || detailData.inv.net_dhcp || detailData.inv.net_proxy) && (
                             <div>
                               <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Network</div>
@@ -1171,7 +1207,6 @@ const PCInventoryPage = () => {
                               </div>
                             </div>
                           )}
-                          {/* ✅ NEW: MAP VIEW TAB */}
                           <div>
                             <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">
                               Map View 📍
@@ -1197,7 +1232,6 @@ const PCInventoryPage = () => {
                             )}
                           </div>
 
-                          {/* SOFTWARE */}
                           <div>
                             <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Software ({detailData.software.length})</div>
                             <div className="relative mb-3 flex w-full">
@@ -1209,7 +1243,6 @@ const PCInventoryPage = () => {
                                 <table className="w-full text-left text-[14px] whitespace-nowrap">
                                   <thead className="bg-[#f5f6f8] border-b border-gray-200 text-[#9ca3af] text-[11px] uppercase tracking-wider">
                                     <tr>
-                                      {/* ✅ FIX: use toggleSoftwareSort for correct key tracking */}
                                       <th className="py-2.5 px-3 font-semibold cursor-pointer" onClick={() => toggleSoftwareSort('name')}>Name {softwareSortKey === 'name' ? (softwareSortAsc ? '▲' : '▼') : '↕'}</th>
                                       <th className="py-2.5 px-3 font-semibold cursor-pointer" onClick={() => toggleSoftwareSort('version')}>Version {softwareSortKey === 'version' ? (softwareSortAsc ? '▲' : '▼') : '↕'}</th>
                                       <th className="py-2.5 px-3 font-semibold cursor-pointer" onClick={() => toggleSoftwareSort('publisher')}>Publisher {softwareSortKey === 'publisher' ? (softwareSortAsc ? '▲' : '▼') : '↕'}</th>
@@ -1263,7 +1296,6 @@ const PCInventoryPage = () => {
             <div className="text-[13px] text-gray-500 mb-5">Hostname: {modalData.hostname}</div>
             <label className="block text-[12px] font-semibold text-gray-600 uppercase tracking-widest mb-1.5">Fix Asset Number</label>
             <input type="text" value={modalData.assetInput || ''} onChange={e => setModalData({ ...modalData, assetInput: e.target.value })} placeholder="e.g. DCI-IT-00123" className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:border-blue-600 outline-none transition-colors font-mono" />
-            {/* ✅ inline validation hint */}
             {modalData.assetInput && !/^[A-Za-z0-9\-_.]*$/.test(modalData.assetInput) && (
               <p className="text-[11px] text-red-500 mt-1.5">ใช้ได้เฉพาะ ตัวอักษร ตัวเลข - _ .</p>
             )}
@@ -1521,7 +1553,6 @@ const PCInventoryPage = () => {
                   const isAdded = h.change_type === 'software_added';
                   const isField = h.change_type === 'field_changed';
 
-                  // สีจาก field + direction
                   let dotColor = 'bg-gray-300';
                   let badgeClass = 'bg-gray-100 text-gray-500';
                   let badgeLabel = 'Changed';
@@ -1540,12 +1571,10 @@ const PCInventoryPage = () => {
 
                   return (
                     <div key={h.id} className="flex items-start gap-3 px-6 py-3 hover:bg-gray-50 transition-colors">
-                      {/* dot */}
                       <div className="flex flex-col items-center pt-1 shrink-0">
                         <div className={`w-2.5 h-2.5 rounded-full ${dotColor}`}></div>
                         {i < historyData.length - 1 && <div className="w-px flex-1 bg-gray-200 mt-1" style={{ minHeight: '24px' }}></div>}
                       </div>
-                      {/* content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badgeClass}`}>{badgeLabel}</span>
@@ -1561,7 +1590,6 @@ const PCInventoryPage = () => {
                           </div>
                         )}
                       </div>
-                      {/* timestamp */}
                       <span className="text-[11px] text-gray-400 font-mono shrink-0 pt-0.5 whitespace-nowrap">{fmtDate(h.changed_at)}</span>
                     </div>
                   );
@@ -1575,7 +1603,7 @@ const PCInventoryPage = () => {
         </div>
         </Portal>
       )}
-      {/* ✅ NEW: Location Modal */}
+      {/* ✅ Location Modal */}
       {showLocationModal && (
         <Portal>
         <LocationSelectorModal
@@ -1590,15 +1618,21 @@ const PCInventoryPage = () => {
         />
         </Portal>
       )}
-      {toastMsg && (
-        <div className="fixed bottom-5 left-5 bg-[#16a34a] text-white px-4 py-3 rounded-lg text-[13px] font-medium shadow-lg z-[9999] animate-in slide-in-from-bottom-5 duration-300">
-          {toastMsg}
-        </div>
-      )}
+      
+  <AlertModal
+  isOpen={alertModal.isOpen}
+  type={alertModal.type}
+  title={alertModal.title}
+  message={alertModal.message}
+  onConfirm={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+  confirmText="ตกลง"
+/>
+
 
       {inventoryType === 'mo' && <MOInventoryPage />}
     </div>
   );
+  
 };
 
 export default PCInventoryPage;

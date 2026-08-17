@@ -1,14 +1,24 @@
 import { sql, getPool } from '../config/db.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 // Helper for Thai Date
 const getThaiDate = () => new Date();
 
 export const uploadImage = (req, res) => {
-    if (!req.file) {
+    if (!req.files || !req.files.imageFile) {
         return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
-    const imageUrl = `/uploads/${req.file.filename}`;
-    res.json({ success: true, imageUrl });
+    const file = req.files.imageFile;
+    const fileName = `${Date.now()}_${file.name}`;
+    const uploadPath = path.join(__dirname, '../../uploads', fileName);
+    
+    file.mv(uploadPath, (err) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, imageUrl: `/uploads/${fileName}` });
+    });
 };
 
 // --- PRODUCTS ---
@@ -211,9 +221,43 @@ export const manualImport = async (req, res) => {
     }
 };
 
+// ✅ รูปแบบรหัสครุภัณฑ์บังคับ: CO + ตัวเลขล้วน เช่น CO24-001-05
+const FIXED_ASSET_CODE_REGEX = /^(CO|OF)\d{2}-\d{3}-\d{2}$/;
+
+export const checkFixedAssetCode = async (req, res) => {
+    const { code } = req.params;
+    if (!code || !code.trim()) {
+        return res.status(400).json({ error: 'Fixed asset code is required' });
+    }
+    try {
+        const pool = getPool();
+        const result = await pool.request()
+            .input('FixedAssetCode', sql.NVarChar, code.trim())
+            .query(`
+                SELECT TOP 1 ProductID, TransDate, UserID
+                FROM dbo.Stock_Transactions
+                WHERE FixedAssetCode = @FixedAssetCode
+                  AND TransType = 'OUT'
+                ORDER BY TransDate DESC
+            `);
+
+        if (result.recordset.length > 0) {
+            return res.json({ exists: true, detail: result.recordset[0] });
+        }
+        res.json({ exists: false });
+    } catch (err) {
+        console.error('Check Fixed Asset Code Error:', err);
+        res.status(500).json({ error: 'Database error' });
+    }
+};
+
 // WITHDRAW (Outbound)
 export const withdrawProduct = async (req, res) => {
-    const { ProductID, Qty, UserID, RefInfo } = req.body;
+    const {
+        ProductID, Qty, UserID, RefInfo,
+        EmployeeCode, EmployeeName, CostCenter,   // ✅ เพิ่ม 3 ตัวนี้
+        SerialNumber, FixedAssetCode,             // ✅ ใหม่: สำหรับ Asset type
+    } = req.body;
 
     try {
         const pool = getPool();
@@ -223,19 +267,44 @@ export const withdrawProduct = async (req, res) => {
         try {
             const checkStock = await new sql.Request(transaction)
                 .input('ProductID', sql.Int, ProductID)
-                .query('SELECT CurrentStock FROM dbo.Stock_Products WHERE ProductID = @ProductID');
+                .query('SELECT CurrentStock, DeviceType FROM dbo.Stock_Products WHERE ProductID = @ProductID');
 
             if (checkStock.recordset.length === 0) {
                 await transaction.rollback();
                 return res.status(404).json({ error: 'Product not found' });
             }
 
-            const currentStock = checkStock.recordset[0].CurrentStock;
+const { CurrentStock: currentStock, DeviceType } = checkStock.recordset[0];
+
+            // ✅ Server-side guard: Asset ต้องมี S/N + รหัสครุภัณฑ์เสมอ อย่าเชื่อ validation ฝั่ง frontend อย่างเดียว
+            if (DeviceType === 'Asset' && (!SerialNumber || !FixedAssetCode)) {
+                await transaction.rollback();
+                return res.status(400).json({ error: 'Asset ต้องระบุ Serial Number และรหัสครุภัณฑ์' });
+            }
+            if (DeviceType === 'Asset' && !FIXED_ASSET_CODE_REGEX.test(FixedAssetCode)) {
+                await transaction.rollback();
+                return res.status(400).json({ error: 'รูปแบบรหัสครุภัณฑ์ไม่ถูกต้อง (ต้องเป็น COXX-XXX-XX หรือ OFXX-XXX-XX)' });
+            }
+
+            // ✅ กันซ้ำจริงตอนบันทึกลง DB — กัน race condition กรณีเช็คผ่าน frontend ไปแล้วแต่มีคนอื่นชิงใช้รหัสเดียวกันไปก่อน
+            if (DeviceType === 'Asset') {
+                const dupCheck = await new sql.Request(transaction)
+                    .input('FixedAssetCode', sql.NVarChar, FixedAssetCode.trim())
+                    .query(`
+                        SELECT TOP 1 1 FROM dbo.Stock_Transactions
+                        WHERE FixedAssetCode = @FixedAssetCode AND TransType = 'OUT'
+                    `);
+                if (dupCheck.recordset.length > 0) {
+                    await transaction.rollback();
+                    return res.status(409).json({ error: `รหัสครุภัณฑ์ ${FixedAssetCode} ถูกใช้ไปแล้วในระบบ` });
+                }
+            }
+
             if (currentStock < Qty) {
                 await transaction.rollback();
                 return res.status(400).json({ error: 'Insufficient stock' });
             }
-
+            
             await new sql.Request(transaction)
                 .input('ProductID', sql.Int, ProductID)
                 .input('Qty', sql.Int, Qty)
@@ -249,9 +318,16 @@ export const withdrawProduct = async (req, res) => {
                 .input('RefInfo', sql.NVarChar, RefInfo || 'Internal Withdrawal')
                 .input('UserID', sql.NVarChar, UserID)
                 .input('TransDate', sql.DateTime, now)
+                .input('EmployeeCode', sql.VarChar, EmployeeCode || null)    // ✅
+                .input('EmployeeName', sql.NVarChar, EmployeeName || null)  // ✅
+                .input('CostCenter', sql.VarChar, CostCenter || null)       // ✅
+                .input('SerialNumber', sql.NVarChar, SerialNumber || null)       // ✅ ใหม่
+                .input('FixedAssetCode', sql.NVarChar, FixedAssetCode || null)   // ✅ ใหม่
                 .query(`
-                    INSERT INTO dbo.Stock_Transactions (ProductID, TransType, Qty, RefInfo, UserID, TransDate)
-                    VALUES (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate)
+                    INSERT INTO dbo.Stock_Transactions
+                        (ProductID, TransType, Qty, RefInfo, UserID, TransDate, EmployeeCode, EmployeeName, CostCenter, SerialNumber, FixedAssetCode)
+                    VALUES
+                        (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate, @EmployeeCode, @EmployeeName, @CostCenter, @SerialNumber, @FixedAssetCode)
                 `);
 
             await transaction.commit();
@@ -265,7 +341,6 @@ export const withdrawProduct = async (req, res) => {
         res.status(500).json({ error: 'Withdrawal failed' });
     }
 };
-
 // --- DEVICE TYPES ---
 
 // GET Device Types
@@ -398,4 +473,3 @@ export const getVendors = async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 };
-

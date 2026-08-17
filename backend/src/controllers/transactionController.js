@@ -15,7 +15,9 @@ export const getStockHistory = async (req, res) => {
                     t.TransType,
                     t.RefInfo,
                     t.UserID,
-                    t.BG_No
+                    t.BG_No,
+                    t.SerialNumber,
+                    t.FixedAssetCode
                 FROM dbo.Stock_Transactions t
                 WHERE t.ProductID = @ProductID
                 ORDER BY t.TransDate DESC
@@ -35,7 +37,9 @@ export const getTransactions = async (req, res) => {
         const pool = getPool();
         const request = pool.request();
         let query = `
-            SELECT t.TransID, t.ProductID, p.ProductName, t.TransType, t.Qty, t.RefInfo, t.UserID, t.TransDate, t.BG_No
+            SELECT t.TransID, t.ProductID, p.ProductName, t.TransType, t.Qty, t.RefInfo, t.UserID, t.TransDate, t.BG_No,
+                   t.EmployeeName, t.EmployeeCode, t.CostCenter,
+                   t.SerialNumber, t.FixedAssetCode
             FROM dbo.Stock_Transactions t
             LEFT JOIN dbo.Stock_Products p ON t.ProductID = p.ProductID
             WHERE 1=1

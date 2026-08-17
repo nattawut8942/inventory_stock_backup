@@ -16,6 +16,7 @@
         "@fullcalendar/timegrid": "^6.1.20",
         "axios": "^1.13.2",
         "clsx": "^2.1.1",
+        "express-fileupload": "^1.5.2",
         "lucide-react": "^0.563.0",
         "motion": "^12.29.2",
         "pdfjs-dist": "^5.4.624",
@@ -26,7 +27,8 @@
         "recharts": "^3.7.0",
         "tailwind-merge": "^3.4.0",
         "tesseract.js": "^7.0.0",
-        "xlsx": "^0.18.5"
+        "xlsx": "^0.18.5",
+        "xlsx-js-style": "^1.2.0"
     },
     "devDependencies": {
         "@vitejs/plugin-react": "^4.7.0",

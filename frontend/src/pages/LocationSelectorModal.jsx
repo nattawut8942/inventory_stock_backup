@@ -12,6 +12,7 @@ const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onC
     const [imageLoaded, setImageLoaded] = useState(false);
     const canvasRef = useRef(null);
     const imageRef = useRef(null);
+    const [showClearConfirm, setShowClearConfirm] = useState(false);
 
     const currentLayout = layouts?.find(l => l.id === selectedLayout);
 
@@ -57,11 +58,11 @@ const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onC
                 // วาดวงกลมพื้นหลังจางๆ
                 ctx.fillStyle = 'rgba(75, 85, 99, 0.4)';
                 ctx.beginPath();
-                ctx.arc(px, py, 18, 0, Math.PI * 2);
+                ctx.arc(px, py, 10, 0, Math.PI * 2);
                 ctx.fill();
 
                 // วาด Icon ตามประเภท
-                ctx.font = '16px Arial';
+                ctx.font = '10px Arial';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(getDeviceIcon(pc.computer_type), px, py);
@@ -69,7 +70,7 @@ const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onC
                 // ชื่อเครื่อง
                 ctx.font = 'bold 12px Arial';
                 ctx.fillStyle = '#4b5563';
-                ctx.fillText(pc.hostname, px, py + 35);
+                ctx.fillText(pc.hostname, px, py + 22);
             }
         });
 
@@ -82,7 +83,7 @@ const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onC
             ctx.shadowColor = "rgba(59, 130, 246, 0.5)";
             ctx.fillStyle = '#3b82f6';
             ctx.beginPath();
-            ctx.arc(pixelX, pixelY, 22, 0, Math.PI * 2);
+            ctx.arc(pixelX, pixelY, 14, 0, Math.PI * 2);
             ctx.fill();
 
             ctx.shadowBlur = 0;
@@ -91,7 +92,7 @@ const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onC
             ctx.stroke();
 
             // วาด Icon เครื่องปัจจุบัน
-            ctx.font = '20px Arial';
+            ctx.font = '14px Arial';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             // หาประเภทเครื่องปัจจุบันจากข้อมูลที่ส่งมา
@@ -100,7 +101,7 @@ const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onC
 
             ctx.font = 'bold 14px Arial';
             ctx.fillStyle = '#1d4ed8';
-            ctx.fillText("YOU", pixelX, pixelY + 40);
+            ctx.fillText("YOU", pixelX, pixelY + 25);
         }
     }, [imageLoaded, locationX, locationY, allPCsInLayout]);
 
@@ -150,7 +151,19 @@ const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onC
             setLoading(false);
         }
     };
-
+const handleClearLocation = async () => {
+    setLoading(true);
+    try {
+        await fetch(`${API_BASE}/${saveApiBase}/${encodeURIComponent(hostname)}`, { method: 'DELETE' });
+        setLocationX(null); setLocationY(null); setSelectedLayout(null);
+        onSave?.();
+    } catch (err) {
+        setError(err.message);
+    } finally {
+        setLoading(false);
+        setShowClearConfirm(false);
+    }
+};
     return (
         <Portal>
             <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
@@ -227,15 +240,9 @@ const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onC
                         </div>
                     </div>
 
-                    <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center bg-gray-50">
+                     <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center bg-gray-50">
                         <button
-                            onClick={async () => {
-                                if (!confirm('ล้างข้อมูลตำแหน่ง?')) return;
-                                setLoading(true);
-                                await fetch(`${API_BASE}/${saveApiBase}/${encodeURIComponent(hostname)}`, { method: 'DELETE' });
-                                setLocationX(null); setLocationY(null); setSelectedLayout(null);
-                                onSave?.(); setLoading(false);
-                            }}
+                            onClick={() => setShowClearConfirm(true)}
                             className="text-red-500 font-bold text-sm hover:underline"
                         >
                             ล้างตำแหน่ง
@@ -251,8 +258,43 @@ const LocationSelectorModal = ({ hostname, initialLocation, layouts, onSave, onC
                             </button>
                         </div>
                     </div>
+
+                    {/* ✅ เพิ่ม error display ตรงนี้ */}
+                    {error && (
+                        <div className="px-6 py-2 text-[13px] text-red-600 bg-red-50 border-t border-red-100">
+                            ⚠️ {error}
+                        </div>
+                    )}
                 </div>
             </div>
+
+            {/* ✅ เพิ่ม confirm modal ตรงนี้ ก่อนปิด </Portal> */}
+            {showClearConfirm && (
+                <div className="fixed inset-0 bg-black/50 z-[10000] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl p-7 w-full max-w-[400px] shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                        <h3 className="text-[16px] font-bold mb-2">ล้างข้อมูลตำแหน่ง</h3>
+                        <p className="text-[14px] text-gray-600 leading-relaxed mb-5">
+                            คุณต้องการล้างตำแหน่งของ <b>{hostname}</b> บนแผนผังใช่หรือไม่?
+                        </p>
+                        <div className="flex justify-end gap-2.5 mt-5">
+                            <button
+                                className="px-5 py-2.5 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+                                onClick={() => setShowClearConfirm(false)}
+                                disabled={loading}
+                            >
+                                ยกเลิก
+                            </button>
+                            <button
+                                className="px-5 py-2.5 rounded-lg bg-[#dc2626] text-white text-[13px] font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
+                                onClick={handleClearLocation}
+                                disabled={loading}
+                            >
+                                {loading ? 'กำลังล้าง...' : 'ล้างตำแหน่ง'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </Portal>
     );
 };

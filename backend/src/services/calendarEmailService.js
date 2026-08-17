@@ -43,7 +43,8 @@ const getTodayTasks = async () => {
             CONVERT(VARCHAR(10), t.end_date,   120) AS end_date
         FROM  [dbo].[cal_tasks]         t
         JOIN  [dbo].[lkp_cal_task_type] lk ON t.task_type = lk.type_key
-        WHERE t.start_date = CAST(GETDATE() AS DATE)
+        WHERE CAST(t.start_date AS DATE) = CAST(GETDATE() AS DATE)
+
         ORDER BY
             CASE t.task_type
                 WHEN 'urgent'      THEN 1
@@ -66,7 +67,8 @@ const getTomorrowTasks = async () => {
             lk.type_label
         FROM  [dbo].[cal_tasks]         t
         JOIN  [dbo].[lkp_cal_task_type] lk ON t.task_type = lk.type_key
-        WHERE t.start_date = CAST(DATEADD(DAY, 1, GETDATE()) AS DATE)
+        WHERE CAST(t.start_date AS DATE) = CAST(DATEADD(DAY, 1, CAST(GETDATE() AS DATE)) AS DATE)
+
         ORDER BY t.task_type
     `);
     return result.recordset;

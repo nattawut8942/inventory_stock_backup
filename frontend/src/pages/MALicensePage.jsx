@@ -12,24 +12,35 @@ import AlertModal from '../components/AlertModal';
 import Portal from '../components/Portal';
 import { API_BASE } from '../config/api';
 
+
 // ─── CONSTANTS ───────────────────────────
 const CATEGORIES = [
-    { key: 'ALL', label: 'All Categories', icon: Layers, color: 'from-slate-700 to-slate-800', bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
-    { key: 'HARDWARE', label: 'Hardware MA', icon: Server, color: 'from-blue-500 to-blue-600', bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200' },
-    { key: 'SOFTWARE', label: 'Software License', icon: Globe, color: 'from-violet-500 to-purple-600', bg: 'bg-violet-50', text: 'text-violet-600', border: 'border-violet-200' },
-    { key: 'SERVICE', label: 'Services', icon: Wrench, color: 'from-emerald-500 to-teal-600', bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200' },
-    { key: 'RENTAL', label: 'Rental', icon: Printer, color: 'from-amber-500 to-orange-600', bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200' },
+    { key: 'ALL', label: 'All CATEGORIES', icon: Layers, color: 'from-slate-700 to-slate-800', bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
+    { key: 'HARDWARE', label: 'HARDWARE MA', icon: Server, color: 'from-blue-500 to-blue-600', bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200' },
+    { key: 'SOFTWARE', label: 'SOFTWARE LICENSE', icon: Globe, color: 'from-violet-500 to-purple-600', bg: 'bg-violet-50', text: 'text-violet-600', border: 'border-violet-200' },
+    { key: 'SERVICE', label: 'SERVICES', icon: Wrench, color: 'from-emerald-500 to-teal-600', bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200' },
+    { key: 'RENTAL', label: 'RENTAL', icon: Printer, color: 'from-amber-500 to-orange-600', bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200' },
 ];
 
-const STATUS_OPTIONS = ['Active', 'Expiring', 'Expired', 'Cancelled'];
+const STATUS_OPTIONS = ['Active', 'Expiring', 'Expired', 'Pending', 'Cancelled'];
 const STATUS_COLORS = {
     Active: 'bg-emerald-100 text-emerald-700 border-emerald-200',
     Expiring: 'bg-orange-100 text-orange-700 border-orange-200',
     Expired: 'bg-red-100 text-red-700 border-red-200',
+    Pending: 'bg-yellow-100 text-amber-700 border-amber-500',
     Cancelled: 'bg-slate-100 text-slate-500 border-slate-200',
 };
 
 const ALERT_DAYS = 60;
+// ── NEW: Alert threshold for master contract ──
+const CONTRACT_ALERT_DAYS = 90;
+
+const PO_CYCLE_OPTIONS = [
+    { value: 'annual', label: 'รายปี (Annual)' },
+    { value: 'monthly', label: 'รายเดือน (Monthly)' },
+    { value: 'oneshot', label: 'ครั้งเดียว (One-shot)' },
+];
+
 
 // ─── HELPER: Days remaining ──────────────
 const getDaysRemaining = (endDate) => {
@@ -90,6 +101,317 @@ const StatCard = ({ icon: Icon, title, value, color, subtitle, onClick, isActive
     </motion.div>
 );
 
+// ─── NEW: RENTAL DUAL-TIMELINE CARD ──────
+// แสดง 2 แถบ: สัญญาหลัก (ContractEndDate) + PO ปัจจุบัน (EndDate)
+const RentalTimelineCard = ({ item }) => {
+    const daysContract = getDaysRemaining(item.ContractEndDate);
+    const daysPO = getDaysRemaining(item.EndDate);
+
+    const contractAlert = daysContract !== null && daysContract <= CONTRACT_ALERT_DAYS && item.Status !== 'Cancelled';
+    const poAlert = daysPO !== null && daysPO <= ALERT_DAYS && item.Status !== 'Cancelled';
+
+    const renderDaysLabel = (days, label) => {
+        if (days === null) return null;
+        if (days <= 0) return <span className="text-red-600 font-bold text-xs animate-pulse">หมดอายุแล้ว</span>;
+        const display = days < 30 ? `${days} วัน` : formatDuration(new Date(), new Date(Date.now() + days * 86400000));
+
+        const color = days <= 30 ? 'text-red-600' : days <= ALERT_DAYS ? 'text-orange-500' : 'text-emerald-600';
+        return <span className={`font-bold text-base ${color}`}>เหลือ {display}</span>;
+    };
+
+
+
+    return (
+        <div className="space-y-1 pt-1 border-t border-black/5 mt-1">
+            {/* PO ปัจจุบัน */}
+            <div className={`rounded-lg p-2 border ${poAlert ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-center justify-between mb-1">
+                    <span className={`text-[12px] font-black uppercase tracking-wider flex items-center gap-1 ${poAlert ? 'text-orange-600' : 'text-slate-500'}`}>
+                        <CreditCard size={20} />
+                        PO ปัจจุบัน
+                        {poAlert && <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange-500 animate-ping ml-0.5" />}
+                    </span>
+                    {renderDaysLabel(daysPO)}
+                </div>
+                <div className="flex justify-between text-[12px]">
+                    <span className="text-slate-500">{item.PONumber || '-'}</span>
+                    <span className={`font-bold text-2xl ${poAlert ? 'text-orange-700 font-bold' : 'text-slate-700'}`}>
+
+                        {formatDate(item.EndDate)}
+                    </span>
+                </div>
+            </div>
+
+            {/* สัญญาหลัก */}
+            {item.ContractEndDate && (
+                <div className={`rounded-lg p-2 border ${contractAlert ? 'bg-red-50 border-red-200' : 'bg-indigo-50 border-indigo-100'}`}>
+                    <div className="flex items-center justify-between mb-1">
+                        <span className={`text-[12px] font-black uppercase tracking-wider flex items-center gap-1 ${contractAlert ? 'text-red-600' : 'text-indigo-500'}`}>
+                            <FileText size={20} />
+                            สัญญาหลัก
+                            {contractAlert && <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-ping ml-0.5" />}
+                        </span>
+                        {renderDaysLabel(daysContract)}
+                    </div>
+                    <div className="flex justify-between text-[12px]">
+                        <span className="text-slate-500">{formatDate(item.StartDate)} →</span>
+                        <span className={`font-bold text-2xl ${contractAlert ? 'text-red-700 font-bold' : 'text-indigo-700'}`}>
+                            {formatDate(item.ContractEndDate)}
+                        </span>
+                    </div>
+                    <div className="text-[10px]  text-slate-600 mt-0.5 text-right">
+                        ระยะสัญญา: {formatDuration(item.StartDate, item.ContractEndDate)}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+const sortByNearestExpiry = (list) => {
+    return [...list].sort((a, b) => {
+        const daysA = getDaysRemaining(a.EndDate);
+        const daysB = getDaysRemaining(b.EndDate);
+        const valA = daysA === null ? 999999 : daysA;
+        const valB = daysB === null ? 999999 : daysB;
+        return valA - valB;
+    });
+};
+
+const TV_STATUS_STYLE_DARK = {
+    Active: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+    Expiring: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+    Expired: 'bg-red-500/20 text-red-300 border-red-500/40',
+    Pending: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40',
+    Cancelled: 'bg-slate-500/20 text-slate-400 border-slate-500/40',
+};
+const TV_STATUS_STYLE_LIGHT = {
+    Active: 'bg-emerald-200 text-emerald-800 border-emerald-400',
+    Expiring: 'bg-orange-200 text-orange-800 border-orange-400',
+    Expired: 'bg-red-200 text-red-800 border-red-400',
+    Pending: 'bg-yellow-200 text-amber-800 border-yellow-500',
+    Cancelled: 'bg-slate-200 text-slate-600 border-slate-400',
+};
+
+
+const MATVCard = ({ item, theme = 'dark' }) => {
+    const isDark = theme === 'dark';
+    const days = getDaysRemaining(item.EndDate);
+    const daysContract = getDaysRemaining(item.ContractEndDate);
+    const isExpiring = days !== null && days > 0 && days <= ALERT_DAYS;
+    const isExpired = days !== null && days <= 0;
+    const isCancelled = item.Status === 'Cancelled';
+    const isPending = item.Status === 'Pending';
+    const isRental = item.Category === 'RENTAL';
+    const catInfo = CATEGORIES.find(c => c.key === item.Category);
+
+    const cardBg = isDark
+        ? (isCancelled ? 'bg-slate-800/60 border-slate-700 opacity-60'
+            : isPending ? 'bg-yellow-950/40 border-yellow-600/50'
+                : isExpired ? 'bg-red-950/50 border-red-600/60'
+                    : isExpiring ? (days <= 30 ? 'bg-red-950/60 border-red-500/70' : 'bg-orange-950/40 border-orange-600/50')
+                        : 'bg-slate-800/60 border-slate-700')
+        : (isCancelled ? 'bg-slate-100 border-slate-300 opacity-75'
+            : isPending ? 'bg-yellow-200 border-yellow-600 ring-1 ring-yellow-300'
+                : isExpired ? 'bg-red-200 border-red-500 ring-1 ring-red-300'
+                    : isExpiring ? (days <= 30 ? 'bg-red-300 border-red-700 ring-1 ring-red-300' : 'bg-orange-200 border-orange-500 ring-1 ring-orange-300')
+                        : 'bg-emerald-50 border-emerald-200');
+
+    const statusStyle = isDark ? TV_STATUS_STYLE_DARK : TV_STATUS_STYLE_LIGHT;
+
+    const tBorder = isDark ? 'border-white/15' : 'border-black/10';
+    const tTitle = isDark ? 'text-white' : 'text-slate-800';
+    const tSub = isDark ? 'text-white/85' : 'opacity-85';
+    const tLabel = isDark ? 'text-white/90 font-bold' : 'font-bold opacity-90';
+    const tMuted = isDark ? 'text-white/70' : 'opacity-70';
+    const tValue = isDark ? 'text-white/95 font-semibold' : 'font-semibold opacity-95';
+
+    return (
+        <div className={`rounded-2xl border shadow-lg overflow-hidden flex flex-col relative ${cardBg}`}>
+            {(isExpiring || isExpired) && !isCancelled && <div className="absolute top-0 right-0 w-3 h-3 rounded-full bg-red-500 m-3 animate-ping" />}
+
+            {/* Header */}
+            <div className={`p-3.5 border-b ${tBorder} flex items-start gap-3`}>
+                <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${catInfo?.color || 'from-slate-500 to-slate-600'} flex items-center justify-center shadow-sm shrink-0`}>
+                    {catInfo && <catInfo.icon className="w-6 h-6 text-white" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                    <h4 className={`font-black ${tTitle} text-2xl leading-snug truncate`}>{item.ItemName}</h4>
+                    {item.Brand && (
+                        <p className={`font-semibold ${tSub} text-lg truncate`}>{item.Brand}</p>
+                    )}
+                    {item.SerialNumber && (
+                        <div className="flex items-center gap-1 text-base">
+                            <span className={`${isDark ? 'text-emerald-400' : 'text-emerald-700'} font-semibold whitespace-nowrap`}>S/N:</span>
+                            <span className={`font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-700'} truncate`}>{item.SerialNumber}</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-3.5 flex-1 space-y-2.5">
+                <div className="flex justify-between items-center font-bold text-xl">
+                    <span className={tLabel}>สถานะ:</span>
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-lg font-bold border ${statusStyle[item.Status] || statusStyle.Active} ${isExpiring && !isCancelled && !isPending ? 'animate-pulse ring-2 ring-red-400/50 ring-offset-1' : ''}`}>
+                        {item.Status}
+                    </span>
+                </div>
+
+                {isRental ? (
+                    <div className={`space-y-1.5 pt-1 border-t ${tBorder} mt-1`}>
+                        <div className={`rounded-lg p-2.5 border ${isDark
+                            ? (days !== null && days <= ALERT_DAYS ? 'bg-orange-950/40 border-orange-600/40' : 'bg-slate-700/40 border-slate-600/40')
+                            : (days !== null && days <= ALERT_DAYS ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200')}`}>
+                            <div className="flex justify-between items-center text-base mb-0.5">
+                                <span className={`${tLabel} font-semibold`}>PO ปัจจุบันหมด:</span>
+                                <span className={`font-bold text-3xl ${days !== null && days <= ALERT_DAYS ? (isDark ? 'text-orange-300' : 'text-orange-600') : tValue}`}>{formatDate(item.EndDate)}</span>
+
+                            </div>
+                            <div className={`text-sm ${tMuted}`}>{item.PONumber || '-'}</div>
+                        </div>
+                        {item.ContractEndDate && (
+                            <div className={`rounded-lg p-2.5 border ${isDark
+                                ? (daysContract !== null && daysContract <= CONTRACT_ALERT_DAYS ? 'bg-red-950/40 border-red-600/40' : 'bg-indigo-950/40 border-indigo-600/40')
+                                : (daysContract !== null && daysContract <= CONTRACT_ALERT_DAYS ? 'bg-red-50 border-red-200' : 'bg-indigo-50 border-indigo-100')}`}>
+                                <div className="flex justify-between items-center text-base">
+                                    <span className={`${tLabel} font-semibold`}>สัญญาหลักหมด:</span>
+                                    <span className={`font-bold text-3xl ${daysContract !== null && daysContract <= CONTRACT_ALERT_DAYS ? (isDark ? 'text-red-300' : 'text-red-600') : (isDark ? 'text-indigo-300' : 'text-indigo-700')}`}>{formatDate(item.ContractEndDate)}</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <>
+                        <div className="flex justify-between items-center font-bold text-2xl">
+                            <span className={tLabel}>หมดอายุ:</span>
+                            <span className={`text-3xl ${(isExpiring || isExpired) && !isCancelled ? (isDark ? 'text-red-400 font-bold animate-pulse' : 'text-red-600 font-bold animate-pulse') : `font-semibold ${tValue}`}`}>
+                                {formatDate(item.EndDate)}
+                            </span>
+                        </div>
+                        <div className="flex justify-between items-center font-bold text-2xl">
+                            <span className={tLabel}>เหลือเวลา:</span>
+                            {days === null ? <span className={tMuted}>-</span>
+                                : days <= 0 ? <span className={`${isDark ? 'text-red-400' : 'text-red-600'} font-black text-3xl animate-pulse`}>หมดอายุ</span>
+                                    : <span className={`font-black text-3xl ${days <= ALERT_DAYS ? (isDark ? 'text-orange-400' : 'text-orange-600') : (isDark ? 'text-emerald-400' : 'text-emerald-600')}`}>
+                                        {days < 30 ? `${days} วัน` : formatDuration(new Date(), item.EndDate)}
+                                    </span>}
+                        </div>
+                        {(item.PONumber || item.ServiceNumber) && (
+                            <div className="flex justify-between items-start gap-2 text-lg">
+                                <span className={`${tMuted} whitespace-nowrap`}>PO/สัญญา:</span>
+                                <span className={`font-semibold  ${tValue} text-right truncate`}>{item.PONumber || item.ServiceNumber}</span>
+                            </div>
+                        )}
+                        {item.StartDate && (
+                            <div className="flex justify-between items-center text-lg">
+                                <span className={`${tMuted} whitespace-nowrap`}>เริ่มต้น:</span>
+                                <span className={`font-semibold ${tValue}`}>{formatDate(item.StartDate)}</span>
+                            </div>
+                        )}
+                        {item.StartDate && item.EndDate && (
+                            <div className="flex justify-between items-center text-lg">
+                                <span className={`${tMuted} whitespace-nowrap`}>ระยะเวลา:</span>
+                                <span className={`font-semibold ${tValue}`}>{formatDuration(item.StartDate, item.EndDate)}</span>
+                            </div>
+                        )}
+                    </>
+                )}
+
+                <div className={`flex items-start gap-2 text-lg pt-2 border-t ${tBorder}`}>
+                    <span className={`${tLabel} font-bold whitespace-nowrap`}>VENDOR :</span>
+                    <span className={`font-semibold ${tValue} text-right truncate`}>{item.VendorName || '-'}</span>
+                </div>
+                {item.LocationName && (
+                    <div className="flex items-center gap-1.5 text-lg">
+                        <MapPin size={18} className={`${tMuted} shrink-0`} />
+                        <span className={tValue}>{item.LocationName}</span>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
+const MATVView = ({ items, onBack, theme = 'dark', onToggleTheme }) => {
+    const isDark = theme === 'dark';
+
+    useEffect(() => {
+        const tick = () => {
+            const el = document.getElementById('ma-tv-clock');
+            if (el) el.textContent = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        };
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => clearInterval(id);
+    }, []);
+
+    const sorted = useMemo(() => sortByNearestExpiry(items.filter(i => i.Status !== 'Cancelled')), [items]);
+
+    const expiredCount = sorted.filter(i => { const d = getDaysRemaining(i.EndDate); return d !== null && d <= 0; }).length;
+    const expiringCount = sorted.filter(i => { const d = getDaysRemaining(i.EndDate); return d !== null && d > 0 && d <= ALERT_DAYS; }).length;
+    const activeCount = sorted.length - expiredCount - expiringCount;
+
+    return (
+        <Portal>
+            <style>{`
+                .ma-tv-scroll::-webkit-scrollbar { display: none; }
+                .ma-tv-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+            `}</style>
+            <div className={`fixed inset-0 z-40 flex flex-col overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
+                {/* Header */}
+                <div className={`flex items-center justify-between px-10 py-4 border-b shadow-lg flex-shrink-0 gap-6 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <div className="flex items-center gap-4">
+                        <button onClick={onBack}
+                            className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition-colors border shadow-sm ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'}`}>
+                            ← กลับ
+                        </button>
+                        <div>
+                            <h1 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>MA / LICENSE EXPIRY DASHBOARD</h1>
+                            <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>เรียงตามวันที่ใกล้หมดอายุที่สุดก่อน · ทั้งหมด {sorted.length} รายการ</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <div className={`flex flex-col items-center px-5 py-2.5 rounded-xl border ${isDark ? 'bg-red-950/50 border-red-700/50' : 'bg-red-100 border-red-300'}`}>
+                            <p className={`text-2xl font-black ${isDark ? 'text-red-400' : 'text-red-700'}`}>{expiredCount}</p>
+                            <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>Expired</p>
+                        </div>
+                        <div className={`flex flex-col items-center px-5 py-2.5 rounded-xl border ${isDark ? 'bg-orange-950/50 border-orange-700/50' : 'bg-orange-100 border-orange-300'}`}>
+                            <p className={`text-2xl font-black ${isDark ? 'text-orange-400' : 'text-orange-700'}`}>{expiringCount}</p>
+                            <p className="text-xs mt-0.5 text-slate-500">Expiring</p>
+                        </div>
+                        <div className={`flex flex-col items-center px-5 py-2.5 rounded-xl border ${isDark ? 'bg-emerald-950/50 border-emerald-700/50' : 'bg-emerald-100 border-emerald-300'}`}>
+                            <p className={`text-2xl font-black ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>{activeCount}</p>
+                            <p className="text-xs mt-0.5 text-slate-500">Active</p>
+                        </div>
+
+                        {/* ปุ่ม Dark / Light toggle */}
+                        <button onClick={onToggleTheme}
+                            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl border text-sm font-bold transition-colors ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-yellow-300 border-slate-700' : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'}`}>
+                            {isDark ? '☀️ Light' : '🌙 Dark'}
+                        </button>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                        <p className={`text-6xl font-mono ${isDark ? 'text-white' : 'text-slate-700'}`} id="ma-tv-clock">—</p>
+                    </div>
+                </div>
+
+                {/* Grid — เลื่อนได้ ไม่เห็น scrollbar */}
+                <div className="flex-1 overflow-y-auto px-8 py-6 ma-tv-scroll">
+                    {sorted.length === 0 ? (
+                        <p className={`text-center py-20 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>ไม่มีรายการ</p>
+                    ) : (
+                        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
+                            {sorted.map(item => <MATVCard key={item.ItemID} item={item} theme={theme} />)}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </Portal>
+    );
+};
+
+
 // ─── MAIN PAGE COMPONENT ─────────────────
 const MALicensePage = () => {
     const { user } = useAuth();
@@ -114,7 +436,9 @@ const MALicensePage = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const [sortConfig, setSortConfig] = useState(null);
     const itemsPerPage = 20;
-    const intervalRef = useRef(null); 
+    const intervalRef = useRef(null);
+    const [tvMode, setTvMode] = useState(false);
+    const [tvTheme, setTvTheme] = useState('dark');
 
     const fetchItems = async () => {
         try {
@@ -146,21 +470,21 @@ const MALicensePage = () => {
         } catch (err) { console.error(err); }
     };
 
-   useEffect(() => {
-    fetchItems();
-    fetchVendors();
-    fetchLocations();
-    fetchMATypes();
-
-    intervalRef.current = setInterval(() => {
-        console.log('🔄 Auto-refresh:', new Date().toLocaleTimeString());
+    useEffect(() => {
         fetchItems();
-    }, 5 * 60 * 1000);
+        fetchVendors();
+        fetchLocations();
+        fetchMATypes();
 
-    return () => {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-}, []);
+        intervalRef.current = setInterval(() => {
+            console.log('🔄 Auto-refresh:', new Date().toLocaleTimeString());
+            fetchItems();
+        }, 5 * 60 * 1000);
+
+        return () => {
+            if (intervalRef.current) clearInterval(intervalRef.current);
+        };
+    }, []);
 
     const filteredItems = useMemo(() => {
         return items
@@ -206,14 +530,11 @@ const MALicensePage = () => {
                 return 0;
             });
         } else if (activeTab === 'ALL') {
-            // ─── PRIORITY SORT FOR "ALL" TAB ───────────────────────────
             sortableItems.sort((a, b) => {
                 const daysA = getDaysRemaining(a.EndDate);
                 const daysB = getDaysRemaining(b.EndDate);
-
                 const valA = daysA === null ? 999999 : daysA;
                 const valB = daysB === null ? 999999 : daysB;
-
                 return valA - valB;
             });
         }
@@ -237,11 +558,11 @@ const MALicensePage = () => {
         const active = items.filter(i => i.Status === 'Active').length;
         const expiringSoon = items.filter(i => {
             const days = getDaysRemaining(i.EndDate);
-            return days !== null && days > 0 && days <= ALERT_DAYS && i.Status !== 'Cancelled';
+            return days !== null && days > 0 && days <= ALERT_DAYS && i.Status !== 'Cancelled' && i.Status !== 'Pending';
         }).length;
         const expired = items.filter(i => {
             const days = getDaysRemaining(i.EndDate);
-            return days !== null && days <= 0 && i.Status !== 'Cancelled';
+            return days !== null && days <= 0 && i.Status !== 'Cancelled' && i.Status !== 'Pending';
         }).length;
         const totalValue = items.filter(i => i.Status === 'Active').reduce((sum, i) => sum + (i.Price || 0), 0);
         return { active, expiringSoon, expired, totalValue };
@@ -310,7 +631,7 @@ const MALicensePage = () => {
             { key: 'CreatedBy', label: 'ผู้บันทึก', width: 'min-w-[100px]' },
             { key: 'CreatedAt', label: 'วันบันทึก', width: 'whitespace-nowrap min-w-[100px]' },
         ];
-        
+
         if (cat === 'ALL') {
             return [
                 { key: 'Category', label: 'กลุ่มหลัก', width: 'min-w-[110px]' },
@@ -367,8 +688,10 @@ const MALicensePage = () => {
                 { key: 'PONumber', label: 'เลขสัญญา', width: 'min-w-[120px] break-all' },
                 { key: 'LicenseQty', label: 'จำนวน', width: 'min-w-[60px] text-center' },
                 { key: 'VendorName', label: 'Vendor', width: 'min-w-[120px]' },
-                { key: 'EndDate', label: 'หมดสัญญา', width: 'whitespace-nowrap min-w-[90px]' },
-                { key: '_duration', label: 'เหลือเวลา', width: 'whitespace-nowrap min-w-[80px]' },
+                { key: 'EndDate', label: 'PO หมด', width: 'whitespace-nowrap min-w-[90px]' },
+                { key: 'ContractEndDate', label: 'สัญญาหลักหมด', width: 'whitespace-nowrap min-w-[110px]' },
+                { key: '_duration', label: 'PO เหลือ', width: 'whitespace-nowrap min-w-[80px]' },
+                { key: '_contractDuration', label: 'สัญญาหลักเหลือ', width: 'whitespace-nowrap min-w-[100px]' },
                 { key: 'Status', label: 'สถานะ', width: 'whitespace-nowrap min-w-[80px]' },
                 ...trackingCols,
             ];
@@ -387,9 +710,9 @@ const MALicensePage = () => {
         }
         if (col.key === 'Status') {
             const days = getDaysRemaining(item.EndDate);
-            const isAlert = item.Status !== 'Cancelled' && days !== null && days <= ALERT_DAYS;
+            const isAlert = item.Status !== 'Cancelled' && item.Status !== 'Pending' && days !== null && days <= ALERT_DAYS;
             return (
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${STATUS_COLORS[item.Status] || STATUS_COLORS.Active} ${isAlert ? 'animate-pulse ring-2 ring-red-400 ring-offset-1' : ''}`}>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xl font-bold border ${STATUS_COLORS[item.Status] || STATUS_COLORS.Active} ${isAlert ? 'animate-pulse ring-2 ring-red-400 ring-offset-1' : ''}`}>
                     {item.Status}
                 </span>
             );
@@ -399,14 +722,35 @@ const MALicensePage = () => {
             const isAlert = item.Status !== 'Cancelled' && days !== null && days <= ALERT_DAYS;
             return <span className={`text-sm ${isAlert ? 'text-red-600 font-bold animate-pulse' : 'text-slate-700 font-medium'}`}>{formatDate(item.EndDate)}</span>;
         }
+        // ── NEW: ContractEndDate cell ──
+        if (col.key === 'ContractEndDate') {
+            if (!item.ContractEndDate) return <span className="text-slate-400 text-xs">-</span>;
+            const days = getDaysRemaining(item.ContractEndDate);
+            const isAlert = item.Status !== 'Cancelled' && days !== null && days <= CONTRACT_ALERT_DAYS;
+            return <span className={`text-sm ${isAlert ? 'text-red-600 font-bold animate-pulse' : 'text-indigo-700 font-medium'}`}>{formatDate(item.ContractEndDate)}</span>;
+        }
         if (col.key === '_duration') {
             const days = getDaysRemaining(item.EndDate);
             if (days === null) return '-';
-            if (days <= 0) return <span className="text-red-600 font-bold text-lg animate-pulse">หมดอายุ</span>;
+            if (days <= 0) return <span className="text-red-600 font-bold text-2xl animate-pulse">หมดอายุ</span>;
             const display = days < 30 ? `${days} วัน` : formatDuration(new Date(), item.EndDate);
             const isAlert = days <= ALERT_DAYS;
             return (
-                <span className={`font-bold text-lg ${isAlert ? 'text-orange-600' : 'text-emerald-600'}`}>
+                <span className={`font-bold text-xl ${isAlert ? 'text-orange-600' : 'text-emerald-600'}`}>
+                    {display}
+                </span>
+            );
+        }
+        // ── NEW: Contract duration cell ──
+        if (col.key === '_contractDuration') {
+            if (!item.ContractEndDate) return <span className="text-slate-400 text-xs">-</span>;
+            const days = getDaysRemaining(item.ContractEndDate);
+            if (days === null) return '-';
+            if (days <= 0) return <span className="text-red-600 font-bold text-sm animate-pulse">หมดแล้ว</span>;
+            const display = days < 30 ? `${days} วัน` : formatDuration(new Date(), item.ContractEndDate);
+            const isAlert = days <= CONTRACT_ALERT_DAYS;
+            return (
+                <span className={`font-bold text-sm ${isAlert ? 'text-red-600' : 'text-indigo-600'}`}>
                     {display}
                 </span>
             );
@@ -419,7 +763,7 @@ const MALicensePage = () => {
     };
 
     const activeCat = CATEGORIES.find(c => c.key === activeTab);
-
+    if (tvMode) return <MATVView items={items} onBack={() => setTvMode(false)} theme={tvTheme} onToggleTheme={() => setTvTheme(t => t === 'dark' ? 'light' : 'dark')} />;
     return (
         <div className="space-y-6 w-full">
             {/* Header & Stats */}
@@ -432,12 +776,11 @@ const MALicensePage = () => {
                 <StatCard icon={CheckCircle} title="Active" value={stats.active} color="from-emerald-500 to-emerald-600" onClick={() => setCardFilter(cardFilter === 'active' ? 'all' : 'active')} isActive={cardFilter === 'active'} />
                 <StatCard icon={Clock} title="Expiring (< 60 Days)" value={stats.expiringSoon} color="from-orange-400 to-orange-500" onClick={() => setCardFilter(cardFilter === 'expiringSoon' ? 'all' : 'expiringSoon')} isActive={cardFilter === 'expiringSoon'} />
                 <StatCard icon={AlertTriangle} title="Expired" value={stats.expired} color="from-red-500 to-red-600" onClick={() => setCardFilter(cardFilter === 'expired' ? 'all' : 'expired')} isActive={cardFilter === 'expired'} />
-                <StatCard icon={DollarSign} title="Total Value" value={`฿${(stats.totalValue/1000).toFixed(0)}k`} color="from-indigo-500 to-indigo-600" subtitle="มูลค่ารวม Active" />
+                <StatCard icon={DollarSign} title="Total Value" value={`฿${(stats.totalValue / 1000).toFixed(0)}k`} color="from-indigo-500 to-indigo-600" subtitle="มูลค่ารวม Active" />
             </div>
 
-            {/* Header Controls (เรียงแถวเดียวกัน) */}
+            {/* Header Controls */}
             <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
-                
                 {/* Category Tabs */}
                 <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100 w-full xl:w-auto overflow-x-auto">
                     {CATEGORIES.map(cat => {
@@ -454,19 +797,14 @@ const MALicensePage = () => {
 
                 {/* Filter & Controls */}
                 <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
-                    {/* Search */}
                     <div className="relative flex-1 min-w-[150px] h-[36px]">
                         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input type="text" placeholder="ค้นหา..." className="w-full h-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                     </div>
-
-                    {/* Status Filter */}
                     <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-[36px] bg-slate-50 border border-slate-200 px-2 rounded-lg text-xs font-medium text-slate-700 outline-none cursor-pointer hover:bg-white transition-colors">
                         <option value="all">ทุกสถานะ</option>
                         {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
-
-                    {/* View Mode Toggle */}
                     <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-200 h-[36px]">
                         <button onClick={() => setViewMode('list')} className={`px-2 rounded-md transition-all flex items-center ${viewMode === 'list' ? 'bg-white shadow-sm text-indigo-600 font-bold' : 'text-slate-400 hover:text-slate-600'}`} title="รายการ">
                             <List size={14} />
@@ -476,7 +814,15 @@ const MALicensePage = () => {
                         </button>
                     </div>
 
-                    {/* Add Button */}
+                    <button onClick={() => setTvMode(true)}
+                        className="h-[36px] flex items-center gap-1.5 px-3 rounded-lg font-bold text-xs text-white bg-slate-800 hover:bg-slate-700 shadow-sm transition-colors">
+                        📺 TV Mode
+                    </button>
+                    {isAdmin && activeTab !== 'ALL' && (
+                        <button onClick={() => setFormModal({ isOpen: true, item: null })} /* เดิม */>
+                            ...
+                        </button>
+                    )}
                     {isAdmin && activeTab !== 'ALL' && (
                         <button onClick={() => setFormModal({ isOpen: true, item: null })} className={`h-[36px] flex items-center gap-1.5 px-3 rounded-lg font-bold text-xs text-white bg-gradient-to-r ${activeCat?.color} shadow-sm hover:shadow-md transition-all`}>
                             <Plus size={14} />
@@ -518,16 +864,15 @@ const MALicensePage = () => {
                                     </tr>
                                 ) : paginatedItems.map((item, idx) => {
                                     const days = getDaysRemaining(item.EndDate);
-                                    const isExpiring = days !== null && days > 0 && days <= ALERT_DAYS;
-                                    const isExpired = days !== null && days <= 0;
+                                    const isExpiring = days !== null && days > 0 && days <= ALERT_DAYS && item.Status !== 'Pending';
+                                    const isExpired = days !== null && days <= 0 && item.Status !== 'Pending';
                                     const isCancelled = item.Status === 'Cancelled';
                                     const globalIdx = (currentPage - 1) * itemsPerPage + idx;
-                                    
-                                    // 🎨 ลอจิกสีพื้นหลังตาราง
+
                                     const rowBgColor = isCancelled ? 'bg-slate-50 hover:bg-slate-100 opacity-75'
                                         : isExpired ? 'bg-red-100 hover:bg-red-200'
-                                        : isExpiring ? (days <= 30 ? 'bg-red-50 hover:bg-red-100' : 'bg-orange-50 hover:bg-orange-100')
-                                        : 'bg-white hover:bg-slate-50';
+                                            : isExpiring ? (days <= 30 ? 'bg-red-50 hover:bg-red-100' : 'bg-orange-50 hover:bg-orange-100')
+                                                : 'bg-white hover:bg-slate-50';
 
                                     return (
                                         <motion.tr key={item.ItemID} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.02 }}
@@ -560,55 +905,99 @@ const MALicensePage = () => {
                         </div>
                     ) : paginatedItems.map((item, idx) => {
                         const days = getDaysRemaining(item.EndDate);
+                        const daysContract = getDaysRemaining(item.ContractEndDate);
                         const isExpiring = days !== null && days > 0 && days <= ALERT_DAYS;
                         const isExpired = days !== null && days <= 0;
                         const isCancelled = item.Status === 'Cancelled';
-                        
+                        const isPending = item.Status === 'Pending';
+
+                        // ── RENTAL: ใช้ PO alert เป็นหลักในการตัดสีการ์ด ──
                         const cardBgColor = isCancelled ? 'bg-slate-50 border-slate-200 opacity-75'
-                            : isExpired ? 'bg-red-100 border-red-300 ring-1 ring-red-200'
-                            : isExpiring ? (days <= 30 ? 'bg-red-50 border-red-200 ring-1 ring-red-100' : 'bg-orange-50 border-orange-200 ring-1 ring-orange-100')
-                            : 'bg-white border-slate-200';
+                            : isPending ? 'bg-yellow-100 border-yellow-600 ring-1 ring-yellow-100'
+                                : isExpired ? 'bg-red-100 border-red-300 ring-1 ring-red-200'
+                                    : isExpiring ? (days <= 30 ? 'bg-red-200 border-red-600 ring-1 ring-red-100' : 'bg-orange-50 border-orange-200 ring-1 ring-orange-100')
+                                        : 'bg-white border-slate-200';
 
                         const currentItemCat = CATEGORIES.find(c => c.key === item.Category);
+                        const isRental = item.Category === 'RENTAL';
 
                         return (
                             <motion.div key={item.ItemID} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.02 }}
                                 className={`rounded-2xl border shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all overflow-hidden cursor-pointer flex flex-col relative ${cardBgColor}`}
                                 onClick={() => setDetailItem(item)}>
                                 {(isExpiring || isExpired) && !isCancelled && <div className="absolute top-0 right-0 w-2 h-2 rounded-full bg-red-500 m-3 animate-ping"></div>}
-                                
-                                <div className="p-3 border-b border-black/5 flex items-start gap-2.5">
+
+                                <div className="p-2 border-b border-black/5 flex items-start gap-2.5">
                                     <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${currentItemCat?.color || 'from-slate-500 to-slate-600'} flex items-center justify-center shadow-sm shrink-0`}>
                                         {currentItemCat && <currentItemCat.icon className="w-4 h-4 text-white" />}
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                        <h4 className="font-bold text-slate-800 text-base md:text-lg truncate">{item.ItemName}</h4>
-                                         {item.Brand && (
-                                        <div className="flex justify-between items-start gap-2 text-[14px]">
-                                            {/* <span className="text-slate-500 whitespace-nowrap">ยี่ห้อ/รุ่น:</span> */}
-                                            <span className="font-medium text-slate-700 text-right truncate">{item.Brand}</span>
-                                        </div>
-                                    )}
+                                        <h4 className="font-bold text-slate-800 text-lg truncate">{item.ItemName}</h4>
+                                        {item.Brand && (
+                                            <div className="flex justify-between items-start gap-1 text-sm">
+                                                <span className="font-medium text-slate-800 text-right truncate">{item.Brand}</span>
+                                            </div>
+                                        )}
+                                        {item.SerialNumber && (
+                                            <div className="flex items-center gap-1 text-sm">
+                                                <span className="text-emerald-700 font-medium whitespace-nowrap">S/N:</span>
+                                                <span className="font-medium text-emerald-700 truncate">{item.SerialNumber}</span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
-                                <div className="p-3 flex-1 space-y-2">
-                                    <div className="flex justify-between items-center text-[20px]">
-                                        <span className="text-slate-500">สถานะ:</span>
+
+                                <div className="p-2 flex-1 space-y-1.5">
+                                    <div className="flex justify-between items-center font-semibold text-[16px]">
+                                        <span className="text-slate-800 ">สถานะ:</span>
                                         {renderCellValue(item, { key: 'Status' })}
                                     </div>
-                                    <div className="flex justify-between items-center text-[20px]">
-                                        <span className="text-slate-500">หมดอายุ:</span>
-                                        <span className={(isExpiring || isExpired) && !isCancelled ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-700'}>{formatDate(item.EndDate)}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-[20px]">
-                                        <span className="text-slate-500">เหลือเวลา:</span>
-                                        {renderCellValue(item, { key: '_duration' })}
-                                    </div>
-                                  
-                                    <div className="flex justify-between items-start gap-2 text-[12px] pt-1 border-t border-black/5">
-                                        <span className="text-slate-500 whitespace-nowrap">Vendor:</span>
+
+                                    {/* ── RENTAL: แสดง dual-timeline แทน EndDate + Duration ปกติ ── */}
+                                    {isRental ? (
+                                        <RentalTimelineCard item={item} />
+                                    ) : (
+                                        <>
+                                            <div className="flex justify-between items-center font-semibold text-[16px]">
+                                                <span className="text-slate-800">หมดอายุ:</span>
+                                                <span className={(isExpiring || isExpired) && !isCancelled ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-700'}>{formatDate(item.EndDate)}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center font-semibold text-[16px]">
+                                                <span className="text-slate-800">เหลือเวลา:</span>
+                                                {renderCellValue(item, { key: '_duration' })}
+                                            </div>
+                                            {(item.PONumber || item.ServiceNumber) && (
+                                                <div className="flex justify-between items-start gap-2 text-[15px]">
+                                                    <span className="text-slate-500 whitespace-nowrap">PO/สัญญา:</span>
+                                                    <span className="font-medium text-slate-700 text-right truncate">{item.PONumber || item.ServiceNumber}</span>
+                                                </div>
+                                            )}
+                                            {item.StartDate && (
+                                                <div className="flex justify-between items-center text-[15px]">
+                                                    <span className="text-slate-700 whitespace-nowrap">เริ่มต้น:</span>
+                                                    <span className="font-medium text-slate-700">{formatDate(item.StartDate)}</span>
+                                                </div>
+                                            )}
+                                            {item.StartDate && item.EndDate && (
+                                                <div className="flex justify-between items-center text-[15px]">
+                                                    <span className="text-slate-500 whitespace-nowrap">ระยะเวลา:</span>
+                                                    <span className="font-medium text-slate-700">{formatDuration(item.StartDate, item.EndDate)}</span>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+
+                                    <div className="flex items-start gap-2 text-[13px] pt-1 border-t border-black/5">
+
+                                        <span className="text-slate-800 font-simibold whitespace-nowrap">VENDOR :</span>
                                         <span className="font-medium text-slate-700 text-right truncate">{item.VendorName || '-'}</span>
                                     </div>
+                                    {item.LocationName && (
+                                        <div className="flex items-center gap-1 text-sm">
+                                            <MapPin size={11} className="text-slate-400 shrink-0" />
+                                            <span className="text-slate-700 truncate">{item.LocationName}</span>
+                                        </div>
+                                    )}
                                 </div>
                             </motion.div>
                         );
@@ -657,7 +1046,13 @@ const MALicensePage = () => {
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${STATUS_COLORS[detailItem.Status]}`}>{detailItem.Status}</span>
                                     {detailItem.EndDate && (
                                         <span className="text-[11px] text-slate-500 font-medium">
-                                            {getDaysRemaining(detailItem.EndDate) > 0 ? `เหลือ ${getDaysRemaining(detailItem.EndDate)} วัน` : 'หมดอายุแล้ว'}
+                                            {getDaysRemaining(detailItem.EndDate) > 0 ? `PO เหลือ ${getDaysRemaining(detailItem.EndDate)} วัน` : 'PO หมดอายุแล้ว'}
+                                        </span>
+                                    )}
+                                    {/* ── NEW: แสดง contract remaining ใน detail modal ── */}
+                                    {detailItem.Category === 'RENTAL' && detailItem.ContractEndDate && (
+                                        <span className="text-[11px] text-indigo-600 font-medium">
+                                            {getDaysRemaining(detailItem.ContractEndDate) > 0 ? `สัญญาหลักเหลือ ${getDaysRemaining(detailItem.ContractEndDate)} วัน` : 'สัญญาหลักหมดแล้ว'}
                                         </span>
                                     )}
                                 </div>
@@ -671,8 +1066,18 @@ const MALicensePage = () => {
                                     <DetailField icon={Building} label="Vendor" value={detailItem.VendorName || '-'} />
                                     <DetailField icon={MapPin} label="สถานที่" value={detailItem.LocationName || '-'} />
                                     <DetailField icon={Calendar} label="เริ่มต้น" value={formatDate(detailItem.StartDate)} />
-                                    <DetailField icon={Calendar} label="สิ้นสุด" value={formatDate(detailItem.EndDate)} />
-                                    <DetailField icon={Clock} label="ระยะเวลา" value={formatDuration(detailItem.StartDate, detailItem.EndDate)} />
+                                    <DetailField icon={Calendar} label="PO หมด" value={formatDate(detailItem.EndDate)} />
+                                    {/* ── NEW: RENTAL contract fields in detail ── */}
+                                    {detailItem.Category === 'RENTAL' && detailItem.ContractEndDate && (
+                                        <>
+                                            <DetailField icon={Calendar} label="สัญญาหลักหมด" value={formatDate(detailItem.ContractEndDate)} />
+                                            <DetailField icon={Clock} label="ระยะสัญญาหลัก" value={formatDuration(detailItem.StartDate, detailItem.ContractEndDate)} />
+                                            {detailItem.POCycle && (
+                                                <DetailField icon={RefreshCw} label="รอบ PO" value={PO_CYCLE_OPTIONS.find(o => o.value === detailItem.POCycle)?.label || detailItem.POCycle} />
+                                            )}
+                                        </>
+                                    )}
+                                    <DetailField icon={Clock} label="ระยะ PO" value={formatDuration(detailItem.StartDate, detailItem.EndDate)} />
                                 </div>
                                 <div className="bg-blue-50 rounded-xl overflow-hidden divide-y divide-blue-100 border border-blue-100">
                                     <DetailField icon={User} label="ผู้บันทึก" value={detailItem.CreatedBy || '-'} />
@@ -732,7 +1137,14 @@ const DetailField = ({ icon: Icon, label, value }) => (
         <span className="text-xs font-medium text-slate-800 break-words">{value}</span>
     </div>
 );
-
+const toDateInput = (d) => {
+    if (!d) return '';
+    const date = new Date(d);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+};
 const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClose }) => {
     const { user } = useAuth();
     const isEdit = !!item;
@@ -748,8 +1160,10 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
         LocationName: item?.LocationName || '',
         Price: item?.Price || 0,
         VendorID: item?.VendorID || '',
-        StartDate: item?.StartDate ? new Date(item.StartDate).toISOString().split('T')[0] : '',
-        EndDate: item?.EndDate ? new Date(item.EndDate).toISOString().split('T')[0] : '',
+        StartDate: toDateInput(item?.StartDate),
+        EndDate: toDateInput(item?.EndDate),
+        ContractEndDate: toDateInput(item?.ContractEndDate),
+        POCycle: item?.POCycle || 'annual',
         Status: item?.Status || 'Active',
         Remark: item?.Remark || '',
         CreatedBy: item?.CreatedBy || user?.username || '',
@@ -776,6 +1190,7 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
     const cat = form.Category || category;
     const catInfo = CATEGORIES.find(c => c.key === cat);
     const subtypeOptions = (maTypes || []).filter(t => t.Category === cat).map(t => t.TypeName);
+    const isRental = cat === 'RENTAL';
 
     return (
         <Portal>
@@ -854,10 +1269,53 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                                 </select>
                             </FormField>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <FormField label="วันที่เริ่ม/ต่อประกัน"><input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
-                            <FormField label="วันที่หมดอายุ"><input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
-                        </div>
+
+                        {/* ── NEW: RENTAL contract fields section ── */}
+                        {isRental ? (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
+                                <p className="text-[10px] font-black text-amber-700 uppercase tracking-wider flex items-center gap-1">
+                                    <FileText size={11} /> ระยะเวลาสัญญา Rental
+                                </p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <FormField label="วันที่เริ่มสัญญา">
+                                        <input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="w-full p-2 border border-amber-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-100" />
+                                    </FormField>
+                                    <FormField label="สัญญาหลักหมด">
+                                        <input type="date" value={form.ContractEndDate} onChange={(e) => handleChange('ContractEndDate', e.target.value)} className="w-full p-2 border border-amber-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-100" />
+                                    </FormField>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <FormField label="PO ปัจจุบันหมด">
+                                        <input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="w-full p-2 border border-orange-200 bg-white rounded-lg text-lg outline-none focus:ring-2 focus:ring-orange-100" />
+                                    </FormField>
+                                    <FormField label="รอบการเปิด PO">
+                                        <select value={form.POCycle} onChange={(e) => handleChange('POCycle', e.target.value)} className="w-full p-2 border border-amber-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-100">
+                                            {PO_CYCLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                        </select>
+                                    </FormField>
+                                </div>
+                                {/* Summary: แสดงระยะเวลาที่คำนวณแล้ว */}
+                                {form.StartDate && form.ContractEndDate && (
+                                    <div className="text-[15px] text-amber-700 font-medium bg-amber-100 rounded-lg px-3 py-2 flex justify-between">
+                                        <span>ระยะสัญญาหลัก:</span>
+                                        <span className="font-black">{formatDuration(form.StartDate, form.ContractEndDate)}</span>
+                                    </div>
+                                )}
+                                {form.StartDate && form.EndDate && (
+                                    <div className="text-[11px] text-orange-700 font-medium bg-orange-100 rounded-lg px-3 py-2 flex justify-between">
+                                        <span>ระยะ PO ปัจจุบัน:</span>
+                                        <span className="font-black">{formatDuration(form.StartDate, form.EndDate)}</span>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            /* non-RENTAL: date fields เดิม */
+                            <div className="grid grid-cols-2 gap-3">
+                                <FormField label="วันที่เริ่ม/ต่อประกัน"><input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
+                                <FormField label="วันที่หมดอายุ"><input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
+                            </div>
+                        )}
+
                         <FormField label="หมายเหตุ (Remark)">
                             <textarea rows={2} value={form.Remark} onChange={(e) => handleChange('Remark', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 resize-none" placeholder="ข้อมูลเพิ่มเติม..." />
                         </FormField>

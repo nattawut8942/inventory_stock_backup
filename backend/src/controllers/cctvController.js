@@ -1,27 +1,31 @@
 import sql from 'mssql';
 import { getPool } from '../config/db.js';
-import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import net from 'net';
 
 // ─── Upload (icon กล้อง / rack / switch) ───────────────────────────────────
+// ✅ ใช้ express-fileupload แทน multer (multer ชนกับ express-fileupload global middleware)
 const uploadDir = path.join(process.cwd(), 'uploads', 'cctv-icons');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => {
-        const ts  = Date.now();
-        const rnd = Math.round(Math.random() * 1e6);
-        cb(null, `cctv-${ts}-${rnd}${path.extname(file.originalname)}`);
+const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+
+// helper: บันทึกไฟล์เดี่ยว (icon) จาก express-fileupload แล้ว return icon_url หรือ null
+const saveIconFile = async (file) => {
+    if (!file) return null;
+    if (!ALLOWED_MIMES.includes(file.mimetype)) {
+        const err = new Error('Invalid file type');
+        err.statusCode = 400;
+        throw err;
     }
-});
-const fileFilter = (req, file, cb) => {
-    const ok = ['image/jpeg','image/png','image/gif','image/webp','image/svg+xml'];
-    ok.includes(file.mimetype) ? cb(null, true) : cb(new Error('Invalid file type'), false);
+    const ts = Date.now();
+    const rnd = Math.round(Math.random() * 1e6);
+    const fileName = `cctv-${ts}-${rnd}${path.extname(file.name)}`;
+    const uploadPath = path.join(uploadDir, fileName);
+    await file.mv(uploadPath);
+    return `/uploads/cctv-icons/${fileName}`;
 };
-export const upload = multer({ storage, fileFilter, limits: { fileSize: 2 * 1024 * 1024 } });
 
 // ─── Helper: ping via TCP port 80 (ไม่ต้อง root) ──────────────────────────
 const pingCamera = (ip, timeout = 2000) =>
@@ -79,7 +83,9 @@ export const createRack = async (req, res) => {
     try {
         const { name, factory_layout_id, location_x, location_y, remark, rack_type } = req.body;
         if (!name) return res.status(400).json({ success: false, error: 'name is required' });
-        const icon_url = req.file ? `/uploads/cctv-icons/${req.file.filename}` : null;
+
+        const icon_url = await saveIconFile(req.files?.icon); // ✅ express-fileupload
+
         const pool = await getPool();
         const result = await pool.request()
             .input('name',              sql.NVarChar(100),    name)
@@ -96,8 +102,7 @@ export const createRack = async (req, res) => {
             `);
         res.json({ success: true, data: { id: result.recordset[0].id, name, icon_url } });
     } catch (err) {
-        if (req.file) fs.unlink(req.file.path, () => {});
-        res.status(500).json({ success: false, error: err.message });
+        res.status(err.statusCode || 500).json({ success: false, error: err.message });
     }
 };
 
@@ -110,14 +115,14 @@ export const updateRack = async (req, res) => {
         const existing = await pool.request().input('id', sql.Int, id)
             .query('SELECT icon_url, factory_layout_id FROM dbo.cctv_racks WHERE id = @id');
         if (!existing.recordset.length) {
-            if (req.file) fs.unlink(req.file.path, () => {});
             return res.status(404).json({ success: false, error: 'Rack not found' });
         }
 
         let icon_url = existing.recordset[0].icon_url;
-        if (req.file) {
+        const newIconFile = req.files?.icon;
+        if (newIconFile) {
             if (icon_url) { const old = path.join(process.cwd(), icon_url); if (fs.existsSync(old)) fs.unlink(old, () => {}); }
-            icon_url = `/uploads/cctv-icons/${req.file.filename}`;
+            icon_url = await saveIconFile(newIconFile);
         }
 
         const isClear = (location_x === null || location_x === undefined) &&
@@ -161,8 +166,7 @@ export const updateRack = async (req, res) => {
 
         res.json({ success: true, data: { id: +id, name, icon_url } });
     } catch (err) {
-        if (req.file) fs.unlink(req.file.path, () => {});
-        res.status(500).json({ success: false, error: err.message });
+        res.status(err.statusCode || 500).json({ success: false, error: err.message });
     }
 };
 
@@ -221,7 +225,8 @@ export const createSwitch = async (req, res) => {
         const { name, ip_address, rack_id, remark } = req.body;
         if (!name) return res.status(400).json({ success: false, error: 'name is required' });
 
-        const icon_url = req.file ? `/uploads/cctv-icons/${req.file.filename}` : null;
+        const icon_url = await saveIconFile(req.files?.icon); // ✅
+
         const pool = await getPool();
         const result = await pool.request()
             .input('name',       sql.NVarChar(100), name)
@@ -236,8 +241,7 @@ export const createSwitch = async (req, res) => {
             `);
         res.json({ success: true, data: { id: result.recordset[0].id, name, icon_url } });
     } catch (err) {
-        if (req.file) fs.unlink(req.file.path, () => {});
-        res.status(500).json({ success: false, error: err.message });
+        res.status(err.statusCode || 500).json({ success: false, error: err.message });
     }
 };
 
@@ -250,14 +254,14 @@ export const updateSwitch = async (req, res) => {
         const existing = await pool.request().input('id', sql.Int, id)
             .query('SELECT icon_url FROM dbo.cctv_switches WHERE id = @id');
         if (!existing.recordset.length) {
-            if (req.file) fs.unlink(req.file.path, () => {});
             return res.status(404).json({ success: false, error: 'Switch not found' });
         }
 
         let icon_url = existing.recordset[0].icon_url;
-        if (req.file) {
+        const newIconFile = req.files?.icon;
+        if (newIconFile) {
             if (icon_url) { const old = path.join(process.cwd(), icon_url); if (fs.existsSync(old)) fs.unlink(old, () => {}); }
-            icon_url = `/uploads/cctv-icons/${req.file.filename}`;
+            icon_url = await saveIconFile(newIconFile);
         }
 
         await pool.request()
@@ -275,8 +279,7 @@ export const updateSwitch = async (req, res) => {
             `);
         res.json({ success: true, data: { id: +id, name, icon_url } });
     } catch (err) {
-        if (req.file) fs.unlink(req.file.path, () => {});
-        res.status(500).json({ success: false, error: err.message });
+        res.status(err.statusCode || 500).json({ success: false, error: err.message });
     }
 };
 
@@ -404,8 +407,10 @@ export const createCamera = async (req, res) => {
 
         if (!name) return res.status(400).json({ success: false, error: 'name is required' });
 
-        const icon_url     = req.files?.icon?.[0]     ? `/uploads/cctv-icons/${req.files.icon[0].filename}`     : null;
-        const snapshot_url = req.files?.snapshot?.[0] ? `/uploads/cctv-icons/${req.files.snapshot[0].filename}` : null;
+        // ✅ express-fileupload: หลายไฟล์ต่างชื่อ field มาเป็น req.files.<fieldname> โดยตรง (ไม่ใช่ array)
+        const icon_url     = await saveIconFile(req.files?.icon);
+        const snapshot_url = await saveIconFile(req.files?.snapshot);
+
         const pool = await getPool();
         const result = await pool.request()
             .input('name',              sql.NVarChar(100),     name)
@@ -436,10 +441,21 @@ export const createCamera = async (req, res) => {
             `);
         res.json({ success: true, data: { id: result.recordset[0].id, name, icon_url } });
     } catch (err) {
-        if (req.files?.icon?.[0])     fs.unlink(req.files.icon[0].path, () => {});
-        if (req.files?.snapshot?.[0]) fs.unlink(req.files.snapshot[0].path, () => {});
-        res.status(500).json({ success: false, error: err.message });
+        res.status(err.statusCode || 500).json({ success: false, error: err.message });
     }
+};
+
+export const updateCameraStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        const pool = await getPool();
+        await pool.request()
+            .input('id',     sql.Int,          id)
+            .input('status', sql.NVarChar(20), status)
+            .query('UPDATE dbo.cctv_cameras SET status=@status, updated_at=GETDATE() WHERE id=@id');
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 };
 
 export const updateCamera = async (req, res) => {
@@ -461,8 +477,6 @@ export const updateCamera = async (req, res) => {
                 FROM dbo.cctv_cameras WHERE id = @id
             `);
         if (!existing.recordset.length) {
-            if (req.files?.icon?.[0])     fs.unlink(req.files.icon[0].path, () => {});
-            if (req.files?.snapshot?.[0]) fs.unlink(req.files.snapshot[0].path, () => {});
             return res.status(404).json({ success: false, error: 'Camera not found' });
         }
 
@@ -470,16 +484,18 @@ export const updateCamera = async (req, res) => {
 
         // icon
         let icon_url = prev.icon_url;
-        if (req.files?.icon?.[0]) {
+        const newIconFile = req.files?.icon;
+        if (newIconFile) {
             if (icon_url) { const old = path.join(process.cwd(), icon_url); if (fs.existsSync(old)) fs.unlink(old, () => {}); }
-            icon_url = `/uploads/cctv-icons/${req.files.icon[0].filename}`;
+            icon_url = await saveIconFile(newIconFile);
         }
 
         // snapshot
         let snapshot_url = prev.snapshot_url;
-        if (req.files?.snapshot?.[0]) {
+        const newSnapshotFile = req.files?.snapshot;
+        if (newSnapshotFile) {
             if (snapshot_url) { const old = path.join(process.cwd(), snapshot_url); if (fs.existsSync(old)) fs.unlink(old, () => {}); }
-            snapshot_url = `/uploads/cctv-icons/${req.files.snapshot[0].filename}`;
+            snapshot_url = await saveIconFile(newSnapshotFile);
         }
 
         // location: ถ้า form ไม่ได้ส่งมา (undefined) ให้ใช้ค่าเดิม — ป้องกัน reset
@@ -519,9 +535,7 @@ export const updateCamera = async (req, res) => {
             `);
         res.json({ success: true, data: { id: +id, name, icon_url } });
     } catch (err) {
-        if (req.files?.icon?.[0])     fs.unlink(req.files.icon[0].path, () => {});
-        if (req.files?.snapshot?.[0]) fs.unlink(req.files.snapshot[0].path, () => {});
-        res.status(500).json({ success: false, error: err.message });
+        res.status(err.statusCode || 500).json({ success: false, error: err.message });
     }
 };
 
@@ -588,23 +602,45 @@ export const deleteCamera = async (req, res) => {
     }
 };
 
+export const reorderLayouts = async (req, res) => {
+    try {
+        const { orders } = req.body; // [{id, sort_order}, ...]
+        const pool = await getPool();
+        await Promise.all(orders.map(({ id, sort_order }) =>
+            pool.request()
+                .input('id',         sql.Int, id)
+                .input('sort_order', sql.Int, sort_order)
+                .query('UPDATE dbo.factory_layouts SET sort_order=@sort_order WHERE id=@id')
+        ));
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Reorder Layouts Error:', err);
+        res.status(500).json({ error: 'Failed to reorder' });
+    }
+};
+
 // ── Ping single camera ────────────────────────────────────────────────────
 export const pingCameraById = async (req, res) => {
     try {
         const { id } = req.params;
         const pool = await getPool();
         const r = await pool.request().input('id', sql.Int, id)
-            .query('SELECT ip_address FROM dbo.cctv_cameras WHERE id = @id');
+            .query('SELECT ip_address, status FROM dbo.cctv_cameras WHERE id = @id');
         if (!r.recordset.length) return res.status(404).json({ success: false, error: 'Not found' });
 
-        const { ip_address } = r.recordset[0];
+        const { ip_address, status: currentStatus } = r.recordset[0];
         if (!ip_address) return res.json({ success: true, status: 'unknown' });
+
+        // ไม่ ping กล้องที่ถูกถอดหรือเลิกใช้งาน
+        if (currentStatus === 'removed' || currentStatus === 'retired') {
+            return res.json({ success: true, status: currentStatus, ip_address });
+        }
 
         const alive  = await pingCamera(ip_address);
         const status = alive ? 'online' : 'offline';
 
         await pool.request()
-            .input('id',     sql.Int,        id)
+            .input('id',     sql.Int,         id)
             .input('status', sql.NVarChar(20), status)
             .query('UPDATE dbo.cctv_cameras SET status=@status, last_ping=GETDATE() WHERE id=@id');
 
@@ -618,15 +654,18 @@ export const pingCameraById = async (req, res) => {
 export const pingAllCameras = async (req, res) => {
     try {
         const pool = await getPool();
+        // ข้ามกล้องที่ removed หรือ retired
         const cameras = await pool.request()
-            .query('SELECT id, ip_address FROM dbo.cctv_cameras WHERE ip_address IS NOT NULL');
+            .query(`SELECT id, ip_address FROM dbo.cctv_cameras
+                    WHERE ip_address IS NOT NULL
+                    AND status NOT IN ('removed','retired')`);
 
         const results = await Promise.all(
             cameras.recordset.map(async cam => {
                 const alive  = await pingCamera(cam.ip_address);
                 const status = alive ? 'online' : 'offline';
                 await pool.request()
-                    .input('id',     sql.Int,         cam.id)
+                    .input('id',     sql.Int,          cam.id)
                     .input('status', sql.NVarChar(20), status)
                     .query('UPDATE dbo.cctv_cameras SET status=@status, last_ping=GETDATE() WHERE id=@id');
                 return { id: cam.id, ip_address: cam.ip_address, status };
@@ -637,4 +676,201 @@ export const pingAllCameras = async (req, res) => {
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
+};
+// ── Maintenance Logs (repair + removal รวม table เดียว) ──────────────────
+export const getMaintenanceLogs = async (req, res) => {
+    try {
+        const pool = await getPool();
+        const { log_type, camera_id } = req.query;
+        const result = await pool.request()
+            .input('log_type',   sql.NVarChar(20), log_type   || null)
+            .input('camera_id',  sql.Int,           camera_id  ? +camera_id : null)
+            .query(`
+                SELECT m.*, c.ip_address
+                FROM dbo.cctv_maintenance_logs m
+                LEFT JOIN dbo.cctv_cameras c ON c.id = m.camera_id
+                WHERE (@log_type  IS NULL OR m.log_type  = @log_type)
+                AND   (@camera_id IS NULL OR m.camera_id = @camera_id)
+                ORDER BY m.reported_at DESC
+            `);
+        res.json({ success: true, data: result.recordset });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+export const createMaintenanceLog = async (req, res) => {
+    try {
+        const pool = await getPool();
+        const items = Array.isArray(req.body) ? req.body : [req.body];
+
+        const ids = await Promise.all(items.map(async item => {
+            const {
+                camera_id, camera_name, log_type,
+                issue_type, reason, description, status,
+                factory_name, location_x, location_y,
+                assigned_to, reported_by,
+                resolved_at, reinstalled_at, new_location, remark
+            } = item;
+
+            const result = await pool.request()
+                .input('camera_id',     sql.Int,               camera_id)
+                .input('camera_name',   sql.NVarChar(100),     camera_name)
+                .input('log_type',      sql.NVarChar(20),      log_type      || 'repair')
+                .input('issue_type',    sql.NVarChar(50),      issue_type    || null)
+                .input('reason',        sql.NVarChar(50),      reason        || null)
+                .input('description',   sql.NVarChar(sql.MAX), description   || null)
+                .input('status',        sql.NVarChar(20),      status        || (log_type === 'removal' ? 'removed' : 'pending'))
+                .input('factory_name',  sql.NVarChar(200),     factory_name  || null)
+                .input('location_x',    sql.Float,             location_x    ?? null)
+                .input('location_y',    sql.Float,             location_y    ?? null)
+                .input('assigned_to',   sql.NVarChar(100),     assigned_to   || null)
+                .input('reported_by',   sql.NVarChar(100),     reported_by   || null)
+                .input('resolved_at',   sql.DateTime,          resolved_at    ? new Date(resolved_at)   : null)
+                .input('reinstalled_at',sql.DateTime,          reinstalled_at ? new Date(reinstalled_at): null)
+                .input('new_location',  sql.NVarChar(200),     new_location  || null)
+                .input('remark',        sql.NVarChar(sql.MAX), remark        || null)
+                .query(`
+                    INSERT INTO dbo.cctv_maintenance_logs
+                        (camera_id, camera_name, log_type, issue_type, reason, description, status,
+                         factory_name, location_x, location_y, assigned_to, reported_by,
+                         resolved_at, reinstalled_at, new_location, remark)
+                    VALUES
+                        (@camera_id, @camera_name, @log_type, @issue_type, @reason, @description, @status,
+                         @factory_name, @location_x, @location_y, @assigned_to, @reported_by,
+                         @resolved_at, @reinstalled_at, @new_location, @remark);
+                    SELECT SCOPE_IDENTITY() AS id;
+                `);
+
+            // ── sync camera status ─────────────────────────────────────
+            if (camera_id) {
+                let camStatus = null;
+                if (log_type === 'removal') camStatus = 'removed';
+                if (camStatus) {
+                    await pool.request()
+                        .input('id', sql.Int, camera_id)
+                        .input('status', sql.NVarChar(20), camStatus)
+                        .query(`UPDATE dbo.cctv_cameras SET status=@status, updated_at=GETDATE() WHERE id=@id`);
+                }
+            }
+
+            return result.recordset[0].id;
+        }));
+
+        res.json({ success: true, ids });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+export const updateMaintenanceLog = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            issue_type, reason, description, status,
+            assigned_to, resolved_at, reinstalled_at,
+            new_location, remark
+        } = req.body;
+        const pool = await getPool();
+
+        // ดึง camera_id เพื่อ sync status
+        const existing = await pool.request()
+            .input('id', sql.Int, id)
+            .query('SELECT camera_id, log_type FROM dbo.cctv_maintenance_logs WHERE id=@id');
+        const log = existing.recordset[0];
+
+        await pool.request()
+            .input('id',             sql.Int,               id)
+            .input('issue_type',     sql.NVarChar(50),      issue_type     || null)
+            .input('reason',         sql.NVarChar(50),      reason         || null)
+            .input('description',    sql.NVarChar(sql.MAX), description    || null)
+            .input('status',         sql.NVarChar(20),      status         || 'pending')
+            .input('assigned_to',    sql.NVarChar(100),     assigned_to    || null)
+            .input('resolved_at',    sql.DateTime,          resolved_at    ? new Date(resolved_at)    : null)
+            .input('reinstalled_at', sql.DateTime,          reinstalled_at ? new Date(reinstalled_at) : null)
+            .input('new_location',   sql.NVarChar(200),     new_location   || null)
+            .input('remark',         sql.NVarChar(sql.MAX), remark         || null)
+            .query(`
+                UPDATE dbo.cctv_maintenance_logs
+                SET issue_type=@issue_type, reason=@reason, description=@description,
+                    status=@status, assigned_to=@assigned_to, resolved_at=@resolved_at,
+                    reinstalled_at=@reinstalled_at, new_location=@new_location, remark=@remark
+                WHERE id=@id
+            `);
+
+        // ── sync camera status ─────────────────────────────────────────
+        if (log?.camera_id) {
+            let camStatus = null;
+            if (log.log_type === 'removal') {
+                if (status === 'reinstalled') camStatus = 'offline';
+                else if (status === 'retired')     camStatus = 'retired';
+                else                               camStatus = 'removed';
+            } else if (log.log_type === 'repair') {
+                if (status === 'resolved') camStatus = 'offline';
+            }
+            if (camStatus) {
+                await pool.request()
+                    .input('id',     sql.Int,          log.camera_id)
+                    .input('status', sql.NVarChar(20), camStatus)
+                    .query(`UPDATE dbo.cctv_cameras SET status=@status, updated_at=GETDATE() WHERE id=@id`);
+            }
+        }
+
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+export const deleteMaintenanceLog = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await getPool();
+        await pool.request().input('id', sql.Int, id)
+            .query('DELETE FROM dbo.cctv_maintenance_logs WHERE id=@id');
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+// ── Export Maintenance Logs as CSV ────────────────────────────────────────
+export const exportMaintenanceLogs = async (req, res) => {
+    try {
+        const pool = await getPool();
+        const { log_type } = req.query;
+        const result = await pool.request()
+            .input('log_type', sql.NVarChar(20), log_type || null)
+            .query(`
+                SELECT
+                    m.id, m.log_type, m.camera_name, c.ip_address,
+                    m.factory_name, m.issue_type, m.reason,
+                    m.description, m.status, m.assigned_to, m.reported_by,
+                    m.reported_at, m.resolved_at, m.reinstalled_at,
+                    m.new_location, m.remark
+                FROM dbo.cctv_maintenance_logs m
+                LEFT JOIN dbo.cctv_cameras c ON c.id = m.camera_id
+                WHERE (@log_type IS NULL OR m.log_type = @log_type)
+                ORDER BY m.reported_at DESC
+            `);
+
+        const rows = result.recordset;
+        const headers = [
+            'ID','ประเภท','ชื่อกล้อง','IP','Factory',
+            'ประเภทปัญหา','เหตุผลถอด','รายละเอียด','สถานะ',
+            'ผู้รับผิดชอบ','ผู้แจ้ง','วันที่แจ้ง','วันที่แก้ไข',
+            'วันที่ติดตั้งคืน','ตำแหน่งใหม่','หมายเหตุ'
+        ];
+
+        const formatDate = (d) => d ? new Date(d).toLocaleDateString('th-TH') : '';
+        const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+        const csv = [
+            headers.map(escape).join(','),
+            ...rows.map(r => [
+                r.id, r.log_type === 'repair' ? 'ซ่อม' : 'ถอด',
+                r.camera_name, r.ip_address, r.factory_name,
+                r.issue_type, r.reason, r.description, r.status,
+                r.assigned_to, r.reported_by,
+                formatDate(r.reported_at), formatDate(r.resolved_at),
+                formatDate(r.reinstalled_at), r.new_location, r.remark
+            ].map(escape).join(','))
+        ].join('\r\n');
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="cctv_maintenance_${Date.now()}.csv"`);
+        res.send('\uFEFF' + csv); // BOM สำหรับ Excel อ่านภาษาไทยได้
+    } catch (err) { res.status(500).json({ error: err.message }); }
 };

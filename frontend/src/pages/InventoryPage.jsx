@@ -11,8 +11,54 @@ import { getBadgeStyle, getColorGradient, getChartColor, getDeviceTypeColor } fr
 import { formatThaiDate } from '../utils/formatDate';
 import { API_BASE, API_URL } from '../config/api';
 import StockCountPage from './StockCountPage';
+import EmployeeCodeModal from '../components/EmployeeCodeModal';
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
+
+// ✅ รูปแบบรหัสครุภัณฑ์บังคับ: CO + ตัวเลขล้วน เช่น CO24-001-05
+const FIXED_ASSET_CODE_REGEX = /^(CO|OF)\d{2}-\d{3}-\d{2}$/;
+const isValidFixedAssetCode = (code) => FIXED_ASSET_CODE_REGEX.test((code || '').trim());
+
+
+const extractPrefixAndDigits = (str) => {
+  let v = (str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  let prefix = '';
+  if (v.startsWith('CO')) { prefix = 'CO'; v = v.slice(2); }
+  else if (v.startsWith('OF')) { prefix = 'OF'; v = v.slice(2); }
+  else if (v[0] === 'C') { prefix = 'CO'; v = v.slice(1); }
+  else if (v[0] === 'O') { prefix = 'OF'; v = v.slice(1); }
+  const digits = v.replace(/\D/g, '').slice(0, 7);
+  return { prefix, digits };
+};
+
+const buildFixedAssetCode = (prefix, digits) => {
+  if (!prefix) return '';
+  let out = prefix;
+  if (digits.length > 0) out += digits.slice(0, 2);
+  if (digits.length > 2) out += '-' + digits.slice(2, 5);
+  if (digits.length > 5) out += '-' + digits.slice(5, 7);
+  return out;
+};
+
+// ✅ เวอร์ชันแก้บั๊ก: ลบ prefix (CO/OF) เองได้ + ลบตัวเลขผ่านขีด "-" ได้ปกติ
+const nextFixedAssetCode = (newRaw, prevFormatted) => {
+  const isShrinking = newRaw.length < (prevFormatted || '').length;
+  const { digits: probeDigits } = extractPrefixAndDigits(newRaw);
+
+  // กรณีกำลังลบ และยังไม่มีตัวเลขเลย -> อย่า auto-fill ทับ ปล่อยให้ลบตัวอักษรได้อิสระ
+  if (isShrinking && probeDigits.length === 0) {
+    return newRaw.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
+  }
+
+  const { prefix: newPrefix, digits: newDigits } = extractPrefixAndDigits(newRaw);
+  const { digits: prevDigits } = extractPrefixAndDigits(prevFormatted);
+
+  if (isShrinking && newDigits.length === prevDigits.length && newDigits.length > 0) {
+    // กด backspace โดนตัวคั่น "-" พอดี -> ตัดเลขตัวสุดท้ายออกจริง ๆ
+    return buildFixedAssetCode(newPrefix, newDigits.slice(0, -1));
+  }
+  return buildFixedAssetCode(newPrefix, newDigits);
+};
 
 // ─── StatCard ────────────────────────────────────────────────────────────────
 const StatCard = ({ icon: Icon, title, value, change, changeType, color }) => (
@@ -68,8 +114,8 @@ const PriorityPicker = ({ name, defaultValue }) => {
             type="button"
             onClick={() => setSelected(opt.value)}
             className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${selected === opt.value
-                ? opt.sel
-                : 'border-slate-200 text-slate-400 bg-white hover:border-slate-300 hover:text-slate-600'
+              ? opt.sel
+              : 'border-slate-200 text-slate-400 bg-white hover:border-slate-300 hover:text-slate-600'
               }`}
           >
             {opt.label}
@@ -137,7 +183,11 @@ const InventoryPage = () => {
 
   const [selectedReason, setSelectedReason] = useState('');
   const [reasonDetail, setReasonDetail] = useState('');
-  const [vendors, setVendors] = useState([]);
+const [assetSerialNumber, setAssetSerialNumber] = useState('');
+  const [assetFixedCode, setAssetFixedCode] = useState('');
+  const [assetCodeCheck, setAssetCodeCheck] = useState({ status: 'idle', message: '' });
+  const [scanCodeCheck, setScanCodeCheck] = useState({ status: 'idle', message: '' });
+  const [vendors, setVendors] = useState([]);   // ✅ เพิ่มกลับมา — หายไปจากไฟล์
 
   useEffect(() => {
     fetch(`${API_BASE}/vendors`)
@@ -150,6 +200,68 @@ const InventoryPage = () => {
   const [scanQty, setScanQty] = useState(1);
   const [scanReason, setScanReason] = useState('New Withdrawal');
   const [scanReasonDetail, setScanReasonDetail] = useState('');
+  const [scanSerialNumber, setScanSerialNumber] = useState('');
+  const [scanFixedCode, setScanFixedCode] = useState('');   // ✅ ประกาศก่อนถูกใช้แล้ว
+
+  // ✅ ย้าย checkAssetCodeDuplicate + useEffect มาไว้ตรงนี้ หลังตัวแปรทุกตัวถูกประกาศครบแล้ว
+  const checkAssetCodeDuplicate = async (code, setChecker) => {
+    if (!isValidFixedAssetCode(code)) {
+      setChecker({ status: 'idle', message: '' });
+      return;
+    }
+    setChecker({ status: 'checking', message: 'กำลังตรวจสอบ...' });
+    try {
+      const res = await fetch(`${API_BASE}/products/check-asset-code/${encodeURIComponent(code.trim())}`);
+      const data = await res.json();
+      setChecker(data.exists
+        ? { status: 'duplicate', message: '⚠️ รหัสนี้ถูกใช้ไปแล้วในระบบ' }
+        : { status: 'ok', message: '✓ รหัสนี้ใช้ได้' });
+    } catch (err) {
+      setChecker({ status: 'error', message: 'ตรวจสอบไม่สำเร็จ ลองใหม่' });
+    }
+  };
+
+  useEffect(() => {
+    const t = setTimeout(() => checkAssetCodeDuplicate(assetFixedCode, setAssetCodeCheck), 500);
+    return () => clearTimeout(t);
+  }, [assetFixedCode]);
+
+  useEffect(() => {
+    const t = setTimeout(() => checkAssetCodeDuplicate(scanFixedCode, setScanCodeCheck), 500);
+    return () => clearTimeout(t);
+  }, [scanFixedCode]);
+
+  const [empCode, setEmpCode] = useState('');
+  const [empData, setEmpData] = useState(null);
+  const [empError, setEmpError] = useState('');
+  const [empLoading, setEmpLoading] = useState(false);
+
+  const lookupEmployee = async () => {
+    const trimmed = empCode.trim();
+    if (!trimmed) return;
+    setEmpLoading(true);
+    setEmpError('');
+    try {
+      const res = await fetch(`${API_BASE}/employees/${encodeURIComponent(trimmed)}`);
+      if (res.ok) {
+        setEmpData(await res.json());
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setEmpData(null);
+        setEmpError(data.error || 'ไม่พบรหัสพนักงาน');
+      }
+    } catch (err) {
+      setEmpData(null);
+      setEmpError('ไม่สามารถเชื่อมต่อระบบ HR ได้');
+    }
+    setEmpLoading(false);
+  };
+
+  const resetEmpLookup = () => {
+    setEmpCode('');
+    setEmpData(null);
+    setEmpError('');
+  };
 
   const getFilteredReasons = (product) => {
     if (!product) return [];
@@ -164,6 +276,9 @@ const InventoryPage = () => {
     const defaultReason = filtered.length > 0 ? filtered[0].Label : 'Other';
     setSelectedReason(existing ? existing.reason : defaultReason);
     setReasonDetail(existing ? existing.reasonDetail : '');
+    setAssetSerialNumber(existing?.serialNumber || '');
+    setAssetFixedCode(existing?.fixedAssetCode || '');
+    setAssetCodeCheck({ status: 'idle', message: '' });   // ✅ แก้ให้ถูกตัว
     setQtyModal({ isOpen: true, product, mode: 'cart' });
   };
 
@@ -174,7 +289,11 @@ const InventoryPage = () => {
     const defaultReason = filtered.length > 0 ? filtered[0].Label : 'Other';
     setSelectedReason(defaultReason);
     setReasonDetail('');
+    setAssetSerialNumber('');   // ✅
+    setAssetFixedCode('');      // ✅
+    resetEmpLookup();   // ✅ เพิ่ม
     setQtyModal({ isOpen: true, product, mode: 'withdraw' });
+    setAssetCodeCheck({ status: 'idle', message: '' });
   };
 
   const getRefInfo = (reason, detail) => {
@@ -184,41 +303,71 @@ const InventoryPage = () => {
     return info;
   };
 
-  const handleQtyConfirm = async () => {
+  const requireEmployee = (action) => {
+    setPendingWithdraw(() => action);
+    setEmployeeModalOpen(true);
+  };
+
+  const handleEmployeeConfirm = async (employeeData) => {
+    setEmployeeModalOpen(false);
+    if (pendingWithdraw) {
+      await pendingWithdraw(employeeData);
+    }
+    setPendingWithdraw(null);
+  };
+
+ const handleQtyConfirm = async () => {
     const product = qtyModal.product;
     if (!product || selectQty <= 0) return;
     if (!reasonDetail.trim()) return;
+    if (product.DeviceType === 'Asset' && (!assetSerialNumber.trim() || !isValidFixedAssetCode(assetFixedCode))) return;
+    if (qtyModal.mode === 'withdraw' && !empData) return;   // ✅ บังคับต้องค้นหา/ยืนยันรหัสพนักงานก่อน
     if (qtyModal.mode === 'cart') {
       const existingIndex = cart.findIndex(c => c.ProductID === product.ProductID);
       let newCart = [...cart];
       if (existingIndex >= 0) {
-        newCart[existingIndex] = { ...newCart[existingIndex], qty: selectQty, reason: selectedReason, reasonDetail };
+        newCart[existingIndex] = { ...newCart[existingIndex], qty: selectQty, reason: selectedReason, reasonDetail, serialNumber: assetSerialNumber, fixedAssetCode: assetFixedCode };
       } else {
-        newCart.push({ ...product, qty: selectQty, reason: selectedReason, reasonDetail });
+        newCart.push({ ...product, qty: selectQty, reason: selectedReason, reasonDetail, serialNumber: assetSerialNumber, fixedAssetCode: assetFixedCode });
       }
       setCart(newCart);
       setQtyModal({ isOpen: false, product: null, mode: 'cart' });
       setAlertModal({ isOpen: true, type: 'success', title: 'เพิ่มลงตะกร้า', message: `เพิ่ม ${product.ProductName} ลงในตะกร้าแล้ว`, autoClose: 1500 });
     } else {
+      // ✅ ไม่บังคับ empData อีกแล้ว — แค่ "ถ้ามีก็แนบไปด้วย"
+      setQtyModal({ isOpen: false, product: null, mode: 'cart' });
       try {
-        const res = await fetch(`${API_BASE}/products/withdraw`, {
+       const res = await fetch(`${API_BASE}/products/withdraw`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ProductID: product.ProductID, Qty: selectQty, UserID: user.username, RefInfo: getRefInfo() }),
+          body: JSON.stringify({
+            ProductID: product.ProductID,
+            Qty: selectQty,
+            UserID: user.username,
+            RefInfo: getRefInfo(),
+            EmployeeCode: empData.EmployeeCode,
+            EmployeeName: empData.FormattedName,
+            CostCenter: empData.CostCenter,
+            SerialNumber: product.DeviceType === 'Asset' ? assetSerialNumber.trim() : null,
+            FixedAssetCode: product.DeviceType === 'Asset' ? assetFixedCode.trim() : null,
+          }),
         });
         if (res.ok) {
+          setQtyModal({ isOpen: false, product: null, mode: 'cart' });   // ✅ ปิดตอนสำเร็จเท่านั้น
           setAlertModal({ isOpen: true, type: 'success', title: 'เบิกสำเร็จ', message: `เบิก ${product.ProductName} จำนวน ${selectQty} ชิ้นเรียบร้อย` });
           refreshData();
-        } else {
-          const data = await res.json();
-          setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: data.message || 'เบิกไม่สำเร็จ' });
+      } else {
+          const data = await res.json().catch(() => ({}));
+          if (res.status === 409) {
+            setScanCodeCheck({ status: 'duplicate', message: '⚠️ รหัสนี้ถูกใช้ไปแล้วในระบบ' });
+          }
+          setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: data.error || 'เบิกไม่สำเร็จ' });
         }
       } catch (err) {
         setAlertModal({ isOpen: true, type: 'error', title: 'Connection Error', message: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้' });
       }
-      setQtyModal({ isOpen: false, product: null, mode: 'cart' });
     }
-  };
+  }
 
   const removeFromCart = (id) => setCart(cart.filter(c => c.ProductID !== id));
   const updateCartQty = (id, newQty) => setCart(cart.map(c => c.ProductID === id ? { ...c, qty: Math.max(1, Math.min(c.CurrentStock, newQty)) } : c));
@@ -228,22 +377,44 @@ const InventoryPage = () => {
 
   const executeWithdrawAll = async () => {
     if (cart.length === 0) return;
-    let successCount = 0;
-    for (const item of cart) {
-      try {
-        const res = await fetch(`${API_BASE}/products/withdraw`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ProductID: item.ProductID, Qty: item.qty, UserID: user.username, RefInfo: getRefInfo(item.reason, item.reasonDetail) }),
-        });
-        if (res.ok) successCount++;
-      } catch (err) { console.error(err); }
-    }
-    setCart([]);
-    setIsCartOpen(false);
-    refreshData();
-    setAlertModal({ isOpen: true, type: successCount > 0 ? 'success' : 'error', title: 'ผลการเบิก', message: `ทำรายการสำเร็จ ${successCount} รายการ` });
-  };
+    // ✅ ห่อทั้งฟังก์ชันด้วย requireEmployee
+    requireEmployee(async (employeeData) => {
+      let successCount = 0;
+      const failedMessages = [];   // ✅
+      for (const item of cart) {
+        try {
+          const res = await fetch(`${API_BASE}/products/withdraw`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ProductID: item.ProductID,
+              Qty: item.qty,
+              UserID: user.username,
+              RefInfo: getRefInfo(item.reason, item.reasonDetail),
+              SerialNumber: item.DeviceType === 'Asset' ? item.serialNumber : null,
+              FixedAssetCode: item.DeviceType === 'Asset' ? item.fixedAssetCode : null,
+              ...employeeData,
+            }),
+          });
+          if (res.ok) {
+            successCount++;
+          } else {
+            const data = await res.json().catch(() => ({}));   // ✅
+            failedMessages.push(`${item.ProductName}: ${data.error || 'เบิกไม่สำเร็จ'}`);   // ✅
+          }
+        } catch (err) { console.error(err); failedMessages.push(`${item.ProductName}: เชื่อมต่อไม่ได้`); }
+      }
+      setCart([]);
+      setIsCartOpen(false);
+      refreshData();
+       setAlertModal({
+        isOpen: true,
+        type: successCount > 0 ? 'success' : 'error',
+        title: 'ผลการเบิก',
+        message: `ทำรายการสำเร็จ ${successCount} รายการ` + (failedMessages.length > 0 ? `\n\nรายการที่ผิดพลาด:\n${failedMessages.join('\n')}` : ''),
+      });
+    });
+  };   // ✅ เพิ่มบรรทัดนี้ — ปิด executeWithdrawAll
 
   const handleScanLookup = (code) => {
     if (!code.trim()) return;
@@ -257,30 +428,48 @@ const InventoryPage = () => {
       setReasonOptions(filtered);
       setScanReason(filtered.length > 0 ? filtered[0].Label : 'Other');
       setScanReasonDetail('');
+      setScanSerialNumber('');   // ✅
+      setScanFixedCode('');      // ✅
+        setScanCodeCheck({ status: 'idle', message: '' });
     } else {
       setScanModal(prev => ({ ...prev, foundProduct: null, error: `ไม่พบอุปกรณ์: ${code}` }));
     }
   };
 
-  const handleScanWithdraw = async () => {
+ const handleScanWithdraw = async () => {
     const product = scanModal.foundProduct;
     if (!product) return;
-    try {
-      const res = await fetch(`${API_BASE}/products/withdraw`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ProductID: product.ProductID, Qty: scanQty, UserID: user.username, RefInfo: getRefInfo(scanReason, scanReasonDetail) }),
-      });
-      if (res.ok) {
-        setAlertModal({ isOpen: true, type: 'success', title: 'เบิกสำเร็จ', message: `เบิก ${product.ProductName} เรียบร้อย` });
-        refreshData();
-        setScanModal({ isOpen: false, scannedCode: '', foundProduct: null, error: '' });
-      } else {
-        setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: 'เบิกไม่สำเร็จ' });
+    if (product.DeviceType === 'Asset' && (!scanSerialNumber.trim() || !isValidFixedAssetCode(scanFixedCode))) return;
+    requireEmployee(async (employeeData) => {
+      try {
+        const res = await fetch(`${API_BASE}/products/withdraw`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ProductID: product.ProductID,
+            Qty: scanQty,
+            UserID: user.username,
+            RefInfo: getRefInfo(scanReason, scanReasonDetail),
+            SerialNumber: product.DeviceType === 'Asset' ? scanSerialNumber.trim() : null,
+            FixedAssetCode: product.DeviceType === 'Asset' ? scanFixedCode.trim() : null,
+            ...employeeData,
+          }),
+        });
+        if (res.ok) {
+          setAlertModal({ isOpen: true, type: 'success', title: 'เบิกสำเร็จ', message: `เบิก ${product.ProductName} เรียบร้อย` });
+          refreshData();
+          setScanModal({ isOpen: false, scannedCode: '', foundProduct: null, error: '' });
+        } else {
+          const data = await res.json().catch(() => ({}));
+          if (res.status === 409) {
+            setScanCodeCheck({ status: 'duplicate', message: '⚠️ รหัสนี้ถูกใช้ไปแล้วในระบบ' });
+          }
+          setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: data.error || 'เบิกไม่สำเร็จ' });
+        }
+      } catch (err) {
+        setAlertModal({ isOpen: true, type: 'error', title: 'Connection Error', message: 'เชื่อมต่อไม่ได้' });
       }
-    } catch (err) {
-      setAlertModal({ isOpen: true, type: 'error', title: 'Connection Error', message: 'เชื่อมต่อไม่ได้' });
-    }
+    });
   };
 
   const viewHistory = async (product) => {
@@ -292,6 +481,8 @@ const InventoryPage = () => {
   };
 
   const [barcodeItem, setBarcodeItem] = useState(null);
+  const [employeeModalOpen, setEmployeeModalOpen] = useState(false);   // ✅ เพิ่ม
+  const [pendingWithdraw, setPendingWithdraw] = useState(null);
   const printRef = useRef();
   const isAdmin = user?.role === 'Staff';
   const [gridSort, setGridSort] = useState('priority');
@@ -340,9 +531,9 @@ const InventoryPage = () => {
   const totalValue = products.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
   const typeDistribution = deviceTypes.map(t => ({ name: t.Label, count: products.filter(p => p.DeviceType === t.TypeId).length }));
 
-  const handleFileUpload = async (file) => {
+const handleFileUpload = async (file) => {
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('imageFile', file);   // ✅ เปลี่ยนจาก 'image' เป็น 'imageFile'
     try {
       const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: formData });
       if (res.ok) return (await res.json()).imageUrl;
@@ -351,7 +542,7 @@ const InventoryPage = () => {
       setAlertModal({ isOpen: true, type: 'error', title: 'Connection Error', message: 'Cannot connect to server' });
     }
     return null;
-  };
+};
 
   const handleUpdate = async (e) => {
     e.preventDefault();
@@ -494,8 +685,8 @@ const InventoryPage = () => {
               key={opt.key}
               onClick={() => setGridSort(opt.key)}
               className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all ${gridSort === opt.key
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                  : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
                 }`}
             >
               {opt.label}
@@ -563,9 +754,9 @@ const InventoryPage = () => {
                       <td className="p-4">
                         {/* ✅ FIX: ใช้ array lookup แทน object literal ใน JSX */}
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
-                            p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
-                              p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
-                                'bg-yellow-100 text-yellow-700 border-yellow-200'
+                          p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                            p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
+                              'bg-yellow-100 text-yellow-700 border-yellow-200'
                           }`}>
                           {(['', 'Critical', 'High', 'Medium', 'Low'][p.business_priority]) ?? 'Medium'}
                         </span>
@@ -614,9 +805,9 @@ const InventoryPage = () => {
                   {/* ✅ Priority badge — มุมซ้ายบน */}
                   <div className="absolute top-2 left-2 z-20">
                     <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
-                        p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
-                          p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
-                            'bg-yellow-100 text-yellow-700 border-yellow-200'
+                      p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                        p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
+                          'bg-yellow-100 text-yellow-700 border-yellow-200'
                       }`}>
                       {(['', 'Critical', 'High', 'Medium', 'Low'][p.business_priority]) ?? 'Medium'}
                     </span>
@@ -704,6 +895,8 @@ const InventoryPage = () => {
                           <th className="p-4 text-center whitespace-nowrap">จำนวน</th>
                           <th className="p-4 whitespace-nowrap">เหตุผล</th>
                           <th className="p-4 whitespace-nowrap">Budget No.</th>
+                          <th className="p-4 whitespace-nowrap">S/N</th>
+                          <th className="p-4 whitespace-nowrap">รหัสครุภัณฑ์</th>
                           <th className="p-4 whitespace-nowrap">User</th>
                         </tr>
                       </thead>
@@ -716,10 +909,12 @@ const InventoryPage = () => {
                             </td>
                             <td className="p-4 text-indigo-600 font-medium whitespace-nowrap">{h.RefInfo}</td>
                             <td className="p-4 text-slate-500 font-mono text-xs whitespace-nowrap">{h.BudgetNo || '-'}</td>
+                            <td className="p-4 text-slate-500 font-mono text-xs whitespace-nowrap">{h.SerialNumber || '-'}</td>
+                            <td className="p-4 text-slate-500 font-mono text-xs whitespace-nowrap">{h.FixedAssetCode || '-'}</td>
                             <td className="p-4 text-xs text-slate-400 whitespace-nowrap">{h.UserID}</td>
                           </motion.tr>
                         ))}
-                        {historyData.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-slate-400">ไม่มีประวัติ</td></tr>}
+                        {historyData.length === 0 && <tr><td colSpan="7" className="p-8 text-center text-slate-400">ไม่มีประวัติ</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -883,9 +1078,9 @@ const InventoryPage = () => {
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-500/70 text-white border border-red-400/50">Low Stock</span>
                         )}
                         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${detailItem.business_priority === 1 ? 'bg-red-500/70 text-white border-red-400/50' :
-                            detailItem.business_priority === 2 ? 'bg-orange-400/70 text-white border-orange-300/50' :
-                              detailItem.business_priority === 4 ? 'bg-green-500/70 text-white border-green-400/50' :
-                                'bg-yellow-400/70 text-white border-yellow-300/50'
+                          detailItem.business_priority === 2 ? 'bg-orange-400/70 text-white border-orange-300/50' :
+                            detailItem.business_priority === 4 ? 'bg-green-500/70 text-white border-green-400/50' :
+                              'bg-yellow-400/70 text-white border-yellow-300/50'
                           }`}>
                           {(['', 'Critical', 'High', 'Medium', 'Low'][detailItem.business_priority]) ?? 'Medium'}
                         </span>
@@ -955,9 +1150,9 @@ const InventoryPage = () => {
                     <div className="flex items-center px-4 py-2">
                       <span className="text-[12px] text-slate-400 w-24 shrink-0">ความสำคัญ</span>
                       <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${detailItem.business_priority === 1 ? 'bg-red-50 text-red-700 border-red-200' :
-                          detailItem.business_priority === 2 ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                            detailItem.business_priority === 4 ? 'bg-green-50 text-green-700 border-green-200' :
-                              'bg-yellow-50 text-yellow-700 border-yellow-200'
+                        detailItem.business_priority === 2 ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                          detailItem.business_priority === 4 ? 'bg-green-50 text-green-700 border-green-200' :
+                            'bg-yellow-50 text-yellow-700 border-yellow-200'
                         }`}>
                         {(['', 'Critical', 'High', 'Medium', 'Low'][detailItem.business_priority]) ?? 'Medium'}
                       </span>
@@ -993,13 +1188,19 @@ const InventoryPage = () => {
           confirmText={alertModal.confirmText || 'ปิด'}
           cancelText={alertModal.cancelText || 'ยกเลิก'}
         />
+        {/* ✅ เพิ่มตัวนี้ */}
+        <EmployeeCodeModal
+          isOpen={employeeModalOpen}
+          onClose={() => { setEmployeeModalOpen(false); setPendingWithdraw(null); }}
+          onConfirm={handleEmployeeConfirm}
+        />
 
         {/* QTY & REASON MODAL */}
         <AnimatePresence>
           {qtyModal.isOpen && qtyModal.product && (
             <Portal>
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
-                <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className={`w-full ${qtyModal.product.DeviceType === 'Asset' ? 'max-w-2xl' : 'max-w-sm'} bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-all`}>
                   <div className="p-4 bg-slate-800 text-white flex justify-between items-center">
                     <h3 className="font-bold flex items-center gap-2">
                       {qtyModal.mode === 'cart' ? <ShoppingCart size={18} /> : <ShoppingBag size={18} />}
@@ -1019,15 +1220,19 @@ const InventoryPage = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="p-5 overflow-y-auto space-y-5">
+                  <div className="flex overflow-y-auto">
+                  <div className="p-5 space-y-5 flex-1 min-w-0">
                     <div className="flex items-center gap-4 justify-center">
-                      <button onClick={() => setSelectQty(Math.max(1, selectQty - 1))} className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center hover:bg-slate-50 shadow-sm"><Minus size={16} /></button>
+                      <button onClick={() => setSelectQty(Math.max(1, selectQty - 1))} disabled={qtyModal.product.DeviceType === 'Asset'} className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center hover:bg-slate-50 shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"><Minus size={16} /></button>
                       <div className="text-center">
-                        <input type="number" value={selectQty} onChange={(e) => setSelectQty(Math.max(1, Math.min(qtyModal.product.CurrentStock, parseInt(e.target.value) || 1)))} className="w-16 text-center text-xl font-black bg-transparent outline-none" />
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">จำนวน</p>
+                        <input type="number" value={selectQty} disabled={qtyModal.product.DeviceType === 'Asset'} onChange={(e) => setSelectQty(Math.max(1, Math.min(qtyModal.product.CurrentStock, parseInt(e.target.value) || 1)))} className="w-16 text-center text-xl font-black bg-transparent outline-none disabled:text-slate-400" />
+                        <p className="text-[12px] text-slate-400 font-bold uppercase">จำนวน</p>
                       </div>
-                      <button onClick={() => setSelectQty(Math.min(qtyModal.product.CurrentStock, selectQty + 1))} className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center hover:bg-slate-50 shadow-sm"><Plus size={16} /></button>
+                      <button onClick={() => setSelectQty(Math.min(qtyModal.product.CurrentStock, selectQty + 1))} disabled={qtyModal.product.DeviceType === 'Asset'} className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center hover:bg-slate-50 shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"><Plus size={16} /></button>
                     </div>
+                    {qtyModal.product.DeviceType === 'Asset' && (
+                      <p className="text-center text-[15px] text-amber-600 font-medium -mt-3">Asset เบิกได้ครั้งละ 1 ชิ้นต่อ S/N</p>
+                    )}
                     <div className="space-y-3">
                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">เหตุผลการเบิก</label>
                       <div className="space-y-2">
@@ -1045,33 +1250,159 @@ const InventoryPage = () => {
                         <div className="flex items-center gap-2 mb-1.5 opacity-70"><FileEdit size={12} /><span className="text-xs font-bold">รายละเอียดเพิ่มเติม <span className="text-red-500">*</span></span></div>
                         <textarea value={reasonDetail} onChange={(e) => setReasonDetail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-100 outline-none resize-none h-20" placeholder="เช่น ระบุชื่อโปรเจกต์ หรือหมายเลขแจ้งซ่อม..." />
                       </div>
+                      {/* ✅ S/N + รหัสครุภัณฑ์ + รหัสพนักงาน (Asset) ย้ายไปคอลัมน์ขวา ดูด้านล่าง */}
+                      {qtyModal.mode === 'withdraw' && qtyModal.product.DeviceType !== 'Asset' && (
+                        <div className="pt-2">
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">กรอกรหัสพนักงานผู้ขอเบิก</label>
+                          {!empData ? (
+                            <>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={empCode}
+                                  onChange={(e) => { setEmpCode(e.target.value); setEmpError(''); }}
+                                  placeholder="รหัสพนักงาน..."
+                                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-100 outline-none"
+                                />
+                                <button
+                                  onClick={lookupEmployee}
+                                  disabled={!empCode.trim() || empLoading}
+                                  className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                                >
+                                  {empLoading ? 'กำลังค้นหา...' : 'ค้นหา'}
+                                </button>
+                              </div>
+                              {empError && (
+                                <p className="text-red-500 font-bold mt-2 flex items-center gap-1.5 text-xs">
+                                  <AlertTriangle size={14} /> {empError}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between gap-3">
+                              <div className="text-sm">
+                                <p className="font-bold text-emerald-700">{empData.FirstName} {empData.LastName}</p>
+                                <p className="text-emerald-600 text-xs font-mono">{empData.FormattedName} · {empData.CostCenter || '-'}</p>
+                              </div>
+                              <button onClick={resetEmpLookup} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 shrink-0">
+                                เปลี่ยน
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
+                  </div>
+                  {/* ✅ คอลัมน์ที่ 2 — เฉพาะ Asset: รหัสครุภัณฑ์ + S/N + รหัสพนักงาน */}
+                  {qtyModal.product.DeviceType === 'Asset' && (
+                    <div className="w-64 shrink-0 border-l border-slate-100 bg-slate-50/60 p-5 space-y-4">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5"><ScanLine size={13} /> ต้องกรอก Fixed Asset , S/N , รหัสพนักงาน</p>
+                      <div>
+                        <div className="flex items-center gap-2 mb-1.5"><span className="text-xs font-bold text-slate-500">รหัสครุภัณฑ์ (Fixed asset code) <span className="text-red-500">*</span></span></div>
+ <input
+                          type="text"
+                          value={assetFixedCode}
+                          onChange={(e) => setAssetFixedCode(nextFixedAssetCode(e.target.value, assetFixedCode))}
+                          placeholder="เช่น CO24-001-05 หรือ OF24-001-05"
+                          maxLength={11}
+                          className={`w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100 ${
+                            assetCodeCheck.status === 'duplicate' ? 'border-red-400' :
+                            !isValidFixedAssetCode(assetFixedCode) ? 'border-red-300' : 'border-slate-200'
+                          }`}
+                        />
+                        <p className={`text-[12px] mt-1 ${
+                          assetCodeCheck.status === 'duplicate' ? 'text-red-500 font-bold' :
+                          assetCodeCheck.status === 'ok' ? 'text-emerald-500' :
+                          assetCodeCheck.status === 'checking' ? 'text-slate-400' :
+                          assetFixedCode && !isValidFixedAssetCode(assetFixedCode) ? 'text-red-500' : 'text-slate-400'
+                        }`}>
+                          {assetCodeCheck.message || 'รูปแบบ: (CO|OF)XX-XXX-XX (ตัวเลขล้วน)'}
+                        </p>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 mb-1.5"><span className="text-xs font-bold text-slate-500">หมายเลขเครื่อง (S/N) <span className="text-red-500">*</span></span></div>
+                        <input
+                          type="text"
+                          value={assetSerialNumber}
+                          onChange={(e) => setAssetSerialNumber(e.target.value)}
+                          placeholder="สแกนหรือกรอก S/N"
+                          className={`w-full bg-white border rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-100 ${!assetSerialNumber.trim() ? 'border-red-300' : 'border-slate-200'}`}
+                        />
+                      </div>
+                      {/* ✅ รหัสพนักงาน — ย้ายมาอยู่คอลัมน์ขวาด้วยเมื่อเป็น Asset */}
+                      {qtyModal.mode === 'withdraw' && (
+                        <div className="pt-2 border-t border-slate-200">
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2 mt-2">กรอกรหัสพนักงานผู้ขอเบิก</label>
+                          {!empData ? (
+                            <>
+                              <div className="flex flex-col gap-2">
+                                <input
+                                  type="text"
+                                  value={empCode}
+                                  onChange={(e) => { setEmpCode(e.target.value); setEmpError(''); }}
+                                  placeholder="รหัสพนักงาน..."
+                                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-100 outline-none"
+                                />
+                                <button
+                                  onClick={lookupEmployee}
+                                  disabled={!empCode.trim() || empLoading}
+                                  className="w-full px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  {empLoading ? 'กำลังค้นหา...' : 'ค้นหา'}
+                                </button>
+                              </div>
+                              {empError && (
+                                <p className="text-red-500 font-bold mt-2 flex items-center gap-1.5 text-xs">
+                                  <AlertTriangle size={14} /> {empError}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex flex-col gap-2">
+                              <div className="text-sm">
+                                <p className="font-bold text-emerald-700">{empData.FirstName} {empData.LastName}</p>
+                                <p className="text-emerald-600 text-xs font-mono">{empData.FormattedName} · {empData.CostCenter || '-'}</p>
+                              </div>
+                              <button onClick={resetEmpLookup} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 self-start">
+                                เปลี่ยน
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   </div>
                   <div className="p-4 bg-slate-50 border-t border-slate-100 grid grid-cols-2 gap-3">
                     <button onClick={() => setQtyModal({ isOpen: false, product: null, mode: 'cart' })}
-                            className="py-2 text-sm rounded-lg border border-slate-200 bg-white font-bold text-slate-500 hover:bg-slate-100 transition-all">
-                        ยกเลิก
+                      className="py-2 text-sm rounded-lg border border-slate-200 bg-white font-bold text-slate-500 hover:bg-slate-100 transition-all">
+                      ยกเลิก
                     </button>
 
                     <div className="relative group">
                         <button onClick={handleQtyConfirm}
-                                disabled={!reasonDetail.trim()}
-                                className={`w-full py-2 text-sm rounded-lg font-bold text-white shadow-md transition-all
-                                    disabled:opacity-40 disabled:cursor-not-allowed
-                                    ${qtyModal.mode === 'cart' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
-                            {qtyModal.mode === 'cart' ? 'ยืนยัน' : 'เบิกเลย'}
-                        </button>
-                        {!reasonDetail.trim() && (
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50 whitespace-nowrap">
-                                <div className="bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded-lg shadow-lg">
-                                    ⚠️ กรุณาใส่รายละเอียดก่อนยืนยัน
-                                </div>
-                                <div className="w-2 h-2 bg-slate-800 rotate-45 mx-auto -mt-1"/>
-                            </div>
-                        )}
+                        disabled={
+                          !reasonDetail.trim() ||
+                          (qtyModal.product.DeviceType === 'Asset' && (!assetSerialNumber.trim() || !isValidFixedAssetCode(assetFixedCode))) ||
+                          (qtyModal.product.DeviceType === 'Asset' && assetCodeCheck.status !== 'ok') ||   // ✅ เพิ่ม
+                          (qtyModal.mode === 'withdraw' && !empData)
+                        }
+                        className={`w-full py-2 text-sm rounded-lg font-bold text-white shadow-md transition-all
+            disabled:opacity-40 disabled:cursor-not-allowed
+            ${qtyModal.mode === 'cart' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
+                        {qtyModal.mode === 'cart' ? 'ยืนยัน' : 'เบิกเลย'}
+                      </button>
+                      {(!reasonDetail.trim() || (qtyModal.mode === 'withdraw' && !empData)) && (
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50 whitespace-nowrap">
+                          <div className="bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded-lg shadow-lg">
+                            ⚠️ {qtyModal.mode === 'withdraw' && !empData ? 'กรุณากรอกและค้นหารหัสพนักงานก่อน' : 'กรุณาใส่รายละเอียดก่อนยืนยัน'}
+                          </div>
+                          <div className="w-2 h-2 bg-slate-800 rotate-45 mx-auto -mt-1" />
+                        </div>
+                      )}
                     </div>
-                  
-        
+
+
                   </div>
                 </motion.div>
               </motion.div>
@@ -1111,12 +1442,18 @@ const InventoryPage = () => {
                             <div className="inline-flex items-center gap-1 bg-indigo-50 px-2 py-0.5 rounded text-[10px] font-bold text-indigo-600 border border-indigo-100"><span>{item.reason}</span></div>
                           </div>
                         </div>
+                        {item.DeviceType === 'Asset' && (
+                          <div className="text-[10px] text-slate-500 font-mono mb-2 flex gap-3">
+                            <span>S/N: {item.serialNumber || '-'}</span>
+                            <span>FA: {item.fixedAssetCode || '-'}</span>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between pt-3 border-t border-slate-50">
                           <div className="text-xs text-slate-400">คงเหลือ: {item.CurrentStock}</div>
                           <div className="flex items-center gap-3 bg-slate-100 rounded-lg p-1">
-                            <button onClick={() => updateCartQty(item.ProductID, item.qty - 1)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-indigo-600"><Minus size={14} /></button>
+                            <button onClick={() => updateCartQty(item.ProductID, item.qty - 1)} disabled={item.DeviceType === 'Asset'} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-indigo-600 disabled:opacity-30"><Minus size={14} /></button>
                             <span className="font-bold text-sm w-4 text-center">{item.qty}</span>
-                            <button onClick={() => updateCartQty(item.ProductID, item.qty + 1)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-indigo-600"><Plus size={14} /></button>
+                            <button onClick={() => updateCartQty(item.ProductID, item.qty + 1)} disabled={item.DeviceType === 'Asset'} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-indigo-600 disabled:opacity-30"><Plus size={14} /></button>
                           </div>
                         </div>
                       </div>
@@ -1182,11 +1519,32 @@ const InventoryPage = () => {
                         <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200">
                           <span className="font-bold text-slate-600 pl-2">จำนวนที่จะเบิก</span>
                           <div className="flex items-center gap-3">
-                            <button onClick={() => setScanQty(Math.max(1, scanQty - 1))} className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center hover:bg-slate-200"><Minus size={16} /></button>
+                            <button onClick={() => setScanQty(Math.max(1, scanQty - 1))} disabled={scanModal.foundProduct.DeviceType === 'Asset'} className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center hover:bg-slate-200 disabled:opacity-30"><Minus size={16} /></button>
                             <span className="font-bold text-xl w-8 text-center">{scanQty}</span>
-                            <button onClick={() => setScanQty(Math.min(scanModal.foundProduct.CurrentStock, scanQty + 1))} className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center hover:bg-slate-200"><Plus size={16} /></button>
+                            <button onClick={() => setScanQty(Math.min(scanModal.foundProduct.CurrentStock, scanQty + 1))} disabled={scanModal.foundProduct.DeviceType === 'Asset'} className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center hover:bg-slate-200 disabled:opacity-30"><Plus size={16} /></button>
                           </div>
                         </div>
+                        {scanModal.foundProduct.DeviceType === 'Asset' && (
+                          <div className="grid grid-cols-2 gap-2 bg-white p-3 rounded-xl border border-slate-200">
+                            <div>
+                              <input
+                                type="text"
+                                value={scanFixedCode}
+                                onChange={(e) => setScanFixedCode(e.target.value)}
+                                placeholder="รหัสครุภัณฑ์ เช่น CO24-001-05"
+                                className={`w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-100 ${!isValidFixedAssetCode(scanFixedCode) ? 'border-red-300' : 'border-slate-200'}`}
+                              />
+                              <p className={`text-[10px] mt-1 ${scanFixedCode && !isValidFixedAssetCode(scanFixedCode) ? 'text-red-500' : 'text-slate-400'}`}>รูปแบบ: COXX-XXX-XX</p>
+                            </div>
+                            <input
+                              type="text"
+                              value={scanSerialNumber}
+                              onChange={(e) => setScanSerialNumber(e.target.value)}
+                              placeholder="หมายเลขเครื่อง (S/N) *"
+                              className={`w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-100 ${!scanSerialNumber.trim() ? 'border-red-300' : 'border-slate-200'}`}
+                            />
+                          </div>
+                        )}
                         <div className="space-y-3">
                           <p className="text-lg font-bold text-slate-400 uppercase ml-1">เหตุผล</p>
                           <div className="grid grid-cols-1 gap-3">
@@ -1198,7 +1556,11 @@ const InventoryPage = () => {
                         </div>
                         <div className="grid grid-cols-3 gap-3">
                           <button onClick={() => setScanModal({ isOpen: false, scannedCode: '', foundProduct: null, error: '' })} className="col-span-1 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-100 transition-all border border-slate-200 text-sm">ยกเลิก</button>
-                          <button onClick={handleScanWithdraw} disabled={scanModal.foundProduct.CurrentStock <= 0} className="col-span-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 rounded-lg shadow-md hover:shadow-lg transition-all text-sm disabled:opacity-50 disabled:shadow-none">ยืนยันการเบิก</button>
+                          <button
+                            onClick={handleScanWithdraw}
+                            disabled={scanModal.foundProduct.CurrentStock <= 0 || (scanModal.foundProduct.DeviceType === 'Asset' && (!scanSerialNumber.trim() || !isValidFixedAssetCode(scanFixedCode)))}
+                            className="col-span-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 rounded-lg shadow-md hover:shadow-lg transition-all text-sm disabled:opacity-50 disabled:shadow-none"
+                          >ยืนยันการเบิก</button>
                         </div>
                       </div>
                     </div>

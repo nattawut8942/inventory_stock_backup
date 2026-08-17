@@ -1,10 +1,9 @@
 import sql from 'mssql';
 import { getPool } from '../config/db.js';
-import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 
-// Configure multer for file uploads - USE SAME FOLDER AS productController
+// ✅ ใช้ express-fileupload แทน multer (multer ชนกับ express-fileupload global middleware)
 const uploadDir = path.join(process.cwd(), 'uploads', 'factory-layouts');
 
 // Create directory if it doesn't exist
@@ -12,32 +11,7 @@ if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        const timestamp = Date.now();
-        const random = Math.round(Math.random() * 1E6);
-        const ext = path.extname(file.originalname);
-        cb(null, `layout-${timestamp}-${random}${ext}`);
-    }
-});
-
-const fileFilter = (req, file, cb) => {
-    const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (allowedMimes.includes(file.mimetype)) {
-        cb(null, true);
-    } else {
-        cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP are allowed.'), false);
-    }
-};
-
-export const upload = multer({
-    storage,
-    fileFilter,
-    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
-});
+const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 // Get all factory layouts
 export const getFactoryLayouts = async (req, res) => {
@@ -45,7 +19,7 @@ export const getFactoryLayouts = async (req, res) => {
         const pool = await getPool();
         const result = await pool
             .request()
-            .query('SELECT id, name, image_url, width, height, created_at, updated_at FROM dbo.factory_layouts ORDER BY id DESC');
+            .query('SELECT id, name, image_url, width, height, sort_order, created_at, updated_at FROM dbo.factory_layouts ORDER BY sort_order ASC, id ASC');
 
         res.json({ success: true, data: result.recordset });
     } catch (err) {
@@ -58,12 +32,23 @@ export const getFactoryLayouts = async (req, res) => {
 export const createFactoryLayout = async (req, res) => {
     try {
         const { name, width, height } = req.body;
+        const imageFile = req.files?.image; // ✅ express-fileupload: req.files.<fieldname>
 
-        if (!name || !req.file) {
+        if (!name || !imageFile) {
             return res.status(400).json({ success: false, error: 'Name and image file are required' });
         }
 
-        const image_url = `/uploads/factory-layouts/${req.file.filename}`;
+        if (!ALLOWED_MIMES.includes(imageFile.mimetype)) {
+            return res.status(400).json({ success: false, error: 'Invalid file type. Only JPEG, PNG, GIF, WebP are allowed.' });
+        }
+
+        const ext = path.extname(imageFile.name);
+        const fileName = `layout-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`;
+        const uploadPath = path.join(uploadDir, fileName);
+
+        await imageFile.mv(uploadPath); // ✅ express-fileupload API
+
+        const image_url = `/uploads/factory-layouts/${fileName}`;
         const parsedWidth = parseInt(width) || 1920;
         const parsedHeight = parseInt(height) || 1080;
 
@@ -86,11 +71,6 @@ export const createFactoryLayout = async (req, res) => {
             data: { id, name, image_url, width: parsedWidth, height: parsedHeight }
         });
     } catch (err) {
-        if (req.file) {
-            fs.unlink(req.file.path, (unlinkErr) => {
-                if (unlinkErr) console.error('Error deleting file:', unlinkErr);
-            });
-        }
         console.error('❌ POST /factory-layouts error:', err.message);
         res.status(500).json({ success: false, error: err.message });
     }
@@ -101,6 +81,7 @@ export const updateFactoryLayout = async (req, res) => {
     try {
         const { id } = req.params;
         const { name, width, height } = req.body;
+        const imageFile = req.files?.image; // ✅
 
         const pool = await getPool();
 
@@ -110,22 +91,27 @@ export const updateFactoryLayout = async (req, res) => {
             .query('SELECT image_url FROM dbo.factory_layouts WHERE id = @id');
 
         if (existing.recordset.length === 0) {
-            if (req.file) {
-                fs.unlink(req.file.path, () => { });
-            }
             return res.status(404).json({ success: false, error: 'Layout not found' });
         }
 
         let image_url = existing.recordset[0].image_url;
 
-        if (req.file) {
+        if (imageFile) {
+            if (!ALLOWED_MIMES.includes(imageFile.mimetype)) {
+                return res.status(400).json({ success: false, error: 'Invalid file type. Only JPEG, PNG, GIF, WebP are allowed.' });
+            }
+
             const oldFile = path.join(process.cwd(), image_url);
             if (fs.existsSync(oldFile)) {
                 fs.unlink(oldFile, (err) => {
                     if (err) console.error('Error deleting old file:', err);
                 });
             }
-            image_url = `/uploads/factory-layouts/${req.file.filename}`;
+
+            const ext = path.extname(imageFile.name);
+            const fileName = `layout-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`;
+            await imageFile.mv(path.join(uploadDir, fileName));
+            image_url = `/uploads/factory-layouts/${fileName}`;
         }
 
         const parsedWidth = parseInt(width) || 1920;
@@ -149,9 +135,6 @@ export const updateFactoryLayout = async (req, res) => {
             data: { id: parseInt(id), name, image_url, width: parsedWidth, height: parsedHeight }
         });
     } catch (err) {
-        if (req.file) {
-            fs.unlink(req.file.path, () => { });
-        }
         console.error('❌ PUT /factory-layouts error:', err.message);
         res.status(500).json({ success: false, error: err.message });
     }
@@ -281,7 +264,7 @@ export const getPCsByLayout = async (req, res) => {
     try {
         const { layout_id } = req.params;
         const pool = await getPool();
-        
+
         const result = await pool
             .request()
             .input('layout_id', sql.Int, layout_id)
@@ -292,14 +275,16 @@ export const getPCsByLayout = async (req, res) => {
                     i.location_y, 
                     i.fix_asset,
                     i.computer_type,
-                    ISNULL(STRING_AGG(au.[username], ', ') WITHIN GROUP (ORDER BY au.[logon_time] DESC), '') AS username
+                    (
+                        SELECT TOP 1 au.[username]
+                        FROM dbo.info_pc_active_users au
+                        WHERE au.[hostname] = i.hostname
+                        ORDER BY TRY_CONVERT(datetime, au.[logon_time], 103) DESC
+                    ) AS username
                 FROM dbo.info_pc_inventory i
-                LEFT JOIN dbo.info_pc_active_users au ON i.hostname = au.hostname
                 WHERE i.factory_layout_id = @layout_id 
                   AND i.location_x IS NOT NULL 
                   AND i.location_y IS NOT NULL
-                GROUP BY 
-                    i.hostname, i.location_x, i.location_y, i.fix_asset, i.computer_type
                 ORDER BY i.hostname
             `);
 

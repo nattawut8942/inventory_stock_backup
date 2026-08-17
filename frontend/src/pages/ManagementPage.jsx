@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map } from 'lucide-react';
+import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
@@ -65,6 +65,12 @@ const ManagementPage = () => {
 
     // Alert Modal
     const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
+
+    // Activity Categories State
+    const [activityCategories, setActivityCategories] = useState([]);
+    const [isAddActivityCategoryOpen, setIsAddActivityCategoryOpen] = useState(false);
+    const [editingActivityCategory, setEditingActivityCategory] = useState(null);
+    const [activityCategoryForm, setActivityCategoryForm] = useState({ CategoryCode: '', Label: '', ColorHex: '#64748B', SortOrder: 0 });
 
     // Handle device type selection for budgets
     const handleDeviceTypeSelect = (typeId) => {
@@ -139,13 +145,23 @@ const ManagementPage = () => {
         }
     };
 
+    const fetchActivityCategories = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/activity-categories`);
+            if (res.ok) setActivityCategories(await res.json());
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
     useEffect(() => {
         if (activeTab === 'admin') fetchAdminUsers();
         if (activeTab === 'locations') fetchLocations();
         if (activeTab === 'reasons') fetchReasons();
         if (activeTab === 'ma-types') fetchMATypes();
         if (activeTab === 'budgets') fetchBudgetCategories();
-        if (activeTab === 'factory-layouts') fetchFactoryLayouts(); 
+        if (activeTab === 'factory-layouts') fetchFactoryLayouts();
+        if (activeTab === 'activity-categories') fetchActivityCategories();
         setSearchTerm('');
     }, [activeTab]);
 
@@ -487,6 +503,45 @@ const handleFileSelect = (e) => {
     };
 
     // --- Factory Layout Functions ---
+    const dragIndexRef = useRef(null);
+    const [dragOverIndex, setDragOverIndex] = useState(null);
+
+    const handleDragStart = (index) => { dragIndexRef.current = index; };
+    const handleDragOver  = (e, index) => { e.preventDefault(); setDragOverIndex(index); };
+    const handleDragLeave = () => setDragOverIndex(null);
+
+    const handleDrop = async (dropIndex) => {
+        setDragOverIndex(null);
+        const dragIndex = dragIndexRef.current;
+        console.log('drag:', dragIndex, 'drop:', dropIndex);
+        if (dragIndex === null || dragIndex === dropIndex) return;
+
+        const filtered = factoryLayouts.filter(l => l.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        const newLayouts = [...factoryLayouts];
+        const dragId = filtered[dragIndex].id;
+        const dropId = filtered[dropIndex].id;
+        const idxA   = newLayouts.findIndex(l => l.id === dragId);
+        const idxB   = newLayouts.findIndex(l => l.id === dropId);
+
+        const [removed] = newLayouts.splice(idxA, 1);
+        newLayouts.splice(idxB, 0, removed);
+
+        const orders = newLayouts.map((l, i) => ({ id: l.id, sort_order: i + 1 }));
+        setFactoryLayouts(newLayouts);
+        dragIndexRef.current = null;
+
+        try {
+            await fetch(`${API_BASE}/cctv/layouts/reorder`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orders })
+            });
+        } catch (err) {
+            console.error('Reorder failed:', err);
+            fetchFactoryLayouts();
+        }
+    };
+
  const handleSaveFactoryLayout = async (e) => {
     e.preventDefault();
     setIsUploadingLayout(true);
@@ -518,6 +573,7 @@ const handleFileSelect = (e) => {
         });
 
         const data = await res.json();
+        console.log('reorder result:', data);
         if (data.success || res.ok) {
             setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: 'บันทึก Factory Layout สำเร็จ' });
             setIsAddFactoryLayoutOpen(false);
@@ -558,6 +614,59 @@ const handleFileSelect = (e) => {
         });
     };
 
+    // --- Activity Category Functions ---
+    const handleSaveActivityCategory = async (e) => {
+        e.preventDefault();
+        try {
+            const isEdit = !!editingActivityCategory;
+            const url = isEdit ? `${API_BASE}/activity-categories/${editingActivityCategory.CategoryCode}` : `${API_BASE}/activity-categories`;
+            const method = isEdit ? 'PUT' : 'POST';
+            const res = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(activityCategoryForm)
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: 'บันทึกหมวดหมู่สำเร็จ' });
+                setIsAddActivityCategoryOpen(false);
+                setEditingActivityCategory(null);
+                setActivityCategoryForm({ CategoryCode: '', Label: '', ColorHex: '#64748B', SortOrder: 0 });
+                fetchActivityCategories();
+            } else {
+                setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: data.error || 'บันทึกไม่สำเร็จ' });
+            }
+        } catch (err) {
+            setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: err.message });
+        }
+    };
+
+    const handleDeleteActivityCategory = (code) => {
+        setAlertModal({
+            isOpen: true,
+            type: 'danger',
+            title: 'ลบหมวดหมู่ Activity',
+            message: 'คุณแน่ใจหรือไม่? (ถ้ามีอัลบัมใช้หมวดนี้อยู่จะลบไม่ได้)',
+            confirmText: 'ลบ',
+            cancelText: 'ยกเลิก',
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/activity-categories/${code}`, { method: 'DELETE' });
+                    const data = await res.json();
+                    if (res.ok) {
+                        setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: 'ลบสำเร็จ' });
+                        fetchActivityCategories();
+                    } else {
+                        setAlertModal({ isOpen: true, type: 'error', title: 'ลบไม่ได้', message: data.error || 'มีอัลบัมใช้งานอยู่' });
+                    }
+                } catch (err) {
+                    setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: err.message });
+                }
+            },
+            onCancel: () => setAlertModal(prev => ({ ...prev, isOpen: false }))
+        });
+    };
+
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
             {/* Header & Tabs */}
@@ -576,7 +685,8 @@ const handleFileSelect = (e) => {
                         { id: 'reasons', label: 'Reasons', icon: MessageSquare },
                         { id: 'ma-types', label: 'MA Types', icon: FileKey },
                         { id: 'budgets', label: 'Budgets', icon: DollarSign },
-                        { id: 'factory-layouts', label: 'Maps', icon: Map }
+                        { id: 'factory-layouts', label: 'Maps', icon: Map },
+                        { id: 'activity-categories', label: 'Activity Categories', icon: Camera }
                     ].map(tab => (
                         <button
                             key={tab.id}
@@ -947,6 +1057,7 @@ const handleFileSelect = (e) => {
             <table className="w-full text-left border-collapse whitespace-nowrap min-w-[700px]">
                 <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
+                        <th className="p-4 font-bold w-16">ลำดับ</th>
                         <th className="p-4 font-bold">ID</th>
                         <th className="p-4 font-bold">Name</th>
                         <th className="p-4 font-bold">Image</th>
@@ -956,8 +1067,24 @@ const handleFileSelect = (e) => {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                     {factoryLayouts.filter(l => l.name.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                        factoryLayouts.filter(l => l.name.toLowerCase().includes(searchTerm.toLowerCase())).map(layout => (
-                            <tr key={layout.id} className="hover:bg-slate-50 transition-colors group">
+                        factoryLayouts.filter(l => l.name.toLowerCase().includes(searchTerm.toLowerCase())).map((layout, index, arr) => (
+                            <tr key={layout.id}
+                                draggable
+                                onDragStart={() => handleDragStart(index)}
+                                onDragOver={(e) => handleDragOver(e, index)}
+                                onDragLeave={handleDragLeave}
+                                onDrop={() => handleDrop(index)}
+                                className={`transition-colors group cursor-grab active:cursor-grabbing
+                                    ${dragOverIndex === index ? 'bg-indigo-50 border-t-2 border-indigo-400' : 'hover:bg-slate-50'}`}>
+                                <td className="p-4">
+                                    <div className="flex items-center justify-center text-slate-300 hover:text-slate-500">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                            <circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/>
+                                            <circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/>
+                                            <circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="12" r="1.5"/>
+                                        </svg>
+                                    </div>
+                                </td>
                                 <td className="p-4 text-slate-400 font-mono text-sm">#{layout.id}</td>
                                 <td className="p-4 font-bold text-slate-700 flex items-center gap-2"><Map size={16} className="text-teal-600" />{layout.name}</td>
                                 <td className="p-4 text-slate-600 text-sm max-w-xs truncate font-mono text-[11px]">{layout.image_url}</td>
@@ -972,7 +1099,74 @@ const handleFileSelect = (e) => {
                         ))
                     ) : (
                         <tr>
-                            <td colSpan="5" className="p-12 text-center text-slate-400">No layouts found</td>
+                            <td colSpan="6" className="p-12 text-center text-slate-400">No layouts found</td>
+                        </tr>
+                    )}
+                </tbody>
+            </table>
+        </div>
+    </div>
+)}
+
+{/* ACTIVITY CATEGORIES TAB */}
+{activeTab === 'activity-categories' && (
+    <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2">ACTIVITY CATEGORIES</h3>
+                <p className="text-slate-500 text-xs">จัดการหมวดหมู่สำหรับ Activity Gallery (ใช้ในฟอร์มอัปโหลดรูปกิจกรรม)</p>
+            </div>
+            <button
+                onClick={() => { setEditingActivityCategory(null); setActivityCategoryForm({ CategoryCode: '', Label: '', ColorHex: '#64748B', SortOrder: activityCategories.length + 1 }); setIsAddActivityCategoryOpen(true); }}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"
+            >
+                <Plus size={18} />
+                เพิ่มหมวดหมู่
+            </button>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
+            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[600px]">
+                <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
+                        <th className="p-4 font-bold">สี</th>
+                        <th className="p-4 font-bold">Code</th>
+                        <th className="p-4 font-bold">Label</th>
+                        <th className="p-4 font-bold">ลำดับ</th>
+                        <th className="p-4 font-bold text-right">จัดการ</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                    {activityCategories.filter(c => c.Label.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
+                        activityCategories.filter(c => c.Label.toLowerCase().includes(searchTerm.toLowerCase())).map(cat => (
+                            <tr key={cat.CategoryCode} className="hover:bg-slate-50 transition-colors group">
+                                <td className="p-4">
+                                    <span className="inline-block w-6 h-6 rounded-full border border-slate-200" style={{ backgroundColor: cat.ColorHex }}></span>
+                                </td>
+                                <td className="p-4 text-slate-400 font-mono text-sm font-bold">{cat.CategoryCode}</td>
+                                <td className="p-4 font-bold text-slate-700">{cat.Label}</td>
+                                <td className="p-4 text-slate-500 text-sm">{cat.SortOrder}</td>
+                                <td className="p-4 text-right">
+                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={() => { setEditingActivityCategory(cat); setActivityCategoryForm({ CategoryCode: cat.CategoryCode, Label: cat.Label, ColorHex: cat.ColorHex, SortOrder: cat.SortOrder }); setIsAddActivityCategoryOpen(true); }}
+                                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                        >
+                                            <Edit2 size={16} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteActivityCategory(cat.CategoryCode)}
+                                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        ))
+                    ) : (
+                        <tr>
+                            <td colSpan="5" className="p-12 text-center text-slate-400">No categories found</td>
                         </tr>
                     )}
                 </tbody>
@@ -1263,6 +1457,83 @@ const handleFileSelect = (e) => {
         </Portal>
     )}
 </AnimatePresence>
+
+            {/* MODAL - Activity Category */}
+            <AnimatePresence>
+                {isAddActivityCategoryOpen && (
+                    <Portal>
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
+                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
+                                <div className="p-5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white flex justify-between items-start">
+                                    <h3 className="font-black text-xl">{editingActivityCategory ? 'แก้ไขหมวดหมู่' : 'เพิ่มหมวดหมู่ใหม่'}</h3>
+                                    <button onClick={() => { setIsAddActivityCategoryOpen(false); setEditingActivityCategory(null); }} className="p-2 hover:bg-white/10 rounded-full"><X size={20} /></button>
+                                </div>
+                                <form onSubmit={handleSaveActivityCategory} className="p-5 space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Category Code</label>
+                                        <input
+                                            autoFocus
+                                            type="text"
+                                            placeholder="เช่น Installation, Server"
+                                            className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-700 font-mono disabled:bg-slate-50 disabled:text-slate-400"
+                                            value={activityCategoryForm.CategoryCode}
+                                            onChange={(e) => setActivityCategoryForm({ ...activityCategoryForm, CategoryCode: e.target.value })}
+                                            disabled={!!editingActivityCategory}
+                                            required
+                                        />
+                                        {editingActivityCategory && (
+                                            <p className="text-xs text-slate-400 mt-1">แก้ code ไม่ได้ เพราะผูกกับอัลบัมที่มีอยู่แล้ว ถ้าอยากเปลี่ยน code ให้สร้างหมวดใหม่แทน</p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Label (ชื่อที่แสดงในหน้าเว็บ)</label>
+                                        <input
+                                            type="text"
+                                            placeholder="เช่น Installation"
+                                            className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-700"
+                                            value={activityCategoryForm.Label}
+                                            onChange={(e) => setActivityCategoryForm({ ...activityCategoryForm, Label: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">สี</label>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="color"
+                                                    className="w-11 h-11 rounded-lg border border-slate-200 cursor-pointer shrink-0"
+                                                    value={activityCategoryForm.ColorHex}
+                                                    onChange={(e) => setActivityCategoryForm({ ...activityCategoryForm, ColorHex: e.target.value })}
+                                                />
+                                                <input
+                                                    type="text"
+                                                    className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm text-slate-700"
+                                                    value={activityCategoryForm.ColorHex}
+                                                    onChange={(e) => setActivityCategoryForm({ ...activityCategoryForm, ColorHex: e.target.value })}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">ลำดับ</label>
+                                            <input
+                                                type="number"
+                                                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-700"
+                                                value={activityCategoryForm.SortOrder}
+                                                onChange={(e) => setActivityCategoryForm({ ...activityCategoryForm, SortOrder: parseInt(e.target.value) || 0 })}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-3 pt-4">
+                                        <button type="button" onClick={() => { setIsAddActivityCategoryOpen(false); setEditingActivityCategory(null); }} className="flex-1 bg-white border border-slate-200 text-slate-600 font-bold py-2.5 rounded-lg hover:bg-slate-50">ยกเลิก</button>
+                                        <button type="submit" disabled={!activityCategoryForm.CategoryCode || !activityCategoryForm.Label} className="flex-[2] bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold py-2.5 rounded-lg hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50">บันทึก</button>
+                                    </div>
+                                </form>
+                            </motion.div>
+                        </motion.div>
+                    </Portal>
+                )}
+            </AnimatePresence>
 
             <AlertModal
                 isOpen={alertModal.isOpen}

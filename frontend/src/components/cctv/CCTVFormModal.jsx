@@ -3,6 +3,7 @@ import { X, Upload, User } from 'lucide-react';
 import { API_BASE, API_URL } from '../../config/api';
 import { useAuth } from '../../context/AuthContext';
 import { drawCCTVIcon } from './cctvIconUtils';
+import AlertModal from '../AlertModal';
 
 // ── Preset icons list ──────────────────────────────────────────────────────
 const PRESET_ICONS = [
@@ -122,8 +123,9 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
         }
     };
 
+    const [deleteConfirm, setDeleteConfirm] = useState(false);
+
     const handleDelete = async () => {
-        if (!confirm(`ลบกล้อง "${data.name}" ?`)) return;
         setLoading(true);
         try {
             await fetch(`${API_BASE}/cctv/cameras/${data.id}`, { method: 'DELETE' });
@@ -131,7 +133,7 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
         } finally { setLoading(false); }
     };
 
-    return (
+    const mainModal = (
         <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}>
             <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl flex flex-col max-h-[92vh]">
 
@@ -320,7 +322,7 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
                 <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center bg-gray-50 rounded-b-2xl">
                     <div>
                         {isEdit && (
-                            <button onClick={handleDelete} disabled={loading}
+                            <button onClick={() => setDeleteConfirm(true)} disabled={loading}
                                     className="text-sm text-red-500 hover:text-red-700 font-medium disabled:opacity-50">
                                 ลบกล้อง
                             </button>
@@ -338,7 +340,37 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
                     </div>
                 </div>
             </div>
+
         </div>
+    );
+
+    return (
+        <>
+            {mainModal}
+            {deleteConfirm && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', padding: 16 }}>
+                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-5 text-center animate-in zoom-in-95">
+                        <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <span className="text-3xl">🗑️</span>
+                        </div>
+                        <h3 className="font-black text-lg mb-2 text-slate-800">ลบกล้อง</h3>
+                        <p className="text-slate-500 text-sm mb-5 px-4 leading-relaxed">
+                            ยืนยันลบกล้อง <span className="font-bold text-red-600">"{data?.name}"</span> ? ข้อมูลจะหายถาวร
+                        </p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setDeleteConfirm(false)}
+                                    className="flex-1 bg-slate-100 text-slate-600 py-2.5 rounded-lg font-bold hover:bg-slate-200 transition-colors">
+                                ยกเลิก
+                            </button>
+                            <button onClick={() => { setDeleteConfirm(false); handleDelete(); }}
+                                    className="flex-1 bg-red-600 text-white py-2.5 rounded-lg font-bold hover:bg-red-700 transition-colors shadow-md">
+                                ลบเลย
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
     );
 });
 

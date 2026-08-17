@@ -1,27 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
-    Menu,
-    Clock,
-    Calendar,
-    LayoutDashboard,
-    Package,
-    ShoppingCart,
-    ArrowDownToLine,
-    ArrowUpFromLine,
-    History,
-    FileSpreadsheet,
-    Shield,
-    Plus,
-    User, // <- มี User แค่ตัวเดียวพอครับ
-    FileKey,
-    Printer,
-    ClipboardList,
-    Monitor,
-    Network,
-    HardDrive,
-    Cctv,
-   
+    Menu, Clock, Calendar,
+    LayoutDashboard, Package, ShoppingCart,
+    ArrowDownToLine, ArrowUpFromLine,
+    History, FileSpreadsheet, Shield, Plus,
+    User, FileKey, Printer, ClipboardList,
+    Monitor, Network, HardDrive, Cctv, Volume, Briefcase, BookOpen,
+    Camera,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatThaiDate } from '../utils/formatDate';
@@ -68,6 +54,12 @@ const Header = ({ onMenuClick }) => {
             case '/quota-manager': return { title: 'QUOTA MANAGER', icon: HardDrive, color: 'text-indigo-600' };
             case '/cctv-management': return { title: 'CCTV MANAGEMENT', icon: Cctv, color: 'text-indigo-600' };
             case '/calendar': return { title: 'CALENDAR', icon: Calendar, color: 'text-indigo-600' };
+            case '/ip-management': return { title: 'IP MANAGEMENT', icon: Network, color: 'text-indigo-600' };
+            case '/it-request': return { title: 'IT REQUESTS', icon: ClipboardList, color: 'text-indigo-600' };
+            case '/sound-layout': return { title: 'SOUND ENGINEERING', icon: Volume, color: 'text-indigo-600' };
+            case '/borrowings': return { title: 'BORROWING SYSTEM', icon: Briefcase, color: 'text-indigo-600' };
+            case '/knowledge-base': return { title: 'KNOWLEDGE BASE', icon: BookOpen, color: 'text-violet-600' };
+            case '/activity': return { title: 'ACTIVITY GALLERY', icon: Camera, color: 'text-pink-600' };
             default: return { title: 'IT STOCK MANAGEMENT', icon: Package, color: 'text-slate-600' };
         }
     };

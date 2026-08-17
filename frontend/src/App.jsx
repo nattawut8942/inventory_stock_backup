@@ -26,6 +26,12 @@ import ADUserDetail from './pages/ADUserDetail';
 import QuotaManager from './pages/QuotaManager';
 import CCTVPage from './pages/CCTVPage';
 import CalendarPage from './pages/CalendarPage';
+import IPManagementPage from './pages/IPManagementPage';
+import ITRequestPage from './pages/ITRequestPage';
+import SoundLayout from './pages/SoundLayout';
+import ITBorrowSystem from './pages/ITBorrowSystem';
+import KBPage from './pages/KBPage';
+import ActivityPage from './pages/ActivityPage'; 
 
 
 // App Routes Component
@@ -49,7 +55,9 @@ const AppRoutes = () => {
                     </ProtectedRoute>
                 }
             >
-                <Route index element={<DashboardPage />} />
+                <Route index element={<Navigate to="/activity" replace />} />
+<Route path="dashboard" element={<DashboardPage />} />
+<Route path="activity" element={<ActivityPage />} />
                 <Route path="inventory" element={<InventoryPage />} />
                 <Route path="ink-toner" element={<InkTonerStockPage />} />
                 <Route path="history" element={<HistoryPage />} />
@@ -61,7 +69,15 @@ const AppRoutes = () => {
                 <Route path="quota-manager" element={<QuotaManager />} />
                 <Route path="cctv-management" element={<CCTVPage />} />
                 <Route path="calendar" element={<CalendarPage />} />
-                
+                <Route path="ip-management" element={<IPManagementPage />} />
+                <Route path="it-request" element={<ITRequestPage />} />
+                <Route path="sound-layout" element={<SoundLayout />} />
+                <Route path="/knowledge-base" element={<KBPage />} />
+                <Route path="activity" element={<ActivityPage />} />
+                {/* ✅ ระบบยืม-คืน IT — ครอบด้วย Layout (Sidebar+Header) เหมือนหน้าอื่นในกลุ่มนี้ทุกอัน */}
+                <Route path="borrowings" element={<ITBorrowSystem />} />
+
+
                 {/* PO and Receive */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
                 <Route path="receive" element={<ReceivePage />} />

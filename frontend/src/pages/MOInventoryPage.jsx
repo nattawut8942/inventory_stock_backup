@@ -7,6 +7,8 @@ import { API_BASE } from '../config/api';
 import Portal from '../components/Portal';
 import LocationSelectorModal from './LocationSelectorModal';
 import MapViewTab from './MapViewTab';
+import AlertModal from '../components/AlertModal';
+
 
 // ─── Debounce hook ────────────────────────────────────────────────────────────
 function useDebounce(value, delay) {
@@ -21,19 +23,20 @@ function useDebounce(value, delay) {
 // ─── Shared key→hostname resolver ────────────────────────────────────────────
 function resolveFilterKey(key, sumData) {
   if (!sumData) return [];
-  const direct = {
-    noCrowdstrike: sumData.noCrowdstrike,
-    noTanium: sumData.noTanium,
-    noUems: sumData.noUems,
-    notActivated: sumData.notActivated,
-    noFixAsset: sumData.noFixAsset,
-    adminUsers: sumData.adminUsers,
-    notUpdated: sumData.notUpdated,
-    oldFixAssets: sumData.oldFixAssets,
-    notDomainJoined: sumData.notDomainJoined,
-    noLocation: sumData.noLocation,
-    longUptime: sumData.longUptime,   // ✅ เพิ่ม
-  };
+const direct = {
+  noCrowdstrike: sumData.noCrowdstrike,
+  noTanium: sumData.noTanium,
+  noUems: sumData.noUems,
+  notActivated: sumData.notActivated,
+  noFixAsset: sumData.noFixAsset,
+  adminUsers: sumData.adminUsers,
+  notUpdated: sumData.notUpdated,
+  oldFixAssets: sumData.oldFixAssets,
+  notDomainJoined: sumData.notDomainJoined,
+  noLocation: sumData.noLocation,
+  longUptime: sumData.longUptime,
+  inactive: sumData.inactive,   // ✅ เพิ่ม
+};
   if (key in direct) return direct[key] || [];
   const prefix = [
     ['cs:', sumData.crowdstrikeVerMap],
@@ -81,7 +84,7 @@ const MOInventoryPage = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailData, setDetailData] = useState({ inv: null, users: [], software: [] });
 
-  const [toastMsg, setToastMsg] = useState('');
+  const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [modalData, setModalData] = useState({});
@@ -320,7 +323,16 @@ const MOInventoryPage = () => {
   }, [detailData.software, softwareSearch, softwareSortKey, softwareSortAsc]);
 
   // ─── Actions ──────────────────────────────────────────────────────────────
-  const showToast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 3000); };
+const showToast = (msg) => {
+  const isError = msg.startsWith('❌');
+  const cleanMsg = msg.replace(/^(✓|❌)\s*/, '');
+  setAlertModal({
+    isOpen: true,
+    type: isError ? 'error' : 'success',
+    title: isError ? 'เกิดข้อผิดพลาด' : 'สำเร็จ',
+    message: cleanMsg,
+  });
+};
 
   const clearSession = () => {
     sessionStorage.removeItem('mo-inventory-session');
@@ -334,7 +346,7 @@ const MOInventoryPage = () => {
   const saveAsset = async () => {
     const asset = (modalData.assetInput || '').trim();
     if (asset && !/^[A-Za-z0-9\-_.]+$/.test(asset)) {
-      alert('รูปแบบ Fix Asset ไม่ถูกต้อง กรุณาใช้ตัวอักษร ตัวเลข หรือ - _ . เท่านั้น');
+      // ข้อความ validation แสดงอยู่ใต้ input ในโมดัลอยู่แล้ว ไม่ต้อง alert ซ้ำ
       return;
     }
     try {
@@ -347,10 +359,10 @@ const MOInventoryPage = () => {
       showToast('✓ บันทึกข้อมูล Fix Asset เรียบร้อย');
       setShowAssetModal(false);
       fetchDetail(modalData.hostname);
-    } catch (err) { alert(err.message); }
+    } catch (err) { showToast(`❌ ${err.message}`); }
   };
 
-  const confirmDelete = async () => {
+const confirmDelete = async () => {
     try {
       const res = await fetch(`${API_BASE}/mo-inventory/${encodeURIComponent(modalData.hostname)}`, { method: 'DELETE' });
       const data = await res.json();
@@ -358,7 +370,8 @@ const MOInventoryPage = () => {
       setShowDeleteModal(false);
       setView('list');
       setHostname(null);
-    } catch (err) { alert(err.message); }
+      showToast('✓ ลบข้อมูลเรียบร้อย');
+    } catch (err) { showToast(`❌ ${err.message}`); }
   };
 
   const exportFilteredList = () => {
@@ -567,6 +580,8 @@ const MOInventoryPage = () => {
               <StatBox id="notDomainJoined" label="Not Domain Joined" list={sumData?.notDomainJoined} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" />
               <StatBox id="noLocation" label="No Location" list={sumData?.noLocation} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" />
               <StatBox id="longUptime" label="Uptime > 10 วัน" list={sumData?.longUptime} textClass="text-sky-600" bgClass="bg-sky-50" ringClass="ring-sky-500" />
+              <StatBox id="inactive" label="ไม่ได้ใช้งาน" list={sumData?.inactive}
+  textClass="text-gray-500" bgClass="bg-gray-100" ringClass="ring-gray-400" />
             </div>
 
             {/* Distribution cards */}
@@ -657,8 +672,9 @@ const MOInventoryPage = () => {
                     ) : currentList.length === 0 ? (
                       <tr><td colSpan="10"><div className="text-center py-12 text-sm text-gray-400">🖥️ ไม่พบข้อมูล</div></td></tr>
                     ) : currentList.map(d => (
-                      <tr key={d.hostname} className="hover:bg-[#eff4ff] cursor-pointer transition-colors group"
-                        onClick={() => { setHostname(d.hostname); setView('detail'); }}>
+                       <tr key={d.hostname}
+    className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' ? 'opacity-50' : ''}`}
+    onClick={() => { setHostname(d.hostname); setView('detail'); }}>
                         <td className="py-2 px-3 text-[13px] font-medium text-gray-900">{d.hostname || '—'}</td>
                         <td className="py-2 px-3 text-[13px] font-mono font-medium">{d.ip_address || '—'}</td>
                         <td className="py-2 px-3 text-[13px] font-medium text-blue-600">{(d.active_usernames || '—').split(',')[0]}</td>
@@ -760,6 +776,28 @@ const MOInventoryPage = () => {
                       className="bg-red-50 text-red-600 border border-[#fca5a5] hover:bg-red-100 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors">
                       Delete
                     </button>
+                    <button
+onClick={async () => {
+    const newStatus = detailData.inv.pc_status === 'Inactive' ? 'Active' : 'Inactive';
+    try {
+      const res = await fetch(`${API_BASE}/mo-inventory/${encodeURIComponent(hostname)}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pc_status: newStatus }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      showToast(`✓ เปลี่ยนสถานะเป็น ${newStatus === 'Inactive' ? 'ไม่ได้ใช้งาน' : 'ใช้งานปกติ'}`);
+      fetchDetail(hostname);
+    } catch (err) { showToast(`❌ ${err.message}`); }
+  }}
+  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+    detailData.inv.pc_status === 'Inactive'
+      ? 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'
+      : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'
+  }`}>
+  {detailData.inv.pc_status === 'Inactive' ? '✓ Reactivate' : '⏸ Mark Inactive'}
+</button>
                   </div>
                 </div>
 
@@ -1213,11 +1251,14 @@ const MOInventoryPage = () => {
       )}
 
       {/* Toast */}
-      {toastMsg && (
-        <div className="fixed bottom-5 left-5 bg-[#16a34a] text-white px-4 py-3 rounded-lg text-[13px] font-medium shadow-lg z-[9999] animate-in slide-in-from-bottom-5 duration-300">
-          {toastMsg}
-        </div>
-      )}
+<AlertModal
+  isOpen={alertModal.isOpen}
+  type={alertModal.type}
+  title={alertModal.title}
+  message={alertModal.message}
+  onConfirm={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+  confirmText="ตกลง"
+/>
     </div>
   );
 };

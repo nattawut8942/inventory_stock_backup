@@ -55,6 +55,8 @@ export const createMAItem = async (req, res) => {
         Category, SubType, ItemName, Brand, SerialNumber,
         ServiceType, ServiceNumber, LicenseQty, PONumber,
         LocationName, Price, VendorID, StartDate, EndDate,
+        // ── NEW: Rental contract fields ──
+        ContractEndDate, POCycle,
         Status, Remark, CreatedBy
     } = req.body;
 
@@ -79,6 +81,9 @@ export const createMAItem = async (req, res) => {
             .input('VendorID', sql.Int, VendorID || null)
             .input('StartDate', sql.Date, StartDate || null)
             .input('EndDate', sql.Date, EndDate || null)
+            // ── NEW ──
+            .input('ContractEndDate', sql.Date, ContractEndDate || null)
+            .input('POCycle', sql.NVarChar, POCycle || null)
             .input('Status', sql.NVarChar, Status || 'Active')
             .input('Remark', sql.NVarChar, Remark || null)
             .input('CreatedBy', sql.NVarChar, CreatedBy || null)
@@ -86,10 +91,12 @@ export const createMAItem = async (req, res) => {
                 INSERT INTO dbo.MA_Items
                 (Category, SubType, ItemName, Brand, SerialNumber, ServiceType, ServiceNumber,
                  LicenseQty, PONumber, LocationName, Price, VendorID, StartDate, EndDate,
+                 ContractEndDate, POCycle,
                  Status, Remark, CreatedBy, CreatedAt, UpdatedAt)
                 VALUES
                 (@Category, @SubType, @ItemName, @Brand, @SerialNumber, @ServiceType, @ServiceNumber,
                  @LicenseQty, @PONumber, @LocationName, @Price, @VendorID, @StartDate, @EndDate,
+                 @ContractEndDate, @POCycle,
                  @Status, @Remark, @CreatedBy, GETDATE(), GETDATE());
                 SELECT SCOPE_IDENTITY() AS ItemID;
             `);
@@ -106,6 +113,8 @@ export const updateMAItem = async (req, res) => {
         Category, SubType, ItemName, Brand, SerialNumber,
         ServiceType, ServiceNumber, LicenseQty, PONumber,
         LocationName, Price, VendorID, StartDate, EndDate,
+        // ── NEW: Rental contract fields ──
+        ContractEndDate, POCycle,
         Status, Remark
     } = req.body;
 
@@ -127,6 +136,9 @@ export const updateMAItem = async (req, res) => {
             .input('VendorID', sql.Int, VendorID || null)
             .input('StartDate', sql.Date, StartDate || null)
             .input('EndDate', sql.Date, EndDate || null)
+            // ── NEW ──
+            .input('ContractEndDate', sql.Date, ContractEndDate || null)
+            .input('POCycle', sql.NVarChar, POCycle || null)
             .input('Status', sql.NVarChar, Status || 'Active')
             .input('Remark', sql.NVarChar, Remark || null)
             .query(`
@@ -137,6 +149,7 @@ export const updateMAItem = async (req, res) => {
                     LicenseQty = @LicenseQty, PONumber = @PONumber,
                     LocationName = @LocationName, Price = @Price, VendorID = @VendorID,
                     StartDate = @StartDate, EndDate = @EndDate,
+                    ContractEndDate = @ContractEndDate, POCycle = @POCycle,
                     Status = @Status, Remark = @Remark,
                     UpdatedAt = GETDATE()
                 WHERE ItemID = @ItemID

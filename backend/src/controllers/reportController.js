@@ -47,20 +47,28 @@ export const exportReport = async (req, res) => {
                     case 'lowstock': {
                         sheetName = '⚠️ สินค้าต่ำกว่า Min';
                         const lowStockResult = await pool.request().query(`
-                            SELECT 
-                                ProductID, ProductName, DeviceType, 
-                                MinStock, MaxStock, CurrentStock, LastPrice,
-                                business_priority,
-                                CASE business_priority
-                                    WHEN 1 THEN 'CRITICAL'
-                                    WHEN 2 THEN 'HIGH'
-                                    WHEN 3 THEN 'MEDIUM'
-                                    ELSE        'LOW'
-                                END AS priority_label
-                            FROM dbo.Stock_Products
-                            WHERE IsActive = 1 AND CurrentStock <= MinStock
-                            ORDER BY business_priority ASC, CurrentStock ASC
-                        `);
+    SELECT p.ProductID, p.ProductName, p.DeviceType,
+           p.MinStock, p.MaxStock, p.CurrentStock, p.LastPrice,
+           p.business_priority,
+           CASE p.business_priority
+               WHEN 1 THEN 'CRITICAL'
+               WHEN 2 THEN 'HIGH'
+               WHEN 3 THEN 'MEDIUM'
+               ELSE 'LOW'
+           END AS priority_label,
+           ISNULL((
+               SELECT SUM(ABS(t.Qty))
+               FROM dbo.Stock_Transactions t
+               WHERE t.ProductID = p.ProductID
+               AND t.TransType = 'OUT'
+               AND t.TransDate >= DATEADD(month, -3, GETDATE())
+               AND t.RefInfo NOT LIKE '%ยกเลิก Invoice%'
+               AND t.RefInfo NOT LIKE '%Stock Count Adjust%'
+           ), 0) AS Usage3Months
+    FROM dbo.Stock_Products p
+    WHERE p.IsActive = 1 AND p.CurrentStock <= p.MinStock
+    ORDER BY p.business_priority ASC, p.CurrentStock ASC
+`);
                         data = lowStockResult.recordset.map(row => {
                             const orderQty = (row.MaxStock || row.MinStock) - row.CurrentStock;
                             const estimatedCost = orderQty * (row.LastPrice || 0);
@@ -72,6 +80,7 @@ export const exportReport = async (req, res) => {
                                 'ลำดับความสำคัญ': row.priority_label,        // ✅ เพิ่ม
                                 'คงเหลือ': row.CurrentStock,
                                 'ต่ำสุด (Min)': row.MinStock,
+                                'Usage 3 เดือน (ชิ้น)': row.Usage3Months || 0,
                                 'สูงสุด (Max)': row.MaxStock || '-',
                                 'ต้องสั่งเพิ่ม': orderQty > 0 ? orderQty : 0,
                                 'ราคา/หน่วย (฿)': row.LastPrice || 0,

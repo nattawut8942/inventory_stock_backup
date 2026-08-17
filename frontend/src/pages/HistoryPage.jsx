@@ -46,7 +46,10 @@ const HistoryPage = () => {
             result = result.filter(t =>
                 (t.UserID || '').toLowerCase().includes(term) ||
                 (t.ProductName || '').toLowerCase().includes(term) ||
-                (t.RefInfo || '').toLowerCase().includes(term)
+                (t.RefInfo || '').toLowerCase().includes(term) ||
+                (t.EmployeeName || '').toLowerCase().includes(term) ||
+                (t.SerialNumber || '').toLowerCase().includes(term) ||
+                (t.FixedAssetCode || '').toLowerCase().includes(term)
             );
         }
 
@@ -152,7 +155,9 @@ const HistoryPage = () => {
                             <th className="p-4 whitespace-nowrap">รายการ</th>
                             <th className="p-4 text-center whitespace-nowrap">จำนวน</th>
                             <th className="p-4 whitespace-nowrap">หมายเหตุ</th>
-                            <th className="p-4 whitespace-nowrap">ผู้ใช้</th>
+                            <th className="p-4 whitespace-nowrap">User</th>
+                            <th className="p-4 whitespace-nowrap">เบิกให้</th>
+                            <th className="p-4 whitespace-nowrap">Asset Info</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -201,6 +206,26 @@ const HistoryPage = () => {
                                             {(t.UserID || '').toUpperCase()}
                                         </span>
                                     </td>
+  <td className="p-4 whitespace-nowrap">
+    {t.EmployeeName ? (
+        <div className="text-xs">
+            <span className="font-bold text-indigo-600 font-mono block">{t.EmployeeName}</span>
+            {t.EmployeeCode && <span className="text-slate-400 text-[10px]">{t.EmployeeCode}</span>}
+        </div>
+    ) : (
+        <span className="text-slate-300 text-xs">-</span>
+    )}
+</td>
+<td className="p-4 whitespace-nowrap">
+    {(t.SerialNumber || t.FixedAssetCode) ? (
+        <div className="inline-flex flex-col gap-0.5 text-[10px] font-mono bg-amber-50 border border-amber-100 text-amber-700 rounded-lg px-2 py-1">
+            <span>S/N: {t.SerialNumber || '-'}</span>
+            <span>FIX: {t.FixedAssetCode || '-'}</span>
+        </div>
+    ) : (
+        <span className="text-slate-300 text-xs">-</span>
+    )}
+</td>
                                 </tr>
                             );
                         })}
@@ -260,7 +285,24 @@ const HistoryPage = () => {
                                     <span className="text-slate-400 block mb-0.5">USER</span>
                                     <span className="font-medium text-slate-700 truncate block">{t.UserID}</span>
                                 </div>
+                                
                             </div>
+{t.EmployeeName && (
+    <div className="bg-indigo-50 p-2 rounded-lg col-span-2">
+        <span className="text-indigo-400 block mb-0.5">เบิกให้</span>
+        <span className="font-bold text-indigo-700 font-mono truncate block">
+            {t.EmployeeName} {t.EmployeeCode && `· ${t.EmployeeCode}`}
+        </span>
+    </div>
+)}
+{(t.SerialNumber || t.FixedAssetCode) && (
+    <div className="bg-amber-50 p-2 rounded-lg col-span-2 mt-2">
+        <span className="text-amber-500 block mb-0.5 text-xs">Asset Info</span>
+        <span className="font-bold text-amber-700 font-mono truncate block text-xs">
+            S/N: {t.SerialNumber || '-'} · FA: {t.FixedAssetCode || '-'}
+        </span>
+    </div>
+)}
 
                             <div className="flex justify-between items-center pt-2 border-t border-slate-100">
                                 <span className="text-xs font-bold text-slate-400">QUANTITY</span>

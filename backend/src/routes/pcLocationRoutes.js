@@ -1,22 +1,21 @@
 import express from 'express';
-import { 
-    upload,
-    getFactoryLayouts, 
-    createFactoryLayout, 
+import {
+    getFactoryLayouts,
+    createFactoryLayout,
     updateFactoryLayout,
     deleteFactoryLayout,
-    getPCLocation, 
+    getPCLocation,
     updatePCLocation,
     clearPCLocation,
-    getPCsByLayout 
+    getPCsByLayout
 } from '../controllers/pcLocationController.js';
 
 const router = express.Router();
 
-// Factory Layouts Routes - with file upload
+// Factory Layouts Routes - file upload handled by express-fileupload (global middleware in server.js)
 router.get('/factory-layouts', getFactoryLayouts);
-router.post('/factory-layouts', upload.single('image'), createFactoryLayout);
-router.put('/factory-layouts/:id', upload.single('image'), updateFactoryLayout);
+router.post('/factory-layouts', createFactoryLayout);      // ✅ เอา upload.single('image') ออก
+router.put('/factory-layouts/:id', updateFactoryLayout);   // ✅ เอา upload.single('image') ออก
 router.delete('/factory-layouts/:id', deleteFactoryLayout);
 
 // PC Location Routes

@@ -57,7 +57,7 @@ const MapViewTab = ({ hostname, locationData, detailData, onEditLocation, onSele
                 const pixelY = (canvas.height * pc.location_y) / 100;
 
                 const isCurrent = pc.hostname === hostname;
-                const radius = isCurrent ? 24 : 18;
+                const radius = isCurrent ? 20 : 15;
                 const fillColor = isCurrent ? '#3b82f6' : 'rgba(75, 85, 99, 0.8)';
 
                 ctx.save();
@@ -70,11 +70,11 @@ const MapViewTab = ({ hostname, locationData, detailData, onEditLocation, onSele
 
                 ctx.shadowBlur = 0;
                 ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 1.5;
                 ctx.stroke();
                 ctx.restore();
 
-                ctx.font = isCurrent ? '20px Arial' : '14px Arial';
+                ctx.font = isCurrent ? '15px Arial' : '12px Arial';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(getDeviceIcon(pc.computer_type), pixelX, pixelY);
@@ -106,11 +106,11 @@ const MapViewTab = ({ hostname, locationData, detailData, onEditLocation, onSele
                 };
 
 
-                const textStartY = pixelY + radius + 15;
+                const textStartY = pixelY + radius + 12;
                 const primaryLabel = labelMode === 'hostname' ? pc.hostname : (rawUser || 'No User');
 
-                drawTextWithBg(primaryLabel, pixelX, textStartY, isCurrent ? 14 : 11, isCurrent ? '#1d4ed8' : '#374151', true);
-                drawTextWithBg(asset, pixelX, textStartY + 16, isCurrent ? 12 : 10, '#6b7280');
+                drawTextWithBg(primaryLabel, pixelX, textStartY, isCurrent ? 12 : 10, isCurrent ? '#1d4ed8' : '#374151', true);
+                drawTextWithBg(asset, pixelX, textStartY + 16, isCurrent ? 11 : 9, '#6b7280');
             }
         });
     }, [imageLoaded, allPCsInLayout, hostname]);

@@ -37,7 +37,8 @@ const Layout = () => {
                     {/* Background ambient */}
                     <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-indigo-500/10 to-transparent pointer-events-none -z-10"/>
 
-                    <div className="max-w-[95%] mx-auto w-full">
+                    {/* ✅ ขยายจาก max-w-[95%] เป็น max-w-full เต็มพื้นที่ที่มี เผื่อหน้าที่มีตารางหลาย column (เช่น ระบบยืม-คืน IT) ไม่ต้องบีบ/scroll เยอะเกินจำเป็น */}
+                    <div className="max-w-full mx-auto w-full">
                         <Outlet/>
                     </div>
                 </div>

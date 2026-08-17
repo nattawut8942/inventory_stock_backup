@@ -13,10 +13,12 @@ export const getInventory = async (req, res) => {
         uptime, last_boot, domain,
         updated_at, collected_at,
         factory_layout_id, location_x, location_y, location_updated_at,
-        (SELECT STRING_AGG(username, ',') FROM [dbo].[info_mo_active_users]
-          WHERE hostname = [dbo].[info_mo_inventory].hostname) as active_usernames,
-        (SELECT MAX(logon_time) FROM [dbo].[info_mo_active_users]
-          WHERE hostname = [dbo].[info_mo_inventory].hostname) as logon_time
+        (SELECT TOP 1 username FROM [dbo].[info_mo_active_users]
+          WHERE hostname = [dbo].[info_mo_inventory].hostname
+          ORDER BY TRY_CONVERT(datetime, logon_time, 103) DESC) as active_usernames,
+        (SELECT TOP 1 logon_time FROM [dbo].[info_mo_active_users]
+          WHERE hostname = [dbo].[info_mo_inventory].hostname
+          ORDER BY TRY_CONVERT(datetime, logon_time, 103) DESC) as logon_time
       FROM [dbo].[info_mo_inventory]
       ORDER BY updated_at DESC
     `);
@@ -54,8 +56,9 @@ export const getMOsByLayout = async (req, res) => {
       .input('layout_id', sql.Int, layout_id)
       .query(`
         SELECT i.hostname, i.location_x, i.location_y, i.fix_asset, i.manufacturer,
-          (SELECT STRING_AGG(username, ',') FROM [dbo].[info_mo_active_users]
-            WHERE hostname = i.hostname) as username
+          (SELECT TOP 1 username FROM [dbo].[info_mo_active_users]
+            WHERE hostname = i.hostname
+            ORDER BY TRY_CONVERT(datetime, logon_time, 103) DESC) as username
         FROM [dbo].[info_mo_inventory] i
         WHERE i.factory_layout_id = @layout_id
           AND i.location_x IS NOT NULL AND i.location_y IS NOT NULL
@@ -172,10 +175,12 @@ export const searchInventory = async (req, res) => {
           crowdstrike_ver, tanium_ver, uems_ver,
           uptime, last_boot, domain,
           updated_at, collected_at,
-          (SELECT STRING_AGG(username, ',') FROM [dbo].[info_mo_active_users]
-            WHERE hostname = [dbo].[info_mo_inventory].hostname) as active_usernames,
-          (SELECT MAX(logon_time) FROM [dbo].[info_mo_active_users]
-            WHERE hostname = [dbo].[info_mo_inventory].hostname) as logon_time
+          (SELECT TOP 1 username FROM [dbo].[info_mo_active_users]
+            WHERE hostname = [dbo].[info_mo_inventory].hostname
+            ORDER BY TRY_CONVERT(datetime, logon_time, 103) DESC) as active_usernames,
+          (SELECT TOP 1 logon_time FROM [dbo].[info_mo_active_users]
+            WHERE hostname = [dbo].[info_mo_inventory].hostname
+            ORDER BY TRY_CONVERT(datetime, logon_time, 103) DESC) as logon_time
         FROM [dbo].[info_mo_inventory]
         WHERE hostname LIKE @q OR ip_address LIKE @q OR serial_number LIKE @q
           OR manufacturer LIKE @q OR model LIKE @q
@@ -210,51 +215,59 @@ export const getSummary = async (req, res) => {
 
     const push = (map, key, hn) => { map[key] = map[key] || []; map[key].push(hn); };
 
+    // ✅ เครื่องที่ยัง active อยู่ (ไม่รวม inactive) ใช้ตัวนี้กรอง stat ที่เป็น "ปัญหาต้องตามแก้"
+    const activeOnly = data.filter(d => d.pc_status !== 'Inactive');
+
     const summary = {
       total: data.length,
 
-      noLocation: data
+      // ✅ เพิ่ม stat ใหม่
+      inactive: data
+        .filter(d => d.pc_status === 'Inactive')
+        .map(d => d.hostname),
+
+      noLocation: activeOnly
         .filter(d => d.factory_layout_id === null || d.factory_layout_id === undefined)
         .map(d => d.hostname),
 
-      noCrowdstrike: data
+      noCrowdstrike: activeOnly
         .filter(d => !d.crowdstrike_ver || d.crowdstrike_ver.toLowerCase() === 'not installed')
         .map(d => d.hostname),
 
-      noTanium: data
+      noTanium: activeOnly
         .filter(d => !d.tanium_ver || d.tanium_ver.toLowerCase() === 'not installed')
         .map(d => d.hostname),
 
-      noUems: data
+      noUems: activeOnly
         .filter(d => !d.uems_ver || d.uems_ver.toLowerCase() === 'not installed')
         .map(d => d.hostname),
 
-      notActivated: data
+      notActivated: activeOnly
         .filter(d => d.os_activation !== 'Activated')
         .map(d => d.hostname),
 
-      noFixAsset: data
+      noFixAsset: activeOnly
         .filter(d => !d.fix_asset || d.fix_asset.trim() === '')
         .map(d => d.hostname),
 
-      adminUsers: data
+      adminUsers: activeOnly
         .filter(d => {
           const v = (d.local_admin_users || '').toLowerCase().trim();
           return v.includes('admin') && v !== 'not admin';
         })
         .map(d => d.hostname),
 
-      notUpdated: data
+      // ✅ แก้ bug เดิมด้วย: เช็คจาก updated_at แทน logonMap
+      notUpdated: activeOnly
         .filter(d => {
-          const lastLogon = logonMap[d.hostname];
-          if (!lastLogon) return false;
-          const t = new Date(lastLogon).getTime();
+          if (!d.updated_at) return false;
+          const t = new Date(d.updated_at).getTime();
           if (isNaN(t)) return false;
           return (now - t) > MS_30_DAYS;
         })
         .map(d => d.hostname),
 
-      oldFixAssets: data
+      oldFixAssets: activeOnly
         .filter(d => {
           if (!d.fix_asset || d.fix_asset.trim() === '') return false;
           const m = d.fix_asset.match(/CO(\d{2})/);
@@ -265,13 +278,12 @@ export const getSummary = async (req, res) => {
         })
         .map(d => d.hostname),
 
-      notDomainJoined: data
+      notDomainJoined: activeOnly
         .filter(d => !d.domain || d.domain.trim() === '' ||
           d.domain.toLowerCase() === 'workgroup')
         .map(d => d.hostname),
 
-      // ✅ uptime > 10 วัน — parse "5d 3h 20m" เอาตัวเลขหน้า d
-      longUptime: data
+      longUptime: activeOnly
         .filter(d => {
           if (!d.uptime) return false;
           const match = d.uptime.match(/^(\d+)d/);
@@ -279,7 +291,6 @@ export const getSummary = async (req, res) => {
         })
         .map(d => d.hostname),
 
-      // ── Distribution maps ────────────────────────────────────────
       crowdstrikeVerMap: {},
       taniumVerMap: {},
       uemsVerMap: {},
@@ -294,7 +305,8 @@ export const getSummary = async (req, res) => {
       subnetMap: {},
     };
 
-    data.forEach(d => {
+    // ✅ distribution map ก็ใช้ activeOnly เหมือนกัน จะได้ไม่เอาเครื่อง inactive มาปนใน chart
+    activeOnly.forEach(d => {
       push(summary.crowdstrikeVerMap, d.crowdstrike_ver || 'Not Installed', d.hostname);
       push(summary.taniumVerMap, d.tanium_ver || 'Not Installed', d.hostname);
       push(summary.uemsVerMap, d.uems_ver || 'Not Installed', d.hostname);
@@ -333,6 +345,24 @@ export const getSoftware = async (req, res) => {
     res.json({ success: true, data: result.recordset });
   } catch (err) {
     console.error('getSoftware error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+export const updateStatus = async (req, res) => {
+  try {
+    const { hostname } = req.params;
+    const { pc_status } = req.body; // 'Active' | 'Inactive'
+    if (!['Active', 'Inactive'].includes(pc_status)) {
+      return res.status(400).json({ success: false, error: 'pc_status ไม่ถูกต้อง' });
+    }
+    const pool = getPool();
+    await pool.request()
+      .input('hostname', sql.VarChar, hostname)
+      .input('pc_status', sql.VarChar, pc_status)
+      .query(`UPDATE [dbo].[info_mo_inventory] SET pc_status = @pc_status WHERE hostname = @hostname`);
+    res.json({ success: true, message: 'Status updated' });
+  } catch (err) {
+    console.error('updateStatus error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -381,6 +411,33 @@ export const getHistory = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+export const getInventoryByFixAsset = async (req, res) => {
+  try {
+    const code = (req.params.code || '').trim();
+    if (!code) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุรหัสครุภัณฑ์' });
+    }
+ 
+    const pool = getPool();
+    const result = await pool.request()
+      .input('fixAsset', sql.VarChar, code)
+      .query(`
+        SELECT TOP (1) hostname, serial_number, fix_asset, manufacturer, model
+        FROM [dbo].[info_mo_inventory]
+        WHERE fix_asset = @fixAsset
+      `);
+ 
+    if (result.recordset.length === 0) {
+      return res.status(404).json({ success: false, error: 'ไม่พบรหัสครุภัณฑ์นี้ในระบบ Monitor Inventory' });
+    }
+ 
+    res.json({ success: true, data: result.recordset[0] });
+  } catch (err) {
+    console.error('getInventoryByFixAsset (MO) error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+ 
 
 export const deleteInventoryWithHistory = async (req, res) => {
   try {
