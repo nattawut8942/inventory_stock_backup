@@ -60,6 +60,7 @@ const Header = ({ onMenuClick }) => {
             case '/borrowings': return { title: 'BORROWING SYSTEM', icon: Briefcase, color: 'text-indigo-600' };
             case '/knowledge-base': return { title: 'KNOWLEDGE BASE', icon: BookOpen, color: 'text-violet-600' };
             case '/activity': return { title: 'ACTIVITY GALLERY', icon: Camera, color: 'text-pink-600' };
+            case '/printer-health': return { title: 'PRINTER HEALTH', icon: Printer, color: 'text-cyan-600' };
             default: return { title: 'IT STOCK MANAGEMENT', icon: Package, color: 'text-slate-600' };
         }
     };

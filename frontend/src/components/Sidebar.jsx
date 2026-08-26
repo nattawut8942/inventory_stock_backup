@@ -164,6 +164,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                         <>
                             <NavItem icon={Database} label="STOCK INVENTORY" to="/inventory" onClose={onClose} collapsed={collapsed} />
                             <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" onClose={onClose} collapsed={collapsed} />
+                            <NavItem icon={Activity} label="PRINTER HEALTH" to="/printer-health" onClose={onClose} collapsed={collapsed} />
                             <NavItem icon={ShoppingCart} label="PR & ORDERS" to="/purchase-orders"  onClose={onClose} collapsed={collapsed} />
                             <NavItem icon={ArrowDownToLine} label="RECEIVE ITEMS" to="/receive" onClose={onClose} collapsed={collapsed} />
                         </>
@@ -171,6 +172,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                         <>
                             <NavItem icon={Database} label="STOCK INVENTORY" to="/inventory" onClose={onClose} collapsed={collapsed} />
                             <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" onClose={onClose} collapsed={collapsed} />
+                            <NavItem icon={Activity} label="PRINTER HEALTH" to="/printer-health" onClose={onClose} collapsed={collapsed} />
                         </>
                     )}
                     <NavItem icon={Briefcase} label="BORROWING SYSTEM" to="/borrowings" onClose={onClose} collapsed={collapsed} />

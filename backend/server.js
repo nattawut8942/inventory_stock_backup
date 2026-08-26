@@ -48,6 +48,8 @@ import BorrowRoute from './src/routes/BorrowRoute.js';
 import kbRoutes from './src/routes/kbRoutes.js';
 import activityRoutes from './src/routes/activityRoutes.js';
 import fileUpload from 'express-fileupload';
+import printerRoutes from './src/routes/printerRoutes.js';
+import { startPrinterScanCron, runPrinterScan } from './src/services/printerScanService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -168,6 +170,10 @@ const startServer = async () => {
         app.use('/api/pc-inventory', pcInventoryRoutes);
         app.use('/ITinventory/api/knowledge-base', kbRoutes);
         app.use('/ITinventory/api', activityRoutes); 
+        app.use('/ITinventory/api', printerRoutes);
+
+        // ── Cron: Printer toner/error scan (08:00, 13:00, 18:00) ─────────
+        startPrinterScanCron();
 
         // ── Cron: Weekly report (Monday 8 AM) ────────────────────────────
         cron.schedule('0 8 * * 1', async () => {
@@ -292,6 +298,18 @@ const startServer = async () => {
                 res.json({ success: true, message: 'Monthly report sent successfully' });
             } catch (err) {
                 console.error('[Test] Monthly report failed:', err);
+                res.status(500).json({ success: false, error: err.message });
+            }
+        });
+
+        // ── Test: Run printer scan ทันที (ทุกเครื่อง ไม่ต้องรอ cron) ─────
+        app.post('/ITinventory/api/test/run-printer-scan', async (req, res) => {
+            try {
+                console.log('[Test] Running printer scan manually...');
+                await runPrinterScan();
+                res.json({ success: true, message: 'Printer scan completed' });
+            } catch (err) {
+                console.error('[Test] Printer scan failed:', err);
                 res.status(500).json({ success: false, error: err.message });
             }
         });

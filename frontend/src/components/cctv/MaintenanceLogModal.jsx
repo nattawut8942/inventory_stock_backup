@@ -30,6 +30,7 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
         issue_type:     '',
         reason:         '',
         description:    '',
+        solution:       '',
         status:         isRepair ? 'pending' : 'removed',
         assigned_to:    '',
         resolved_at:    '',
@@ -37,11 +38,11 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
         new_location:   '',
         remark:         '',
     });
-    const [selectedCams, setSelectedCams] = useState([]); // ใช้ทั้ง repair และ removal
+    const [selectedCams, setSelectedCams] = useState([]);
     const [camSearch, setCamSearch]       = useState('');
+    const [camFilter, setCamFilter]       = useState('all');
     const [loading, setLoading]           = useState(false);
     const [error, setError]               = useState('');
-    const [camFilter, setCamFilter] = useState('all'); // all / offline / online
 
     useEffect(() => {
         if (isEdit && data) {
@@ -49,6 +50,7 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
                 issue_type:     data.issue_type     || '',
                 reason:         data.reason         || '',
                 description:    data.description    || '',
+                solution:       data.solution       || '',
                 status:         data.status         || (isRepair ? 'pending' : 'removed'),
                 assigned_to:    data.assigned_to    || '',
                 resolved_at:    data.resolved_at    ? new Date(data.resolved_at).toISOString().split('T')[0]    : '',
@@ -97,21 +99,30 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
                     }),
                 });
             } else {
-                const payload = selectedCams.map(cam => ({
-                    camera_id:    cam.id,
-                    camera_name:  cam.name,
+                // ส่งเป็น 1 record ต่อเหตุการณ์ พร้อม camera_ids และ camera_names
+                const factoryNames = [...new Set(selectedCams.map(c =>
+                    layouts.find(l => l.id === c.factory_layout_id)?.name || ''
+                ).filter(Boolean))].join(', ');
+
+                const payload = [{
+                    camera_id:    selectedCams[0].id,          // primary camera
+                    camera_name:  selectedCams[0].name,
+                    camera_ids:   selectedCams.map(c => c.id).join(','),
+                    camera_names: selectedCams.map(c => c.name).join(', '),
                     log_type:     isRepair ? 'repair' : 'removal',
-                    factory_name: layouts.find(l => l.id === cam.factory_layout_id)?.name || '',
-                    location_x:   cam.location_x,
-                    location_y:   cam.location_y,
+                    factory_name: factoryNames,
+                    location_x:   selectedCams[0].location_x,
+                    location_y:   selectedCams[0].location_y,
                     issue_type:   isRepair ? form.issue_type : null,
                     reason:       isRepair ? null : form.reason,
                     description:  form.description,
+                    solution:     form.solution,
                     status:       isRepair ? 'pending' : 'removed',
                     assigned_to:  form.assigned_to,
                     reported_by:  user?.username || user?.name || '',
                     remark:       form.remark,
-                }));
+                }];
+
                 await fetch(`${API_BASE}/cctv/maintenance-logs`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -127,12 +138,12 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
     };
 
     const filteredCams = cameras.filter(c => {
-    const searchOk = !camSearch || 
-        c.name.toLowerCase().includes(camSearch.toLowerCase()) || 
-        (c.ip_address || '').includes(camSearch);
-    const statusOk = camFilter === 'all' || c.status === camFilter;
-    return searchOk && statusOk;
-});
+        const searchOk = !camSearch ||
+            c.name.toLowerCase().includes(camSearch.toLowerCase()) ||
+            (c.ip_address || '').includes(camSearch);
+        const statusOk = camFilter === 'all' || c.status === camFilter;
+        return searchOk && statusOk;
+    });
 
     const statusList = isRepair ? REPAIR_STATUSES : REMOVAL_STATUSES;
 
@@ -160,50 +171,48 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
                                 เลือกกล้อง <span className="text-red-500">*</span>
                                 <span className="text-gray-400 ml-1">(เลือกได้หลายตัว)</span>
                             </label>
-                            {/* Filter buttons */}
-<div className="flex gap-1.5 mb-1 flex-wrap">
-    {[
-        { v: 'all',     label: 'ทั้งหมด' },
-        { v: 'offline', label: '🔴 Offline' },
-        { v: 'online',  label: '🟢 Online' },
-        { v: 'removed', label: '⚫ ถอดออก' },
-    ].map(f => (
-        <button key={f.v} onClick={() => setCamFilter(f.v)}
-                className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors
-                    ${camFilter === f.v ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300'}`}>
-            {f.label}
-            <span className="ml-1 opacity-60">({cameras.filter(c => f.v === 'all' ? true : c.status === f.v).length})</span>
-        </button>
-    ))}
-</div>
-
-<input value={camSearch} onChange={e => setCamSearch(e.target.value)}
-       placeholder="ค้นหากล้อง..." className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs mb-1"/>
-
-<div className="border border-gray-200 rounded-lg max-h-36 overflow-y-auto">
-    {filteredCams.length === 0
-        ? <div className="px-3 py-4 text-center text-xs text-gray-400">ไม่พบกล้อง</div>
-        : filteredCams.map(cam => (
-            <label key={cam.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
-                <input type="checkbox"
-                       checked={!!selectedCams.find(c => c.id === cam.id)}
-                       onChange={() => {
-                           setSelectedCams(prev =>
-                               prev.find(c => c.id === cam.id)
-                                   ? prev.filter(c => c.id !== cam.id)
-                                   : [...prev, cam]
-                           );
-                       }} className="rounded"/>
-                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    cam.status === 'online'  ? 'bg-green-500' :
-                    cam.status === 'offline' ? 'bg-red-500'   :
-                    cam.status === 'removed' ? 'bg-gray-400'  : 'bg-gray-300'}`}/>
-                <span className="text-xs font-medium text-gray-700 flex-1">{cam.name}</span>
-                <span className="text-[10px] text-gray-400">{cam.ip_address}</span>
-            </label>
-        ))
-    }
-</div>
+                            <input value={camSearch} onChange={e => setCamSearch(e.target.value)}
+                                   placeholder="ค้นหากล้อง..." className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs mb-1"/>
+                            {/* Filter status */}
+                            <div className="flex gap-1.5 mb-1 flex-wrap">
+                                {[
+                                    { v: 'all',     label: 'ทั้งหมด' },
+                                    { v: 'offline', label: '🔴 Offline' },
+                                    { v: 'online',  label: '🟢 Online' },
+                                    { v: 'removed', label: '⚫ ถอดออก' },
+                                ].map(f => (
+                                    <button key={f.v} onClick={() => setCamFilter(f.v)}
+                                            className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors
+                                                ${camFilter === f.v ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300'}`}>
+                                        {f.label}
+                                        <span className="ml-1 opacity-60">({cameras.filter(c => f.v === 'all' ? true : c.status === f.v).length})</span>
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="border border-gray-200 rounded-lg max-h-36 overflow-y-auto">
+                                {filteredCams.length === 0
+                                    ? <div className="px-3 py-4 text-center text-xs text-gray-400">ไม่พบกล้อง</div>
+                                    : filteredCams.map(cam => (
+                                        <label key={cam.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
+                                            <input type="checkbox"
+                                                   checked={!!selectedCams.find(c => c.id === cam.id)}
+                                                   onChange={() => {
+                                                       setSelectedCams(prev =>
+                                                           prev.find(c => c.id === cam.id)
+                                                               ? prev.filter(c => c.id !== cam.id)
+                                                               : [...prev, cam]
+                                                       );
+                                                   }} className="rounded"/>
+                                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                                cam.status === 'online'  ? 'bg-green-500' :
+                                                cam.status === 'offline' ? 'bg-red-500'   :
+                                                cam.status === 'removed' ? 'bg-gray-400'  : 'bg-gray-300'}`}/>
+                                            <span className="text-xs font-medium text-gray-700 flex-1">{cam.name}</span>
+                                            <span className="text-[10px] text-gray-400">{cam.ip_address}</span>
+                                        </label>
+                                    ))
+                                }
+                            </div>
                             {selectedCams.length > 0 && (
                                 <div className="text-xs text-blue-600 mt-1">
                                     เลือก {selectedCams.length} ตัว: {selectedCams.map(c => c.name).join(', ')}
@@ -214,7 +223,7 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
                         <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">กล้อง</label>
                             <div className="px-3 py-2 bg-gray-50 rounded-lg text-sm font-medium text-gray-700">
-                                {data?.camera_name}
+                                {data?.camera_names || data?.camera_name}
                                 <span className="text-xs text-gray-400 ml-2">{data?.factory_name}</span>
                             </div>
                         </div>
@@ -247,9 +256,19 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
 
                     {/* รายละเอียด */}
                     <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">รายละเอียด</label>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">รายละเอียดปัญหา</label>
                         <textarea value={form.description} onChange={e => set('description', e.target.value)}
                                   rows={2} placeholder={isRepair ? 'อธิบายปัญหาที่พบ...' : 'รายละเอียดเพิ่มเติม...'}
+                                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none"/>
+                    </div>
+
+                    {/* วิธีแก้ไข */}
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">
+                            {isRepair ? 'วิธีแก้ไข' : 'หมายเหตุการถอด'}
+                        </label>
+                        <textarea value={form.solution} onChange={e => set('solution', e.target.value)}
+                                  rows={2} placeholder={isRepair ? 'วิธีแก้ไขปัญหา...' : 'รายละเอียดการถอด, ตำแหน่งที่นำไป...'}
                                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none"/>
                     </div>
 

@@ -32,7 +32,7 @@ import SoundLayout from './pages/SoundLayout';
 import ITBorrowSystem from './pages/ITBorrowSystem';
 import KBPage from './pages/KBPage';
 import ActivityPage from './pages/ActivityPage'; 
-
+import PrinterHealthPage from './pages/PrinterHealthPage';
 
 // App Routes Component
 const AppRoutes = () => {
@@ -60,6 +60,7 @@ const AppRoutes = () => {
 <Route path="activity" element={<ActivityPage />} />
                 <Route path="inventory" element={<InventoryPage />} />
                 <Route path="ink-toner" element={<InkTonerStockPage />} />
+                <Route path="/printer-health" element={<PrinterHealthPage />} />
                 <Route path="history" element={<HistoryPage />} />
                 <Route path="reports" element={<ReportPage />} />
                 <Route path="ma-license" element={<MALicensePage />} />

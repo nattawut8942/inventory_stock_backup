@@ -704,8 +704,8 @@ export const createMaintenanceLog = async (req, res) => {
 
         const ids = await Promise.all(items.map(async item => {
             const {
-                camera_id, camera_name, log_type,
-                issue_type, reason, description, status,
+                camera_id, camera_name, camera_ids, camera_names,
+                log_type, issue_type, reason, description, solution, status,
                 factory_name, location_x, location_y,
                 assigned_to, reported_by,
                 resolved_at, reinstalled_at, new_location, remark
@@ -714,10 +714,13 @@ export const createMaintenanceLog = async (req, res) => {
             const result = await pool.request()
                 .input('camera_id',     sql.Int,               camera_id)
                 .input('camera_name',   sql.NVarChar(100),     camera_name)
+                .input('camera_ids',    sql.NVarChar(sql.MAX), camera_ids    || null)
+                .input('camera_names',  sql.NVarChar(sql.MAX), camera_names  || null)
                 .input('log_type',      sql.NVarChar(20),      log_type      || 'repair')
                 .input('issue_type',    sql.NVarChar(50),      issue_type    || null)
                 .input('reason',        sql.NVarChar(50),      reason        || null)
                 .input('description',   sql.NVarChar(sql.MAX), description   || null)
+                .input('solution',      sql.NVarChar(sql.MAX), solution      || null)
                 .input('status',        sql.NVarChar(20),      status        || (log_type === 'removal' ? 'removed' : 'pending'))
                 .input('factory_name',  sql.NVarChar(200),     factory_name  || null)
                 .input('location_x',    sql.Float,             location_x    ?? null)
@@ -730,11 +733,13 @@ export const createMaintenanceLog = async (req, res) => {
                 .input('remark',        sql.NVarChar(sql.MAX), remark        || null)
                 .query(`
                     INSERT INTO dbo.cctv_maintenance_logs
-                        (camera_id, camera_name, log_type, issue_type, reason, description, status,
+                        (camera_id, camera_name, camera_ids, camera_names,
+                         log_type, issue_type, reason, description, solution, status,
                          factory_name, location_x, location_y, assigned_to, reported_by,
                          resolved_at, reinstalled_at, new_location, remark)
                     VALUES
-                        (@camera_id, @camera_name, @log_type, @issue_type, @reason, @description, @status,
+                        (@camera_id, @camera_name, @camera_ids, @camera_names,
+                         @log_type, @issue_type, @reason, @description, @solution, @status,
                          @factory_name, @location_x, @location_y, @assigned_to, @reported_by,
                          @resolved_at, @reinstalled_at, @new_location, @remark);
                     SELECT SCOPE_IDENTITY() AS id;
@@ -763,7 +768,7 @@ export const updateMaintenanceLog = async (req, res) => {
     try {
         const { id } = req.params;
         const {
-            issue_type, reason, description, status,
+            issue_type, reason, description, solution, status,
             assigned_to, resolved_at, reinstalled_at,
             new_location, remark
         } = req.body;
@@ -780,6 +785,7 @@ export const updateMaintenanceLog = async (req, res) => {
             .input('issue_type',     sql.NVarChar(50),      issue_type     || null)
             .input('reason',         sql.NVarChar(50),      reason         || null)
             .input('description',    sql.NVarChar(sql.MAX), description    || null)
+            .input('solution',       sql.NVarChar(sql.MAX), solution       || null)
             .input('status',         sql.NVarChar(20),      status         || 'pending')
             .input('assigned_to',    sql.NVarChar(100),     assigned_to    || null)
             .input('resolved_at',    sql.DateTime,          resolved_at    ? new Date(resolved_at)    : null)
@@ -789,8 +795,9 @@ export const updateMaintenanceLog = async (req, res) => {
             .query(`
                 UPDATE dbo.cctv_maintenance_logs
                 SET issue_type=@issue_type, reason=@reason, description=@description,
-                    status=@status, assigned_to=@assigned_to, resolved_at=@resolved_at,
-                    reinstalled_at=@reinstalled_at, new_location=@new_location, remark=@remark
+                    solution=@solution, status=@status, assigned_to=@assigned_to,
+                    resolved_at=@resolved_at, reinstalled_at=@reinstalled_at,
+                    new_location=@new_location, remark=@remark
                 WHERE id=@id
             `);
 

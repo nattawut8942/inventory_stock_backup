@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { MapPin, Plus, RefreshCw, Server, Network, Camera, Wifi, WifiOff, ChevronDown, X } from 'lucide-react';
 import { API_BASE, API_URL } from '../config/api';
 import { useAuth } from '../context/AuthContext';
@@ -91,7 +92,7 @@ function drawFovCone(ctx, px, py, angleDeg, spreadDeg = 60, len = 80,
 // ไม่อยู่ใน CCTVPage และไม่ทำให้ CCTVPage re-render เมื่อพิมพ์ค้นหา ──────────
 const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilter,
     listPage, setListPage, selectedCam, setSelectedCam, setDetailModal,
-    setLocationModal, setCamModal, fullUrl, selectedLayout ,onJumpToCamera  }) => {
+    setLocationModal, setCamModal, fullUrl, selectedLayout, onJumpToCamera }) => {
 
     const [search, setSearch] = useState('');
     const ITEMS = 20;
@@ -112,13 +113,13 @@ const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilt
                 || (c.fix_asset || '').toLowerCase().includes(q)
                 || (c.rack_name || '').toLowerCase().includes(q)
                 || (c.switch_name || '').toLowerCase().includes(q)
-                || (c.layout_name || '').toLowerCase().includes(q); 
+                || (c.layout_name || '').toLowerCase().includes(q);
         })
         : byLoc;
 
     const totalPages = Math.max(1, Math.ceil(displayed.length / ITEMS));
     const paginated = displayed.slice((listPage - 1) * ITEMS, listPage * ITEMS);
-    
+
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -155,15 +156,15 @@ const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilt
                 </div>
             </div>
 
-           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
 
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
-                  <colgroup>
-    <col style={{ width: 36 }} /><col style={{ width: '20%' }} /><col style={{ width: '11%' }} />
-    <col style={{ width: '15%' }} /><col style={{ width: '10%' }} /><col style={{ width: '10%' }} />
-    <col style={{ width: '10%' }} /><col style={{ width: '10%' }} /><col style={{ width: 64 }} />
-</colgroup>
+                        <colgroup>
+                            <col style={{ width: 36 }} /><col style={{ width: '20%' }} /><col style={{ width: '11%' }} />
+                            <col style={{ width: '15%' }} /><col style={{ width: '10%' }} /><col style={{ width: '10%' }} />
+                            <col style={{ width: '10%' }} /><col style={{ width: '10%' }} /><col style={{ width: 64 }} />
+                        </colgroup>
                         <thead>
                             <tr className="border-b border-gray-100 text-xs text-gray-400 font-medium bg-gray-50">
                                 <th className="px-3 py-2" /><th className="px-3 py-2 text-left">ชื่อ / IP</th>
@@ -174,66 +175,66 @@ const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilt
                                 <th className="px-3 py-2" />
                             </tr>
                         </thead>
-                       <tbody className="divide-y divide-gray-50">
-    {paginated.map(cam => {
-        const hasLoc = cam.location_x !== null && cam.location_y !== null;
-        const isSel = selectedCam === cam.id;
-        return (
-            <tr key={cam.id}
-                onClick={() => onJumpToCamera(cam)}
-                className={`transition-colors cursor-pointer ${isSel ? 'bg-amber-50' : !hasLoc ? 'bg-amber-50/30 hover:bg-amber-50/60' : 'hover:bg-gray-50'}`}>
-                <td className="px-3 py-2">
-                    <div className="w-7 h-7 rounded-md flex items-center justify-center overflow-hidden"
-                        style={{ background: `${STATUS_COLOR[cam.status]}22` }}>
-                        {cam.icon_url ? <img src={fullUrl(cam.icon_url)} className="w-full h-full object-cover" /> : <span className="text-sm">📹</span>}
-                    </div>
-                </td>
-                <td className="px-3 py-2">
-                    <div className={`font-medium truncate text-xs ${isSel ? 'text-amber-700' : 'text-gray-900'}`}>{cam.name}</div>
-                    <div className="text-[11px] text-gray-400">{cam.ip_address || '—'}</div>
-                </td>
-                <td className="px-3 py-2 text-gray-600 text-xs truncate">{cam.model || '—'}</td>
-                <td className="px-3 py-2">
-                    {cam.rack_name && <div className="text-xs font-medium text-purple-700 truncate">{cam.rack_name}</div>}
-                    {cam.switch_name && <div className="text-[11px] text-gray-400 truncate">{cam.switch_name}</div>}
-                    {!cam.rack_name && <span className="text-xs text-gray-300">—</span>}
-                </td>
-                <td className="px-3 py-2 text-gray-600 text-xs">{cam.fix_asset || '—'}</td>
-                <td className="px-3 py-2">
-                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded-full ${cam.status === 'online' ? 'bg-green-100 text-green-700' :
-                            cam.status === 'offline' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
-                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_COLOR[cam.status] }} />
-                        {cam.status}
-                    </span>
-                </td>
-                {/* Factory — ย้ายมาก่อนตำแหน่ง */}
-                <td className="px-3 py-2 text-gray-600 text-xs whitespace-normal leading-tight">{cam.layout_name || '—'}</td>
-                {/* ตำแหน่ง */}
-                <td className="px-3 py-2">
-                    {hasLoc
-                        ? <span className="inline-flex items-center gap-1 text-[11px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full"><MapPin size={9} /> มีแล้ว</span>
-                        : <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full font-medium"><MapPin size={9} /> ยังไม่มี</span>
-                    }
-                </td>
-                <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
-                    <div className="flex gap-1 justify-end">
-                        <button onClick={() => setLocationModal(cam)} title="ตำแหน่ง"
-                            className={`p-1 rounded transition-colors ${!hasLoc ? 'text-amber-500 hover:bg-amber-50' : 'text-blue-400 hover:bg-blue-50'}`}>
-                            <MapPin size={12} />
-                        </button>
-                        <button onClick={() => setCamModal({ mode: 'edit', data: cam })} title="แก้ไข"
-                            className="p-1 rounded hover:bg-gray-100 text-gray-400">✏️</button>
-                    </div>
-                </td>
-            </tr>
-        );
-    })}
-    {!paginated.length && (
-        <tr><td colSpan={9} className="text-center py-8 text-gray-400 text-sm">
-            {listLocFilter === 'no-location' ? '🎉 กล้องทุกตัวมีตำแหน่งแล้ว!' : 'ยังไม่มีกล้องใน Factory นี้'}
-        </td></tr>
-    )}
-</tbody>
+                        <tbody className="divide-y divide-gray-50">
+                            {paginated.map(cam => {
+                                const hasLoc = cam.location_x !== null && cam.location_y !== null;
+                                const isSel = selectedCam === cam.id;
+                                return (
+                                    <tr key={cam.id}
+                                        onClick={() => onJumpToCamera(cam)}
+                                        className={`transition-colors cursor-pointer ${isSel ? 'bg-amber-50' : !hasLoc ? 'bg-amber-50/30 hover:bg-amber-50/60' : 'hover:bg-gray-50'}`}>
+                                        <td className="px-3 py-2">
+                                            <div className="w-7 h-7 rounded-md flex items-center justify-center overflow-hidden"
+                                                style={{ background: `${STATUS_COLOR[cam.status]}22` }}>
+                                                {cam.icon_url ? <img src={fullUrl(cam.icon_url)} className="w-full h-full object-cover" /> : <span className="text-sm">📹</span>}
+                                            </div>
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <div className={`font-medium truncate text-xs ${isSel ? 'text-amber-700' : 'text-gray-900'}`}>{cam.name}</div>
+                                            <div className="text-[11px] text-gray-400">{cam.ip_address || '—'}</div>
+                                        </td>
+                                        <td className="px-3 py-2 text-gray-600 text-xs truncate">{cam.model || '—'}</td>
+                                        <td className="px-3 py-2">
+                                            {cam.rack_name && <div className="text-xs font-medium text-purple-700 truncate">{cam.rack_name}</div>}
+                                            {cam.switch_name && <div className="text-[11px] text-gray-400 truncate">{cam.switch_name}</div>}
+                                            {!cam.rack_name && <span className="text-xs text-gray-300">—</span>}
+                                        </td>
+                                        <td className="px-3 py-2 text-gray-600 text-xs">{cam.fix_asset || '—'}</td>
+                                        <td className="px-3 py-2">
+                                            <span className={`inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded-full ${cam.status === 'online' ? 'bg-green-100 text-green-700' :
+                                                cam.status === 'offline' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
+                                                <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_COLOR[cam.status] }} />
+                                                {cam.status}
+                                            </span>
+                                        </td>
+                                        {/* Factory — ย้ายมาก่อนตำแหน่ง */}
+                                        <td className="px-3 py-2 text-gray-600 text-xs whitespace-normal leading-tight">{cam.layout_name || '—'}</td>
+                                        {/* ตำแหน่ง */}
+                                        <td className="px-3 py-2">
+                                            {hasLoc
+                                                ? <span className="inline-flex items-center gap-1 text-[11px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full"><MapPin size={9} /> มีแล้ว</span>
+                                                : <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full font-medium"><MapPin size={9} /> ยังไม่มี</span>
+                                            }
+                                        </td>
+                                        <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
+                                            <div className="flex gap-1 justify-end">
+                                                <button onClick={() => setLocationModal(cam)} title="ตำแหน่ง"
+                                                    className={`p-1 rounded transition-colors ${!hasLoc ? 'text-amber-500 hover:bg-amber-50' : 'text-blue-400 hover:bg-blue-50'}`}>
+                                                    <MapPin size={12} />
+                                                </button>
+                                                <button onClick={() => setCamModal({ mode: 'edit', data: cam })} title="แก้ไข"
+                                                    className="p-1 rounded hover:bg-gray-100 text-gray-400">✏️</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                            {!paginated.length && (
+                                <tr><td colSpan={9} className="text-center py-8 text-gray-400 text-sm">
+                                    {listLocFilter === 'no-location' ? '🎉 กล้องทุกตัวมีตำแหน่งแล้ว!' : 'ยังไม่มีกล้องใน Factory นี้'}
+                                </td></tr>
+                            )}
+                        </tbody>
                     </table>
                 </div>
                 {totalPages > 1 && (
@@ -323,36 +324,133 @@ function CameraMaintenanceLogs({ cameraId, apiBase }) {
     );
 }
 
+// ── Maintenance Detail Modal ──────────────────────────────────────────────
+function MaintenanceDetailModal({ data, onClose }) {
+    if (!data) return null;
+
+    const isRepair = data.log_type === 'repair';
+    const camList  = (data.camera_names || data.camera_name || '').split(',').map(s => s.trim()).filter(Boolean);
+
+    const statusConfig = {
+        pending:       { label: 'รอดำเนินการ',    cls: 'bg-yellow-100 text-yellow-700' },
+        in_progress:   { label: 'กำลังซ่อม',     cls: 'bg-blue-100 text-blue-700' },
+        waiting_parts: { label: 'รอของ/รออะไหล่', cls: 'bg-orange-100 text-orange-700' },
+        resolved:      { label: 'แก้ไขแล้ว',     cls: 'bg-green-100 text-green-700' },
+        removed:       { label: 'ถอดออกแล้ว',    cls: 'bg-red-100 text-red-700' },
+        repairing:     { label: 'ส่งซ่อมอยู่',   cls: 'bg-blue-100 text-blue-700' },
+        reinstalled:   { label: 'ติดตั้งคืนแล้ว', cls: 'bg-green-100 text-green-700' },
+        retired:       { label: 'เลิกใช้งาน',    cls: 'bg-gray-100 text-gray-600' },
+    };
+    const st = statusConfig[data.status] || { label: data.status, cls: 'bg-gray-100 text-gray-600' };
+
+    const Row = ({ label, value }) => value ? (
+        <div className="flex gap-3 py-2 border-b border-gray-50 last:border-0">
+            <span className="text-xs text-gray-400 w-28 flex-shrink-0">{label}</span>
+            <span className="text-xs text-gray-800 flex-1">{value}</span>
+        </div>
+    ) : null;
+
+    return createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', padding: 16 }}>
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
+                {/* Header */}
+                <div className={`flex items-center justify-between px-6 py-4 rounded-t-2xl ${isRepair ? 'bg-blue-50' : 'bg-orange-50'}`}>
+                    <div className="flex items-center gap-2">
+                        <span className="text-2xl">{isRepair ? '🔧' : '📤'}</span>
+                        <div>
+                            <div className="font-bold text-gray-800">{isRepair ? 'บันทึกการซ่อม' : 'บันทึกการถอด'}</div>
+                            <div className="text-xs text-gray-500">#{data.id} · {data.reported_at ? new Date(data.reported_at).toLocaleString('th-TH') : ''}</div>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${st.cls}`}>{st.label}</span>
+                        <button onClick={onClose} className="p-1.5 hover:bg-white/50 rounded-lg text-gray-400 text-lg">✕</button>
+                    </div>
+                </div>
+
+                <div className="overflow-y-auto px-6 py-4 space-y-4">
+                    {/* กล้อง */}
+                    <div>
+                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">กล้อง ({camList.length} ตัว)</div>
+                        <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+                            {camList.map((name, i) => (
+                                <div key={i} className="text-xs font-medium text-gray-700">• {name}</div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* ข้อมูลหลัก */}
+                    <div>
+                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">รายละเอียด</div>
+                        <div className="bg-gray-50 rounded-xl px-4 py-2">
+                            <Row label="Factory"          value={data.factory_name} />
+                            <Row label={isRepair ? 'ประเภทปัญหา' : 'เหตุผล'} value={data.issue_type || data.reason} />
+                            <Row label="รายละเอียดปัญหา"  value={data.description} />
+                            <Row label={isRepair ? 'วิธีแก้ไข' : 'หมายเหตุการถอด'} value={data.solution} />
+                            <Row label="หมายเหตุ"          value={data.remark} />
+                        </div>
+                    </div>
+
+                    {/* วันที่ */}
+                    <div>
+                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">วันที่</div>
+                        <div className="bg-gray-50 rounded-xl px-4 py-2">
+                            <Row label="วันที่แจ้ง"        value={data.reported_at    ? new Date(data.reported_at).toLocaleDateString('th-TH')    : null} />
+                            <Row label="วันที่แก้ไข"       value={data.resolved_at    ? new Date(data.resolved_at).toLocaleDateString('th-TH')    : null} />
+                            <Row label="วันที่ติดตั้งคืน"  value={data.reinstalled_at ? new Date(data.reinstalled_at).toLocaleDateString('th-TH') : null} />
+                        </div>
+                    </div>
+
+                    {/* ผู้ดำเนินการ */}
+                    <div>
+                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">ผู้ดำเนินการ</div>
+                        <div className="bg-gray-50 rounded-xl px-4 py-2">
+                            <Row label="ผู้รับผิดชอบ"  value={data.assigned_to?.toUpperCase()} />
+                            <Row label="ผู้แจ้ง"        value={data.reported_by?.toUpperCase()} />
+                            {!isRepair && <Row label="ตำแหน่งใหม่" value={data.new_location} />}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex gap-3 px-6 py-4 border-t border-gray-100">
+                    <button onClick={onClose} className="flex-1 py-2 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">ปิด</button>
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+}
+
 // ── Snapshot Tooltip Portal ───────────────────────────────────────────────
 function TooltipPortal({ tooltip, canvasRef }) {
     const TW = 280, TH = 210, margin = 12;
-    const canvasEl   = canvasRef.current;
+    const canvasEl = canvasRef.current;
     const canvasRect = canvasEl ? canvasEl.getBoundingClientRect() : null;
 
     let left = tooltip.x + 16;
-    let top  = tooltip.y - 10;
+    let top = tooltip.y - 10;
 
     if (canvasRect) {
-        if (left + TW > canvasRect.right  - margin) left = tooltip.x - TW - 16;
-        if (left       < canvasRect.left  + margin) left = canvasRect.left + margin;
-        if (top  + TH  > canvasRect.bottom - margin) top = canvasRect.bottom - TH - margin;
-        if (top        < canvasRect.top   + margin) top  = canvasRect.top + margin;
+        if (left + TW > canvasRect.right - margin) left = tooltip.x - TW - 16;
+        if (left < canvasRect.left + margin) left = canvasRect.left + margin;
+        if (top + TH > canvasRect.bottom - margin) top = canvasRect.bottom - TH - margin;
+        if (top < canvasRect.top + margin) top = canvasRect.top + margin;
     }
 
     return (
         <Portal>
-            <div style={{ position:'fixed', left, top, zIndex:99990, pointerEvents:'none' }}>
+            <div style={{ position: 'fixed', left, top, zIndex: 99990, pointerEvents: 'none' }}>
                 <div className="bg-gray-900 rounded-xl overflow-hidden shadow-2xl border border-white/10"
-                     style={{ width: TW }}>
+                    style={{ width: TW }}>
                     <img src={`${API_URL}${tooltip.cam.snapshot_url}`}
-                         alt={tooltip.cam.name}
-                         className="w-full object-cover"
-                         style={{ maxHeight: 160 }}/>
+                        alt={tooltip.cam.name}
+                        className="w-full object-cover"
+                        style={{ maxHeight: 160 }} />
                     <div className="px-3 py-2">
                         <div className="text-white text-xs font-semibold truncate">{tooltip.cam.name}</div>
                         <div className="flex items-center gap-1.5 mt-1">
                             <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                                  style={{ background: STATUS_COLOR[tooltip.cam.status] }}/>
+                                style={{ background: STATUS_COLOR[tooltip.cam.status] }} />
                             <span className="text-[11px] text-gray-400">{tooltip.cam.status}</span>
                         </div>
                     </div>
@@ -380,7 +478,8 @@ function CCTVPage() {
 
     // Repair & Removal logs
     const [maintenanceLogs, setMaintenanceLogs] = useState([]);
-    const [maintenanceModal, setMaintenanceModal] = useState(null); // null | {mode:'add',logType:'repair'|'removal'} | {mode:'edit', data}
+    const [maintenanceModal, setMaintenanceModal] = useState(null);
+    const [maintenanceDetail, setMaintenanceDetail] = useState(null); // detail modal
     const [maintenanceSearch, setMaintenanceSearch] = useState('');
     const [maintenanceTypeFilter, setMaintenanceTypeFilter] = useState('all'); // all/repair/removal
 
@@ -398,9 +497,9 @@ function CCTVPage() {
     const [layoutDropOpen, setLayoutDropOpen] = useState(false);
 
     const canvasRef = useRef(null);
-    const mapRef    = useRef(null);  // ← เพิ่ม
+    const mapRef = useRef(null);  // ← เพิ่ม
     const animFrameRef = useRef(null);
-    const animTickRef  = useRef(0);
+    const animTickRef = useRef(0);
     const imageRef = useRef(null);
 
     // derived cameras + racks — filter ตาม selectedLayout ใน frontend
@@ -461,51 +560,51 @@ function CCTVPage() {
 
     useEffect(() => { fetchLayouts(); fetchCameras(); fetchRacks(); fetchSwitches(); fetchMaintenanceLogs(); }, []);
     useEffect(() => { if (selectedLayout) { setImageLoaded(false); setListPage(1); } }, [selectedLayout]);
-    
+
 
 
     // ── Canvas draw ───────────────────────────────────────────────────────
     useEffect(() => {
         if (!canvasRef.current || !imageRef.current || !imageLoaded) return;
- 
+
         const canvas = canvasRef.current;
-        const img    = imageRef.current;
+        const img = imageRef.current;
         let animFrame;
- 
+
         const draw = () => {
             pulseRef.current = (pulseRef.current + 0.05) % (Math.PI * 2);
             const pulse = pulseRef.current;
- 
+
             const ctx = canvas.getContext('2d');
-            canvas.width  = img.naturalWidth;
+            canvas.width = img.naturalWidth;
             canvas.height = img.naturalHeight;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
- 
+
             // ── เส้นสาย (Rack → Camera) ──────────────────────────────
             cameras.forEach(cam => {
                 if (cam.location_x == null || !cam.rack_id) return;
                 const rack = racks.find(r => r.id === cam.rack_id);
                 if (!rack || rack.location_x == null) return;
- 
+
                 const isHovered = hoveredCam === cam.id;
-                const isCamSel  = selectedCam === cam.id;
+                const isCamSel = selectedCam === cam.id;
                 const isRackSel = selectedRackId === cam.rack_id;
                 const show = showLines || isHovered || isCamSel || isRackSel;
                 if (!show) return;
- 
-                const x1 = (canvas.width  * rack.location_x) / 100;
+
+                const x1 = (canvas.width * rack.location_x) / 100;
                 const y1 = (canvas.height * rack.location_y) / 100;
-                const x2 = (canvas.width  * cam.location_x)  / 100;
-                const y2 = (canvas.height * cam.location_y)  / 100;
- 
+                const x2 = (canvas.width * cam.location_x) / 100;
+                const y2 = (canvas.height * cam.location_y) / 100;
+
                 ctx.save();
                 ctx.beginPath();
                 ctx.setLineDash([8, 4]);
-                ctx.lineWidth   = (isCamSel || isHovered || isRackSel) ? 2.5 : 1.2;
+                ctx.lineWidth = (isCamSel || isHovered || isRackSel) ? 2.5 : 1.2;
                 ctx.strokeStyle = isRackSel ? '#7c3aed'
                     : (isCamSel || isHovered) ? (STATUS_COLOR[cam.status] || '#9ca3af')
-                    : 'rgba(124,58,237,0.45)';
+                        : 'rgba(124,58,237,0.45)';
                 ctx.globalAlpha = (isCamSel || isHovered || isRackSel) ? 1 : 0.5;
                 ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
                 ctx.restore();
@@ -514,13 +613,13 @@ function CCTVPage() {
             // ── วาด Rack pins ─────────────────────────────────────────
             racks.forEach(rack => {
                 if (rack.location_x == null || rack.location_y == null) return;
-                const px = (canvas.width  * rack.location_x) / 100;
+                const px = (canvas.width * rack.location_x) / 100;
                 const py = (canvas.height * rack.location_y) / 100;
-                const r  = 12;
-                const isSel    = selectedRackId === rack.id;
+                const r = 12;
+                const isSel = selectedRackId === rack.id;
                 const pinColor = rack.rack_type === 'distribution' ? '#1d4ed8' : '#7c3aed';
                 const selColor = rack.rack_type === 'distribution' ? '#1e3a8a' : '#5b21b6';
- 
+
                 ctx.save();
                 if (isSel) { ctx.shadowBlur = 14; ctx.shadowColor = pinColor; }
                 ctx.fillStyle = isSel ? selColor : pinColor;
@@ -528,16 +627,16 @@ function CCTVPage() {
                 ctx.shadowBlur = 0;
                 ctx.strokeStyle = 'white'; ctx.lineWidth = isSel ? 3 : 2.5; ctx.stroke();
                 ctx.fillStyle = 'white';
-                ctx.font = `${isSel ? 16 : 13}px Arial`;
+                ctx.font = `${isSel ? 20 : 15}px Arial`;
                 ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText(rack.rack_type === 'distribution' ? '🔀' : '🖥️', px, py);
                 ctx.restore();
- 
+
                 ctx.save();
-                const fontSize = isSel ? 12 : 11;
+                const fontSize = isSel ? 20 : 15;
                 ctx.font = `bold ${fontSize}px Arial`;
                 ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-                const tw = ctx.measureText(rack.name).width + 10;
+                const tw = ctx.measureText(rack.name).width + 12;
                 const ly = py + (isSel ? 22 : r) + 3;
                 ctx.fillStyle = isSel ? selColor : `${pinColor}CC`;
                 ctx.beginPath(); ctx.roundRect(px - tw / 2, ly, tw, fontSize + 6, 4); ctx.fill();
@@ -545,100 +644,100 @@ function CCTVPage() {
                 ctx.fillText(rack.name, px, ly + 3);
                 ctx.restore();
             });
- 
+
             // ── วาด FOV cones ─────────────────────────────────────────
-            const fovLen = Math.min(canvas.width, canvas.height) * 0.09;
+            const fovLen = Math.min(canvas.width, canvas.height) * 0.06;
             cameras.forEach(cam => {
                 if (cam.location_x === null || !cam.fov_direction) return;
-                const px    = (canvas.width  * cam.location_x) / 100;
-                const py    = (canvas.height * cam.location_y) / 100;
+                const px = (canvas.width * cam.location_x) / 100;
+                const py = (canvas.height * cam.location_y) / 100;
                 const angle = getFovAngle(cam.fov_direction);
                 if (angle === null) return;
- 
+
                 const isHover = hoveredCam === cam.id;
-                const isSel   = selectedCam === cam.id;
-                const dim     = showLines && hoveredCam && !isHover && !isSel;
- 
-                const fill   = isSel ? 'rgba(245,158,11,0.22)' : isHover ? 'rgba(59,130,246,0.28)' : 'rgba(59,130,246,0.13)';
-                const stroke = isSel ? 'rgba(245,158,11,0.7)'  : isHover ? 'rgba(59,130,246,0.7)'  : 'rgba(59,130,246,0.40)';
- 
+                const isSel = selectedCam === cam.id;
+                const dim = showLines && hoveredCam && !isHover && !isSel;
+
+                const fill = isSel ? 'rgba(245,158,11,0.22)' : isHover ? 'rgba(59,130,246,0.28)' : 'rgba(59,130,246,0.13)';
+                const stroke = isSel ? 'rgba(245,158,11,0.7)' : isHover ? 'rgba(59,130,246,0.7)' : 'rgba(59,130,246,0.40)';
+
                 ctx.save();
                 ctx.globalAlpha = dim ? 0.15 : 1;
                 ctx.restore();
                 drawFovCone(ctx, px, py, angle, cam.fov_spread || 60, fovLen, fill, stroke);
             });
- 
+
             // ── วาด Camera pins (Style E — beacon ring + pulse) ───────
             cameras.forEach(cam => {
                 if (cam.location_x === null) return;
-                const px      = (canvas.width  * cam.location_x) / 100;
-                const py      = (canvas.height * cam.location_y) / 100;
+                const px = (canvas.width * cam.location_x) / 100;
+                const py = (canvas.height * cam.location_y) / 100;
                 const isHover = hoveredCam === cam.id;
-                const isSel   = selectedCam === cam.id;
-                const r       = isHover || isSel ? 14 : 10;
-                const dim     = showLines && hoveredCam && !isHover && !isSel;
+                const isSel = selectedCam === cam.id;
+                const r = isHover || isSel ? 20 : 15
+                const dim = showLines && hoveredCam && !isHover && !isSel;
                 const bgColor = isSel ? '#f59e0b' : (STATUS_COLOR[cam.status] || '#9ca3af');
- 
+
                 ctx.save();
- 
+
                 // beacon rings กระพริบ
-                const p1 = 0.12 + Math.sin(pulse)       * 0.11;
+                const p1 = 0.12 + Math.sin(pulse) * 0.11;
                 const p2 = 0.28 + Math.sin(pulse + 1.1) * 0.16;
                 [{ rr: r + 14, a: p1 }, { rr: r + 7, a: p2 }].forEach(({ rr, a }) => {
                     ctx.strokeStyle = bgColor;
-                    ctx.lineWidth   = 2;
+                    ctx.lineWidth = 2;
                     ctx.globalAlpha = dim ? 0.04 : a;
                     ctx.beginPath(); ctx.arc(px, py, rr, 0, Math.PI * 2); ctx.stroke();
                 });
- 
+
                 // วงหลัก — สีกระพริบ
                 const bgAlpha = 0.72 + Math.sin(pulse * 1.5) * 0.28;
                 ctx.globalAlpha = dim ? 0.25 : bgAlpha;
-                ctx.fillStyle   = bgColor;
+                ctx.fillStyle = bgColor;
                 ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
                 ctx.strokeStyle = 'white'; ctx.lineWidth = 3; ctx.stroke();
                 ctx.globalAlpha = dim ? 0.25 : 1;
- 
+
                 if (isSel) {
-    // วงนอกกระพริบสีเหลือง
-    const selPulse = 0.5 + Math.sin(pulse * 2) * 0.5;
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth   = 3;
-    ctx.globalAlpha = selPulse;
-    ctx.beginPath(); ctx.arc(px, py, r + 20, 0, Math.PI * 2); ctx.stroke();
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur  = 14;
-    ctx.shadowColor = '#f59e0b';
-}
-// icon กระพริบตาม bgAlpha ด้วย
-ctx.globalAlpha = dim ? 0.25 : bgAlpha;
-drawCCTVIcon(ctx, px, py, r, cam.icon_type || 'bullet', bgColor, 'white');
-ctx.globalAlpha = 1;
-ctx.shadowBlur = 0;
+                    // วงนอกกระพริบสีเหลือง
+                    const selPulse = 0.5 + Math.sin(pulse * 2) * 0.5;
+                    ctx.strokeStyle = '#f59e0b';
+                    ctx.lineWidth = 3;
+                    ctx.globalAlpha = selPulse;
+                    ctx.beginPath(); ctx.arc(px, py, r + 20, 0, Math.PI * 2); ctx.stroke();
+                    ctx.globalAlpha = 1;
+                    ctx.shadowBlur = 14;
+                    ctx.shadowColor = '#f59e0b';
+                }
+                // icon กระพริบตาม bgAlpha ด้วย
+                ctx.globalAlpha = dim ? 0.25 : bgAlpha;
+                drawCCTVIcon(ctx, px, py, r, cam.icon_type || 'bullet', bgColor, 'white');
+                ctx.globalAlpha = 1;
+                ctx.shadowBlur = 0;
                 ctx.restore();
- 
+
                 // label
                 ctx.save();
                 ctx.globalAlpha = dim ? 0.25 : 1;
                 const labelText = cam.name;
-                const fontSize  = isSel ? 13 : (isHover ? 12 : 11);
-                ctx.font        = `bold ${fontSize}px Arial`;
-                ctx.textAlign   = 'center'; ctx.textBaseline = 'top';
-                const tw  = ctx.measureText(labelText).width + 10;
-                const ly  = py + r + 9;
+                const fontSize = isSel ? 18 : (isHover ? 14 : 13);
+                ctx.font = `bold ${fontSize}px Arial`;
+                ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+                const tw = ctx.measureText(labelText).width + 8;
+                const ly = py + r + 9;
                 ctx.fillStyle = isSel ? '#f59e0b' : isHover ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.65)';
                 ctx.beginPath(); ctx.roundRect(px - tw / 2, ly, tw, fontSize + 6, 4); ctx.fill();
                 ctx.fillStyle = 'white';
                 ctx.fillText(labelText, px, ly + 3);
                 ctx.restore();
             });
- 
+
             animFrame = requestAnimationFrame(draw);
         };
- 
+
         animFrame = requestAnimationFrame(draw);
         return () => cancelAnimationFrame(animFrame);
- 
+
     }, [imageLoaded, cameras, racks, hoveredCam, selectedCam, selectedRackId, showLines]);
 
     // ── Canvas events ─────────────────────────────────────────────────────
@@ -801,7 +900,7 @@ ctx.shadowBlur = 0;
     }, [refreshAll]);
 
     const handleCamModalClose = useCallback(() => setCamModal(null), []);
-    const online  = allCameras.filter(c => c.status === 'online').length;
+    const online = allCameras.filter(c => c.status === 'online').length;
     const offline = allCameras.filter(c => c.status === 'offline').length;
     const current = layouts.find(l => l.id === selectedLayout);
     const fullUrl = (url) => !url ? null : url.startsWith('http') ? url : `${API_URL}${url}`;
@@ -866,13 +965,13 @@ ctx.shadowBlur = 0;
                     <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">กล้องแต่ละโรง</div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-4 gap-y-1.5">
                         {layouts.map(l => {
-                            const count   = allCameras.filter(c => c.factory_layout_id === l.id).length;
+                            const count = allCameras.filter(c => c.factory_layout_id === l.id).length;
                             const onlineC = allCameras.filter(c => c.factory_layout_id === l.id && c.status === 'online').length;
-                            const isSel   = selectedLayout === l.id;
+                            const isSel = selectedLayout === l.id;
                             return (
                                 <button key={l.id}
-                                        onClick={() => { setSelectedLayout(l.id); setLayoutDropOpen(false); }}
-                                        className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all
+                                    onClick={() => { setSelectedLayout(l.id); setLayoutDropOpen(false); }}
+                                    className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all
                                             ${isSel ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50 border border-transparent'}`}>
                                     <span className={`text-xs truncate ${isSel ? 'text-blue-700 font-semibold' : 'text-slate-600'}`}>{l.name}</span>
                                     <div className="flex items-center gap-1 flex-shrink-0">
@@ -880,8 +979,8 @@ ctx.shadowBlur = 0;
                                         {count > 0 && (
                                             <span className={`text-[10px] px-1 rounded-full font-medium
                                                 ${onlineC === count ? 'bg-green-100 text-green-600'
-                                                : onlineC === 0 ? 'bg-red-100 text-red-600'
-                                                : 'bg-amber-100 text-amber-600'}`}>
+                                                    : onlineC === 0 ? 'bg-red-100 text-red-600'
+                                                        : 'bg-amber-100 text-amber-600'}`}>
                                                 {onlineC}/{count}
                                             </span>
                                         )}
@@ -898,12 +997,12 @@ ctx.shadowBlur = 0;
                 {/* Tab buttons */}
                 <div className="flex gap-1">
                     {[
-                        { id: 'map',     label: '🗺️ Map' },
-                        { id: 'repair',  label: '🔧 บันทึกซ่อม' },
+                        { id: 'map', label: '🗺️ Map' },
+                        { id: 'repair', label: '🔧 บันทึกซ่อม' },
                         { id: 'removal', label: '📤 บันทึกถอด' },
                     ].map(t => (
                         <button key={t.id} onClick={() => setActiveTab(t.id)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
                                     ${activeTab === t.id ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:border-blue-300'}`}>
                             {t.label}
                         </button>
@@ -961,7 +1060,7 @@ ctx.shadowBlur = 0;
 
                     {/* Camera list below map */}
                     <CameraListSection
-                        cameras={allCameras} 
+                        cameras={allCameras}
                         currentName={current?.name}
                         listLocFilter={listLocFilter}
                         setListLocFilter={setListLocFilter}
@@ -974,16 +1073,16 @@ ctx.shadowBlur = 0;
                         setCamModal={setCamModal}
                         fullUrl={fullUrl}
                         selectedLayout={selectedLayout}
-          onJumpToCamera={(cam) => {
-    // เปลี่ยน layout ถ้ากล้องอยู่คนละ layout
-    if (cam.factory_layout_id && cam.factory_layout_id !== selectedLayout) {
-        setSelectedLayout(cam.factory_layout_id);
-    }
-    setSelectedCam(cam.id);
-    setSelectedRackId(null);
-    // scroll ไปที่ map ก่อน แล้วค่อยเปิด modal
-    mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}}
+                        onJumpToCamera={(cam) => {
+                            // เปลี่ยน layout ถ้ากล้องอยู่คนละ layout
+                            if (cam.factory_layout_id && cam.factory_layout_id !== selectedLayout) {
+                                setSelectedLayout(cam.factory_layout_id);
+                            }
+                            setSelectedCam(cam.id);
+                            setSelectedRackId(null);
+                            // scroll ไปที่ map ก่อน แล้วค่อยเปิด modal
+                            mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
                     />
 
                     {/* ── Rack & Switch section (รวมในหน้าเดียว) ─────── */}
@@ -1049,8 +1148,8 @@ ctx.shadowBlur = 0;
                                                 <span key={cam.id}
                                                     onClick={() => { setSelectedCam(cam.id); setDetailModal(cam); }}
                                                     className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer font-medium hover:opacity-80 ${cam.status === 'online' ? 'bg-green-100 text-green-700' :
-                                                            cam.status === 'offline' ? 'bg-red-100 text-red-700' :
-                                                                'bg-gray-100 text-gray-500'}`}>
+                                                        cam.status === 'offline' ? 'bg-red-100 text-red-700' :
+                                                            'bg-gray-100 text-gray-500'}`}>
                                                     {cam.name}
                                                 </span>
                                             ))}
@@ -1078,9 +1177,9 @@ ctx.shadowBlur = 0;
                                 {activeTab === 'repair' ? '🔧 บันทึกการซ่อม' : '📤 บันทึกการถอด'}
                             </span>
                             <div className="flex gap-1">
-                                {['all','repair','removal'].map(t => (
+                                {['all', 'repair', 'removal'].map(t => (
                                     <button key={t} onClick={() => setMaintenanceTypeFilter(t)}
-                                            className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors
+                                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors
                                                 ${maintenanceTypeFilter === t ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
                                         {t === 'all' ? 'ทั้งหมด' : t === 'repair' ? 'ซ่อม' : 'ถอด'}
                                     </button>
@@ -1089,13 +1188,13 @@ ctx.shadowBlur = 0;
                         </div>
                         <div className="flex items-center gap-2">
                             <input value={maintenanceSearch} onChange={e => setMaintenanceSearch(e.target.value)}
-                                   placeholder="ค้นหา..." className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs w-48"/>
+                                placeholder="ค้นหา..." className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs w-48" />
                             <button onClick={() => window.open(`${API_BASE}/cctv/maintenance-logs/export?log_type=${activeTab === 'repair' ? 'repair' : 'removal'}`, '_blank')}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700">
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700">
                                 ⬇️ Export CSV
                             </button>
                             <button onClick={() => setMaintenanceModal({ mode: 'add', logType: activeTab === 'repair' ? 'repair' : 'removal' })}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700">
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700">
                                 + {activeTab === 'repair' ? 'เพิ่มบันทึกซ่อม' : 'บันทึกถอด'}
                             </button>
                         </div>
@@ -1108,18 +1207,20 @@ ctx.shadowBlur = 0;
                                 <th className="px-4 py-2 text-left">Factory</th>
                                 <th className="px-4 py-2 text-left">ปัญหา/เหตุผล</th>
                                 <th className="px-4 py-2 text-left">รายละเอียด</th>
+                                <th className="px-4 py-2 text-left">วิธีแก้ไข</th>
                                 <th className="px-4 py-2 text-left">สถานะ</th>
                                 <th className="px-4 py-2 text-left">ผู้รับผิดชอบ</th>
                                 <th className="px-4 py-2 text-left">วันที่แจ้ง</th>
-                                <th className="px-4 py-2"/>
+                                <th className="px-4 py-2" />
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                             {maintenanceLogs
                                 .filter(r => {
                                     const typeOk = maintenanceTypeFilter === 'all' || r.log_type === maintenanceTypeFilter;
-                                    const tabOk  = activeTab === 'repair' ? r.log_type === 'repair' : r.log_type === 'removal';
+                                    const tabOk = activeTab === 'repair' ? r.log_type === 'repair' : r.log_type === 'removal';
                                     const searchOk = !maintenanceSearch ||
+                                        r.camera_names?.toLowerCase().includes(maintenanceSearch.toLowerCase()) ||
                                         r.camera_name?.toLowerCase().includes(maintenanceSearch.toLowerCase()) ||
                                         r.description?.toLowerCase().includes(maintenanceSearch.toLowerCase()) ||
                                         r.factory_name?.toLowerCase().includes(maintenanceSearch.toLowerCase());
@@ -1127,17 +1228,22 @@ ctx.shadowBlur = 0;
                                 })
                                 .map(r => {
                                     const statusConfig = {
-                                        pending:       { label: 'รอดำเนินการ', cls: 'bg-yellow-100 text-yellow-700' },
-                                        in_progress:   { label: 'กำลังซ่อม',  cls: 'bg-blue-100 text-blue-700' },
-                                        waiting_parts: { label: 'รอของ',       cls: 'bg-orange-100 text-orange-700' },
-                                        resolved:      { label: 'แก้แล้ว',    cls: 'bg-green-100 text-green-700' },
-                                        removed:       { label: 'ถอดออกแล้ว', cls: 'bg-red-100 text-red-700' },
-                                        repairing:     { label: 'ส่งซ่อมอยู่', cls: 'bg-blue-100 text-blue-700' },
+                                        pending:       { label: 'รอดำเนินการ',    cls: 'bg-yellow-100 text-yellow-700' },
+                                        in_progress:   { label: 'กำลังซ่อม',     cls: 'bg-blue-100 text-blue-700' },
+                                        waiting_parts: { label: 'รอของ',          cls: 'bg-orange-100 text-orange-700' },
+                                        resolved:      { label: 'แก้แล้ว',       cls: 'bg-green-100 text-green-700' },
+                                        removed:       { label: 'ถอดออกแล้ว',    cls: 'bg-red-100 text-red-700' },
+                                        repairing:     { label: 'ส่งซ่อมอยู่',   cls: 'bg-blue-100 text-blue-700' },
                                         reinstalled:   { label: 'ติดตั้งคืนแล้ว', cls: 'bg-green-100 text-green-700' },
-                                        retired:       { label: 'เลิกใช้งาน', cls: 'bg-gray-100 text-gray-600' },
+                                        retired:       { label: 'เลิกใช้งาน',    cls: 'bg-gray-100 text-gray-600' },
                                     };
                                     const st = statusConfig[r.status] || { label: r.status, cls: 'bg-gray-100 text-gray-600' };
                                     const isRepair = r.log_type === 'repair';
+
+                                    // แสดงชื่อกล้อง — ถ้ามี camera_names ใช้อัน นั้น ไม่งั้นใช้ camera_name
+                                    const camDisplay = r.camera_names || r.camera_name || '—';
+                                    const camList = camDisplay.split(',').map(s => s.trim()).filter(Boolean);
+
                                     return (
                                         <tr key={r.id} className="hover:bg-gray-50">
                                             <td className="px-4 py-2">
@@ -1145,13 +1251,25 @@ ctx.shadowBlur = 0;
                                                     {isRepair ? '🔧 ซ่อม' : '📤 ถอด'}
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-2 font-medium text-gray-800">
-                                                {r.camera_name}
-                                                <div className="text-gray-400 text-[10px]">{r.ip_address}</div>
+                                            <td className="px-4 py-2 font-medium text-gray-800 max-w-[160px]">
+                                                {camList.length > 1 ? (
+                                                    <div>
+                                                        <div className="font-medium text-gray-800">{camList[0]}</div>
+                                                        <div className="text-[10px] text-blue-500 cursor-pointer" title={camList.join('\n')}>
+                                                            +{camList.length - 1} ตัว
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div>
+                                                        <div>{camList[0]}</div>
+                                                        <div className="text-gray-400 text-[10px]">{r.ip_address}</div>
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="px-4 py-2 text-gray-600 text-[11px]">{r.factory_name || '—'}</td>
                                             <td className="px-4 py-2 text-gray-600">{r.issue_type || r.reason || '—'}</td>
-                                            <td className="px-4 py-2 text-gray-600 max-w-[180px] truncate">{r.description || '—'}</td>
+                                            <td className="px-4 py-2 text-gray-600 max-w-[150px] truncate">{r.description || '—'}</td>
+                                            <td className="px-4 py-2 text-gray-600 max-w-[150px] truncate">{r.solution || '—'}</td>
                                             <td className="px-4 py-2">
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${st.cls}`}>{st.label}</span>
                                             </td>
@@ -1159,8 +1277,10 @@ ctx.shadowBlur = 0;
                                             <td className="px-4 py-2 text-gray-500">{r.reported_at ? new Date(r.reported_at).toLocaleDateString('th-TH') : '—'}</td>
                                             <td className="px-4 py-2">
                                                 <div className="flex gap-1">
+                                                    <button onClick={() => setMaintenanceDetail(r)}
+                                                        className="p-1 hover:bg-blue-50 rounded text-blue-400" title="ดูรายละเอียด">👁️</button>
                                                     <button onClick={() => setMaintenanceModal({ mode: 'edit', data: r })}
-                                                            className="p-1 hover:bg-gray-100 rounded text-gray-400">✏️</button>
+                                                        className="p-1 hover:bg-gray-100 rounded text-gray-400">✏️</button>
                                                     <button onClick={() => setAlertModal({
                                                         isOpen: true, type: 'danger',
                                                         title: 'ลบบันทึก', message: 'ยืนยันลบบันทึกนี้?',
@@ -1299,8 +1419,8 @@ ctx.shadowBlur = 0;
                                                     </div>
                                                 </div>
                                                 <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${cam.status === 'online' ? 'bg-green-100 text-green-700' :
-                                                        cam.status === 'offline' ? 'bg-red-100 text-red-700' :
-                                                            'bg-gray-100 text-gray-500'}`}>{cam.status}</span>
+                                                    cam.status === 'offline' ? 'bg-red-100 text-red-700' :
+                                                        'bg-gray-100 text-gray-500'}`}>{cam.status}</span>
                                             </button>
                                         ))}
                                         {!rackDetailModal.cameras?.length && (
@@ -1354,8 +1474,8 @@ ctx.shadowBlur = 0;
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${detailModal.status === 'online' ? 'bg-green-100 text-green-700' :
-                                            detailModal.status === 'offline' ? 'bg-red-100 text-red-700' :
-                                                'bg-gray-100 text-gray-500'
+                                        detailModal.status === 'offline' ? 'bg-red-100 text-red-700' :
+                                            'bg-gray-100 text-gray-500'
                                         }`}>● {detailModal.status}</span>
                                     <button onClick={() => { setDetailModal(null); setSelectedCam(null); }}
                                         className="p-1.5 hover:bg-black/10 rounded-full"><X size={16} /></button>
@@ -1422,9 +1542,9 @@ ctx.shadowBlur = 0;
                                         <div className="flex items-center justify-between text-sm">
                                             <span className="text-gray-500">Status</span>
                                             <span className={`font-semibold ${detailModal.status === 'online' ? 'text-green-600' :
-                                                    detailModal.status === 'offline' ? 'text-red-600' :
+                                                detailModal.status === 'offline' ? 'text-red-600' :
                                                     detailModal.status === 'removed' ? 'text-gray-500' :
-                                                    detailModal.status === 'retired' ? 'text-gray-800' : 'text-gray-400'
+                                                        detailModal.status === 'retired' ? 'text-gray-800' : 'text-gray-400'
                                                 }`}>● {detailModal.status}</span>
                                         </div>
                                         {detailModal.last_ping && (
@@ -1436,8 +1556,8 @@ ctx.shadowBlur = 0;
                                             </div>
                                         )}
                                         <button onClick={() => handlePingSingle(detailModal.id)}
-                                                disabled={pingingId === detailModal.id}
-                                                className="w-full flex items-center justify-center gap-1.5 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50 transition-colors">
+                                            disabled={pingingId === detailModal.id}
+                                            className="w-full flex items-center justify-center gap-1.5 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50 transition-colors">
                                             <RefreshCw size={11} className={pingingId === detailModal.id ? 'animate-spin' : ''} />
                                             {pingingId === detailModal.id ? 'กำลัง Ping...' : 'Ping กล้องนี้'}
                                         </button>
@@ -1446,23 +1566,23 @@ ctx.shadowBlur = 0;
                                             <div className="text-[10px] text-gray-400 mb-1.5">เปลี่ยนสถานะ:</div>
                                             <div className="flex gap-1.5 flex-wrap">
                                                 {[
-                                                    { s: 'online',   label: '🟢 Online',   cls: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
-                                                    { s: 'offline',  label: '🔴 Offline',  cls: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100' },
-                                                    { s: 'removed',  label: '⚫ ถอดออก',  cls: 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100' },
-                                                    { s: 'retired',  label: '🚫 เลิกใช้',  cls: 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100' },
+                                                    { s: 'online', label: '🟢 Online', cls: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
+                                                    { s: 'offline', label: '🔴 Offline', cls: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100' },
+                                                    { s: 'removed', label: '⚫ ถอดออก', cls: 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100' },
+                                                    { s: 'retired', label: '🚫 เลิกใช้', cls: 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100' },
                                                 ].map(({ s, label, cls }) => (
                                                     <button key={s}
-                                                            disabled={detailModal.status === s}
-                                                            onClick={async () => {
-                                                                await fetch(`${API_BASE}/cctv/cameras/${detailModal.id}/status`, {
-                                                                    method: 'PATCH',
-                                                                    headers: { 'Content-Type': 'application/json' },
-                                                                    body: JSON.stringify({ status: s }),
-                                                                });
-                                                                await fetchCameras();
-                                                                setDetailModal(p => ({ ...p, status: s }));
-                                                            }}
-                                                            className={`px-2 py-1 text-[11px] font-medium border rounded-lg transition-colors
+                                                        disabled={detailModal.status === s}
+                                                        onClick={async () => {
+                                                            await fetch(`${API_BASE}/cctv/cameras/${detailModal.id}/status`, {
+                                                                method: 'PATCH',
+                                                                headers: { 'Content-Type': 'application/json' },
+                                                                body: JSON.stringify({ status: s }),
+                                                            });
+                                                            await fetchCameras();
+                                                            setDetailModal(p => ({ ...p, status: s }));
+                                                        }}
+                                                        className={`px-2 py-1 text-[11px] font-medium border rounded-lg transition-colors
                                                                 disabled:opacity-40 disabled:cursor-not-allowed ${cls}`}>
                                                         {label}
                                                     </button>
@@ -1528,6 +1648,13 @@ ctx.shadowBlur = 0;
             </Portal>
 
             {/* ── Snapshot tooltip ─────────────────────────────────────── */}
+            {maintenanceDetail && (
+                <MaintenanceDetailModal
+                    data={maintenanceDetail}
+                    onClose={() => setMaintenanceDetail(null)}
+                />
+            )}
+
             {maintenanceModal && (
                 <MaintenanceLogModal
                     mode={maintenanceModal.mode}
