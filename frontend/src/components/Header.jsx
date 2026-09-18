@@ -61,6 +61,7 @@ const Header = ({ onMenuClick }) => {
             case '/knowledge-base': return { title: 'KNOWLEDGE BASE', icon: BookOpen, color: 'text-violet-600' };
             case '/activity': return { title: 'ACTIVITY GALLERY', icon: Camera, color: 'text-pink-600' };
             case '/printer-health': return { title: 'PRINTER HEALTH', icon: Printer, color: 'text-cyan-600' };
+            case '/pc-control': return { title: 'PC LAYOUT & CONTROL', icon: LayoutDashboard, color: 'text-blue-600' };
             default: return { title: 'IT STOCK MANAGEMENT', icon: Package, color: 'text-slate-600' };
         }
     };

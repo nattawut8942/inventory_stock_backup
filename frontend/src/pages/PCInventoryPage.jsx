@@ -81,6 +81,8 @@ const PCInventoryPage = () => {
   const [modalData, setModalData] = useState({});
   const [multiLoginData, setMultiLoginData] = useState({ data: [], allHostnames: [] });
   const [showMultiLoginModal, setShowMultiLoginModal] = useState(false);
+  const [reincarnatedData, setReincarnatedData] = useState({ data: [], allHostnames: [] }); // ✅ เพิ่ม
+  const [showReincarnatedModal, setShowReincarnatedModal] = useState(false); // ✅ เพิ่ม
   const [showPrinterModal, setShowPrinterModal] = useState(false);
   const [showUsbModal, setShowUsbModal] = useState(false);
   const [showShutdownModal, setShowShutdownModal] = useState(false);
@@ -126,10 +128,11 @@ const PCInventoryPage = () => {
   const fetchData = async () => {
     setLoading(true); setError('');
     try {
-      const [invRes, sumRes, mlRes] = await Promise.all([
+      const [invRes, sumRes, mlRes, rcRes] = await Promise.all([
         fetch(`${API_BASE}/pc-inventory`).then(r => r.json()),
         fetch(`${API_BASE}/pc-inventory/summary`).then(r => r.json()),
         fetch(`${API_BASE}/pc-inventory/multi-login`).then(r => r.json()),
+        fetch(`${API_BASE}/pc-inventory/reincarnated`).then(r => r.json()), // ✅ เพิ่ม
       ]);
       if (!invRes.success) throw new Error(invRes.error || 'Failed to fetch');
 
@@ -146,6 +149,7 @@ const PCInventoryPage = () => {
 
       setSumData(sumRes.success ? sumRes : null);
       if (mlRes.success) setMultiLoginData(mlRes);
+      if (rcRes.success) setReincarnatedData(rcRes); // ✅ เพิ่ม
     } catch (err) { setError(err.message); }
     finally { setLoading(false); }
   };
@@ -233,6 +237,7 @@ const PCInventoryPage = () => {
     if (key.startsWith('cs:')) return (sumData.crowdstrikeVerMap || {})[key.slice(3)] || [];
     if (key.startsWith('tanium:')) return (sumData.taniumVerMap || {})[key.slice(7)] || [];
     if (key === 'multiLogin') return multiLoginData.allHostnames || [];
+    if (key === 'possiblyRenamed') return reincarnatedData.allHostnames || []; // ✅ เพิ่ม
     if (key.startsWith('patchkb:')) return (sumData.lastPatchKBMap || {})[key.slice(8)] || [];
     if (key.startsWith('location:')) return (sumData.locationMap || {})[key.slice(9)] || [];
     if (key === 'inactive') return sumData.inactive || [];
@@ -619,6 +624,7 @@ const confirmDelete = async () => {
                     <StatBox id="lowDiskCSpace" label="Disk C Free < 20GB" list={sumData?.lowDiskCSpace} textClass="text-red-600" bgClass="bg-red-50" ringClass="ring-red-500" />
                     <StatBox id="oldFixAssets" label="Old Fix Assets" list={sumData?.oldFixAssets} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" />
                     <StatBox id="multiLogin" label="Multi-Login Users" list={multiLoginData.allHostnames} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" onSecondaryClick={() => setShowMultiLoginModal(true)} />
+                    <StatBox id="possiblyRenamed" label="อาจถูกลงใหม่/เปลี่ยนชื่อ" list={reincarnatedData.allHostnames} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" onSecondaryClick={() => setShowReincarnatedModal(true)} />
                     <StatBox id="noLocation" label="No Location" list={sumData?.noLocation} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" />
                     <StatBox id="longUptime" label="Uptime > 5 วัน" list={sumData?.longUptime} textClass="text-sky-600" bgClass="bg-sky-50" ringClass="ring-sky-500" />
                     <StatBox id="inactive" label="ไม่ได้ใช้งาน" list={sumData?.inactive}
@@ -1086,6 +1092,18 @@ const confirmDelete = async () => {
                           <div>
                             <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Systems</div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-[1px] bg-gray-200 border border-gray-200 rounded-xl overflow-hidden">
+                              {(() => {
+                                const renamedTo = reincarnatedData.data.find(r => r.old_hostname === hostname)?.new_hostname;
+                                return renamedTo ? (
+                                  <button
+                                    onClick={() => { setHostname(renamedTo); setView('detail'); }}
+                                    className="bg-orange-50 p-3.5 px-4 text-left hover:bg-orange-100 transition-colors cursor-pointer"
+                                  >
+                                    <div className="text-[11px] font-semibold uppercase tracking-wider text-orange-500 mb-1">ชื่อใหม่ (New Name)</div>
+                                    <div className="text-[13.5px] font-bold text-orange-700">{renamedTo} →</div>
+                                  </button>
+                                ) : null;
+                              })()}
                               <InfoCell label="OS Name" value={detailData.inv.os_name} />
                               <InfoCell label="Release" value={detailData.inv.os_release} />
                               <InfoCell label="Build" value={detailData.inv.os_build} fontCls="font-mono text-[12px] text-gray-500" />
@@ -1409,6 +1427,65 @@ const confirmDelete = async () => {
             </div>
             <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
               <button onClick={() => setShowMultiLoginModal(false)} className="px-4 py-2 rounded-lg border border-gray-200 text-[12px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors">ปิด</button>
+            </div>
+          </div>
+        </div>
+        </Portal>
+      )}
+
+      {/* ✅ [NEW] REINCARNATED MACHINES MODAL — เครื่องที่น่าจะถูกลง Windows ใหม่ + เปลี่ยนชื่อ */}
+      {showReincarnatedModal && (
+        <Portal>
+        <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-[700px] shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col overflow-hidden border border-gray-200">
+            <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-[10px] bg-orange-50 border border-orange-200 flex items-center justify-center text-[18px] shrink-0">🔄</div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[15px] font-bold text-gray-900">เครื่องที่น่าจะถูกลง Windows ใหม่</span>
+                    <span className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 rounded-full px-2.5 py-0.5 text-[11px] font-semibold">{reincarnatedData.data.length} คู่</span>
+                  </div>
+                  <div className="text-[12px] text-gray-400 mt-0.5">จับคู่จาก MAC/Serial ที่ตรงกันระหว่างเครื่องเก่ากับเครื่องใหม่</div>
+                </div>
+              </div>
+              <button onClick={() => setShowReincarnatedModal(false)} className="w-7 h-7 rounded-md border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-2.5">
+              {reincarnatedData.data.length === 0 ? (
+                <div className="text-center py-12 text-sm text-gray-400">ไม่พบเครื่องที่น่าจะถูกเปลี่ยนชื่อ</div>
+              ) : reincarnatedData.data.map((r, i) => (
+                <div key={i} className="bg-[#fafafa] border border-gray-200 rounded-xl p-3.5 flex items-center gap-3">
+                  <button
+                    onClick={() => { setShowReincarnatedModal(false); setHostname(r.old_hostname); setView('detail'); }}
+                    className="flex-1 text-left bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 rounded-lg px-3 py-2 transition-all group min-w-0"
+                  >
+                    <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5 flex items-center gap-1.5">
+                      เครื่องเก่า
+                      {r.old_pc_status === 'Inactive' && (
+                        <span className="text-[9px] font-bold text-gray-500 bg-gray-200 rounded-full px-1.5 py-0.5 normal-case">Inactive แล้ว</span>
+                      )}
+                    </div>
+                    <div className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-orange-700">{r.old_hostname}</div>
+                    <div className="text-[10px] text-gray-400 font-mono mt-0.5">{fmtDate(r.old_last_seen)}</div>
+                  </button>
+                  <span className="text-gray-300 shrink-0">→</span>
+                  <button
+                    onClick={() => { setShowReincarnatedModal(false); setHostname(r.new_hostname); setView('detail'); }}
+                    className="flex-1 text-left bg-white border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 rounded-lg px-3 py-2 transition-all group min-w-0"
+                  >
+                    <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">เครื่องใหม่</div>
+                    <div className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-emerald-700">{r.new_hostname}</div>
+                    <div className="text-[10px] text-gray-400 font-mono mt-0.5">{fmtDate(r.new_last_seen)}</div>
+                  </button>
+                  <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-1 shrink-0 whitespace-nowrap">{r.match_reason}</span>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowReincarnatedModal(false)} className="px-4 py-2 rounded-lg border border-gray-200 text-[12px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors">ปิด</button>
             </div>
           </div>
         </div>

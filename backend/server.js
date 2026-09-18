@@ -50,6 +50,9 @@ import activityRoutes from './src/routes/activityRoutes.js';
 import fileUpload from 'express-fileupload';
 import printerRoutes from './src/routes/printerRoutes.js';
 import { startPrinterScanCron, runPrinterScan } from './src/services/printerScanService.js';
+import cctvCaptureRoutes from './src/cctv/cctvCaptureRoutes.js';
+import { startCaptureCron } from './src/cctv/cctvCaptureCron.js';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,6 +62,9 @@ const PORT = process.env.PORT || 3002;
 
 // ── Flag: Prevent duplicate monthly report ──────────────────────────────
 let monthlyReportSent = false;
+
+// ── Flag: Prevent duplicate CCTV capture (manual trigger กันยิงซ้ำ) ─────
+let isCctvCapturing = false;
 
 // ── สร้าง upload folders ถ้ายังไม่มี ────────────────────────────────────
 const folders = [
@@ -242,6 +248,18 @@ const startServer = async () => {
             }
         }, { scheduled: true, timezone: 'Asia/Bangkok' });
 
+        // ── Cron: CCTV weekly capture + email report (ทุกวันจันทร์ 08:30) ──
+        cron.schedule('30 8 * * 1', async () => {
+            console.log('[Cron] CCTV weekly capture starting at 08:30...');
+            try {
+                const { runCctvCaptureJob } = await import('./src/cctv/cctvCaptureJob.js');
+                const result = await runCctvCaptureJob();
+                console.log(`[Cron] CCTV capture done — Online:${result.online} Offline:${result.offline} Error:${result.error} Removed:${result.removed}`);
+            } catch (err) {
+                console.error('[Cron] CCTV capture failed:', err.message);
+            }
+        }, { scheduled: true, timezone: 'Asia/Bangkok' });
+
         cron.schedule('0 8 * * 1-5', async () => {
             console.log('[Cron] Sending calendar email reminder...');
             try {
@@ -311,6 +329,27 @@ const startServer = async () => {
             } catch (err) {
                 console.error('[Test] Printer scan failed:', err);
                 res.status(500).json({ success: false, error: err.message });
+            }
+        });
+
+        // ── Test: Run CCTV capture + ส่งเมลทันที (ไม่ต้องรอ cron วันจันทร์ 08:30) ──
+        app.post('/ITinventory/api/test/run-cctv-capture', async (req, res) => {
+            if (isCctvCapturing) {
+                return res.status(409).json({ success: false, message: 'กำลัง capture อยู่ กรุณารอสักครู่' });
+            }
+
+            isCctvCapturing = true;
+            console.log('[Test] Running CCTV capture manually...');
+            try {
+                const { runCctvCaptureJob } = await import('./src/cctv/cctvCaptureJob.js');
+                const result = await runCctvCaptureJob();
+                console.log(`[Test] CCTV capture done — Online:${result.online} Offline:${result.offline} Error:${result.error} Removed:${result.removed}`);
+                res.json({ success: true, message: 'CCTV capture + ส่งเมลสำเร็จ', result });
+            } catch (err) {
+                console.error('[Test] CCTV capture failed:', err);
+                res.status(500).json({ success: false, error: err.message });
+            } finally {
+                isCctvCapturing = false;
             }
         });
 

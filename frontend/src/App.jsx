@@ -33,6 +33,8 @@ import ITBorrowSystem from './pages/ITBorrowSystem';
 import KBPage from './pages/KBPage';
 import ActivityPage from './pages/ActivityPage'; 
 import PrinterHealthPage from './pages/PrinterHealthPage';
+import PCControlPage from './pages/PCControlPage';
+
 
 // App Routes Component
 const AppRoutes = () => {
@@ -77,7 +79,7 @@ const AppRoutes = () => {
                 <Route path="activity" element={<ActivityPage />} />
                 {/* ✅ ระบบยืม-คืน IT — ครอบด้วย Layout (Sidebar+Header) เหมือนหน้าอื่นในกลุ่มนี้ทุกอัน */}
                 <Route path="borrowings" element={<ITBorrowSystem />} />
-
+                <Route path="pc-control" element={<PCControlPage />} />
 
                 {/* PO and Receive */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />

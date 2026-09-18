@@ -331,6 +331,9 @@ export const getCameras = async (req, res) => {
                 c.updated_at,
                 c.fov_direction,
                 c.fov_spread,
+                c.server_record_id,
+                c.recording_days,
+                rs.name      AS record_server_name,
                 fl.name      AS layout_name,
                 fl.image_url AS layout_image_url,
                 r.name       AS rack_name,
@@ -343,6 +346,7 @@ export const getCameras = async (req, res) => {
             LEFT JOIN dbo.factory_layouts fl ON c.factory_layout_id = fl.id
             LEFT JOIN dbo.cctv_racks       r  ON c.rack_id           = r.id
             LEFT JOIN dbo.cctv_switches    sw ON c.switch_id          = sw.id
+            LEFT JOIN dbo.cctv_record_servers rs ON c.server_record_id = rs.id
             ORDER BY c.factory_layout_id, c.name
         `);
         res.json({ success: true, data: result.recordset });
@@ -377,6 +381,9 @@ export const getCamerasByLayout = async (req, res) => {
                     c.updated_by,
                     c.fov_direction,
                     c.fov_spread,
+                    c.server_record_id,
+                    c.recording_days,
+                    rs.name      AS record_server_name,
                     r.name       AS rack_name,
                     r.location_x AS rack_location_x,
                     r.location_y AS rack_location_y,
@@ -386,6 +393,7 @@ export const getCamerasByLayout = async (req, res) => {
                 FROM dbo.cctv_cameras c
                 LEFT JOIN dbo.cctv_racks    r  ON c.rack_id    = r.id
                 LEFT JOIN dbo.cctv_switches sw ON c.switch_id  = sw.id
+                LEFT JOIN dbo.cctv_record_servers rs ON c.server_record_id = rs.id
                 WHERE c.factory_layout_id = @layout_id
                 ORDER BY
                     CASE WHEN c.location_x IS NULL THEN 1 ELSE 0 END,
@@ -402,7 +410,8 @@ export const createCamera = async (req, res) => {
         const {
             name, ip_address, model, fix_asset, remark,
             factory_layout_id, location_x, location_y,
-            rack_id, switch_id, path_points, updated_by, icon_type
+            rack_id, switch_id, path_points, updated_by, icon_type,
+            server_record_id, recording_days
         } = req.body;
 
         if (!name) return res.status(400).json({ success: false, error: 'name is required' });
@@ -428,15 +437,19 @@ export const createCamera = async (req, res) => {
             .input('icon_type',         sql.NVarChar(20),      icon_type         || 'bullet')
             .input('updated_by',        sql.NVarChar(100),     updated_by        || null)
             .input('snapshot_url',      sql.NVarChar(sql.MAX), snapshot_url)
+            .input('server_record_id',  sql.Int,               server_record_id  || null)
+            .input('recording_days',    sql.Int,               recording_days    || null)
             .query(`
                 INSERT INTO dbo.cctv_cameras
                     (name, ip_address, model, fix_asset, remark,
                      factory_layout_id, location_x, location_y,
-                     rack_id, switch_id, path_points, icon_url, icon_type, updated_by, snapshot_url)
+                     rack_id, switch_id, path_points, icon_url, icon_type, updated_by, snapshot_url,
+                     server_record_id, recording_days)
                 VALUES
                     (@name, @ip_address, @model, @fix_asset, @remark,
                      @factory_layout_id, @location_x, @location_y,
-                     @rack_id, @switch_id, @path_points, @icon_url, @icon_type, @updated_by, @snapshot_url);
+                     @rack_id, @switch_id, @path_points, @icon_url, @icon_type, @updated_by, @snapshot_url,
+                     @server_record_id, @recording_days);
                 SELECT SCOPE_IDENTITY() AS id;
             `);
         res.json({ success: true, data: { id: result.recordset[0].id, name, icon_url } });
@@ -464,7 +477,8 @@ export const updateCamera = async (req, res) => {
         const {
             name, ip_address, model, fix_asset, remark,
             factory_layout_id, location_x, location_y,
-            rack_id, switch_id, path_points, updated_by, icon_type
+            rack_id, switch_id, path_points, updated_by, icon_type,
+            server_record_id, recording_days
         } = req.body;
 
         const pool = await getPool();
@@ -521,6 +535,8 @@ export const updateCamera = async (req, res) => {
             .input('icon_type',        sql.NVarChar(20),      icon_type         || 'bullet')
             .input('updated_by',       sql.NVarChar(100),     updated_by        || null)
             .input('snapshot_url',     sql.NVarChar(sql.MAX), snapshot_url)
+            .input('server_record_id',sql.Int,               server_record_id  || null)
+            .input('recording_days',  sql.Int,               recording_days    || null)
             .query(`
                 UPDATE dbo.cctv_cameras
                 SET name=@name, ip_address=@ip_address, model=@model,
@@ -530,6 +546,7 @@ export const updateCamera = async (req, res) => {
                     rack_id=@rack_id, switch_id=@switch_id,
                     path_points=@path_points, icon_url=@icon_url,
                     icon_type=@icon_type, snapshot_url=@snapshot_url,
+                    server_record_id=@server_record_id, recording_days=@recording_days,
                     updated_by=@updated_by, updated_at=GETDATE()
                 WHERE id = @id
             `);
@@ -879,5 +896,65 @@ export const exportMaintenanceLogs = async (req, res) => {
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="cctv_maintenance_${Date.now()}.csv"`);
         res.send('\uFEFF' + csv); // BOM สำหรับ Excel อ่านภาษาไทยได้
+    } catch (err) { res.status(500).json({ error: err.message }); }
+};
+// ── Record Servers (Master) ────────────────────────────────────────────────
+export const getRecordServers = async (req, res) => {
+    try {
+        const pool = await getPool();
+        const result = await pool.request().query(`
+            SELECT rs.*,
+                (SELECT COUNT(*) FROM dbo.cctv_cameras c WHERE c.server_record_id = rs.id) AS camera_count
+            FROM dbo.cctv_record_servers rs
+            ORDER BY rs.name
+        `);
+        res.json({ success: true, data: result.recordset });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+export const createRecordServer = async (req, res) => {
+    try {
+        const { name, ip_address, created_by } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        const pool = await getPool();
+        const result = await pool.request()
+            .input('name',       sql.NVarChar(100), name)
+            .input('ip_address', sql.NVarChar(50),  ip_address || null)
+            .input('created_by', sql.NVarChar(100), created_by || null)
+            .query(`
+                INSERT INTO dbo.cctv_record_servers (name, ip_address, created_by)
+                VALUES (@name, @ip_address, @created_by);
+                SELECT SCOPE_IDENTITY() AS id;
+            `);
+        res.json({ success: true, data: { id: result.recordset[0].id, name } });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+export const updateRecordServer = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, ip_address } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        const pool = await getPool();
+        await pool.request()
+            .input('id',         sql.Int,           id)
+            .input('name',       sql.NVarChar(100), name)
+            .input('ip_address', sql.NVarChar(50),  ip_address || null)
+            .query('UPDATE dbo.cctv_record_servers SET name=@name, ip_address=@ip_address WHERE id=@id');
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+export const deleteRecordServer = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await getPool();
+        const check = await pool.request().input('id', sql.Int, id)
+            .query('SELECT COUNT(*) AS cnt FROM dbo.cctv_cameras WHERE server_record_id=@id');
+        if (check.recordset[0].cnt > 0)
+            return res.status(400).json({ error: 'ไม่สามารถลบได้ มีกล้องผูกกับ Server นี้อยู่' });
+        await pool.request().input('id', sql.Int, id)
+            .query('DELETE FROM dbo.cctv_record_servers WHERE id=@id');
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 };

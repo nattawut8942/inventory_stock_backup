@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera } from 'lucide-react';
+import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
@@ -62,6 +62,12 @@ const ManagementPage = () => {
     const [selectedFile, setSelectedFile] = useState(null);
     const [isUploadingLayout, setIsUploadingLayout] = useState(false);
     const fileInputRef = useRef(null);
+
+    // CCTV Record Servers State
+    const [recordServers, setRecordServers] = useState([]);
+    const [editingRecordServer, setEditingRecordServer] = useState(null);
+    const [recordServerForm, setRecordServerForm] = useState({ name: '', ip_address: '' });
+    const [isRecordServerFormOpen, setIsRecordServerFormOpen] = useState(false);
 
     // Alert Modal
     const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
@@ -154,6 +160,69 @@ const ManagementPage = () => {
         }
     };
 
+    // --- CCTV Record Server Functions ---
+    const fetchRecordServers = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/cctv/record-servers`);
+            if (res.ok) {
+                const data = await res.json();
+                setRecordServers(data.data || []);
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const handleSaveRecordServer = async () => {
+        if (!recordServerForm.name.trim()) return;
+        const isEdit = !!editingRecordServer;
+        const url = isEdit ? `${API_BASE}/cctv/record-servers/${editingRecordServer.id}` : `${API_BASE}/cctv/record-servers`;
+        try {
+            const res = await fetch(url, {
+                method: isEdit ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: recordServerForm.name.trim(), ip_address: recordServerForm.ip_address.trim(), created_by: user?.username || user?.name || '' })
+            });
+            if (res.ok) {
+                setIsRecordServerFormOpen(false);
+                setEditingRecordServer(null);
+                setRecordServerForm({ name: '', ip_address: '' });
+                fetchRecordServers();
+            } else {
+                const err = await res.json();
+                setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: err.error || 'บันทึกไม่สำเร็จ' });
+            }
+        } catch (err) {
+            setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: err.message });
+        }
+    };
+
+    const handleDeleteRecordServer = (id) => {
+        setAlertModal({
+            isOpen: true,
+            type: 'danger',
+            title: 'ลบ Record Server',
+            message: 'คุณแน่ใจหรือไม่? ถ้ามีกล้องผูกอยู่จะไม่สามารถลบได้',
+            confirmText: 'ลบ',
+            cancelText: 'ยกเลิก',
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/cctv/record-servers/${id}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: 'ลบสำเร็จ' });
+                        fetchRecordServers();
+                    } else {
+                        const err = await res.json();
+                        setAlertModal({ isOpen: true, type: 'error', title: 'ไม่สามารถลบได้', message: err.error || 'เกิดข้อผิดพลาด' });
+                    }
+                } catch (err) {
+                    setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: err.message });
+                }
+            },
+            onCancel: () => setAlertModal(prev => ({ ...prev, isOpen: false }))
+        });
+    };
+
     useEffect(() => {
         if (activeTab === 'admin') fetchAdminUsers();
         if (activeTab === 'locations') fetchLocations();
@@ -161,6 +230,7 @@ const ManagementPage = () => {
         if (activeTab === 'ma-types') fetchMATypes();
         if (activeTab === 'budgets') fetchBudgetCategories();
         if (activeTab === 'factory-layouts') fetchFactoryLayouts();
+        if (activeTab === 'record-servers') fetchRecordServers();
         if (activeTab === 'activity-categories') fetchActivityCategories();
         setSearchTerm('');
     }, [activeTab]);
@@ -601,8 +671,7 @@ const handleFileSelect = (e) => {
             cancelText: 'ยกเลิก',
             onConfirm: async () => {
                 try {
-                    const res = await fetch(`${API_BASE}/upload/factory-layouts/${id}`, { method: 'DELETE' });
-                    if (res.ok) {
+                    const res = await fetch(`${API_BASE}/factory-layouts/${id}`, { method: 'DELETE' });                    if (res.ok) {
                         setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: 'ลบสำเร็จ' });
                         fetchFactoryLayouts();
                     }
@@ -686,6 +755,7 @@ const handleFileSelect = (e) => {
                         { id: 'ma-types', label: 'MA Types', icon: FileKey },
                         { id: 'budgets', label: 'Budgets', icon: DollarSign },
                         { id: 'factory-layouts', label: 'Maps', icon: Map },
+                        { id: 'record-servers', label: 'Record Servers', icon: Server },
                         { id: 'activity-categories', label: 'Activity Categories', icon: Camera }
                     ].map(tab => (
                         <button
@@ -1100,6 +1170,68 @@ const handleFileSelect = (e) => {
                     ) : (
                         <tr>
                             <td colSpan="6" className="p-12 text-center text-slate-400">No layouts found</td>
+                        </tr>
+                    )}
+                </tbody>
+            </table>
+        </div>
+    </div>
+)}
+
+{/* CCTV RECORD SERVERS TAB */}
+{activeTab === 'record-servers' && (
+    <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <div>
+                <h3 className="font-black text-lg text-slate-800">CCTV Record Servers</h3>
+                <p className="text-sm text-slate-500">รายชื่อ Server ที่ใช้บันทึกภาพกล้อง (สำหรับผูกกับกล้องแต่ละตัว)</p>
+            </div>
+            <button
+                onClick={() => { setEditingRecordServer(null); setRecordServerForm({ name: '', ip_address: '' }); setIsRecordServerFormOpen(true); }}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 transition-all"
+            >
+                <Plus size={16} /> เพิ่ม Record Server
+            </button>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <table className="w-full text-sm">
+                <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
+                        <th className="p-4 font-bold">ID</th>
+                        <th className="p-4 font-bold">ชื่อ Server</th>
+                        <th className="p-4 font-bold">IP Address</th>
+                        <th className="p-4 font-bold text-center">จำนวนกล้อง</th>
+                        <th className="p-4 font-bold">สร้างโดย</th>
+                        <th className="p-4 font-bold">วันที่สร้าง</th>
+                        <th className="p-4 font-bold text-right">จัดการ</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                    {recordServers.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
+                        recordServers.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())).map(server => (
+                            <tr key={server.id} className="hover:bg-slate-50 transition-colors group">
+                                <td className="p-4 text-slate-400 font-mono text-sm">#{server.id}</td>
+                                <td className="p-4 font-bold text-slate-700 flex items-center gap-2"><Server size={16} className="text-indigo-600" />{server.name}</td>
+                                <td className="p-4 text-slate-600 text-sm font-mono">{server.ip_address || '—'}</td>
+                                <td className="p-4 text-center">
+                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${server.camera_count > 0 ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
+                                        {server.camera_count || 0} ตัว
+                                    </span>
+                                </td>
+                                <td className="p-4 text-slate-600 text-sm">{server.created_by || '—'}</td>
+                                <td className="p-4 text-slate-500 text-sm">{server.created_at ? new Date(server.created_at).toLocaleDateString('th-TH') : '—'}</td>
+                                <td className="p-4 text-right">
+                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button onClick={() => { setEditingRecordServer(server); setRecordServerForm({ name: server.name, ip_address: server.ip_address || '' }); setIsRecordServerFormOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>
+                                        <button onClick={() => handleDeleteRecordServer(server.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                                    </div>
+                                </td>
+                            </tr>
+                        ))
+                    ) : (
+                        <tr>
+                            <td colSpan="7" className="p-12 text-center text-slate-400">ยังไม่มี Record Server</td>
                         </tr>
                     )}
                 </tbody>
@@ -1529,6 +1661,50 @@ const handleFileSelect = (e) => {
                                         <button type="submit" disabled={!activityCategoryForm.CategoryCode || !activityCategoryForm.Label} className="flex-[2] bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold py-2.5 rounded-lg hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50">บันทึก</button>
                                     </div>
                                 </form>
+                            </motion.div>
+                        </motion.div>
+                    </Portal>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {isRecordServerFormOpen && (
+                    <Portal>
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
+                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden">
+                                <div className="p-5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white flex justify-between items-start">
+                                    <h3 className="font-black text-xl">{editingRecordServer ? 'แก้ไข Record Server' : 'เพิ่ม Record Server'}</h3>
+                                    <button onClick={() => { setIsRecordServerFormOpen(false); setEditingRecordServer(null); setRecordServerForm({ name: '', ip_address: '' }); }} className="p-2 hover:bg-white/10 rounded-full"><X size={20} /></button>
+                                </div>
+                                <div className="p-5 space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">ชื่อ Server</label>
+                                        <input
+                                            type="text"
+                                            autoFocus
+                                            value={recordServerForm.name}
+                                            onChange={(e) => setRecordServerForm(prev => ({ ...prev, name: e.target.value }))}
+                                            placeholder="เช่น Server-Fac1, Server-Fac3"
+                                            className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 outline-none"
+                                            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveRecordServer(); }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">IP Address</label>
+                                        <input
+                                            type="text"
+                                            value={recordServerForm.ip_address}
+                                            onChange={(e) => setRecordServerForm(prev => ({ ...prev, ip_address: e.target.value }))}
+                                            placeholder="เช่น 192.168.1.10"
+                                            className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 outline-none"
+                                            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveRecordServer(); }}
+                                        />
+                                    </div>
+                                    <div className="flex gap-3 pt-2">
+                                        <button onClick={() => { setIsRecordServerFormOpen(false); setEditingRecordServer(null); }} className="flex-1 bg-white border border-slate-200 text-slate-600 font-bold py-2.5 rounded-lg hover:bg-slate-50">ยกเลิก</button>
+                                        <button onClick={handleSaveRecordServer} disabled={!recordServerForm.name.trim()} className="flex-[2] bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold py-2.5 rounded-lg hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50">บันทึก</button>
+                                    </div>
+                                </div>
                             </motion.div>
                         </motion.div>
                     </Portal>

@@ -12,6 +12,7 @@ import {
     searchInventory,
     getSummary,
     getMultiLoginUsers,
+    getReincarnatedMachines, // ✅ เพิ่ม import
     getHistory,
     getInventoryByFixAsset 
 } from '../controllers/pcInventoryController.js';
@@ -25,6 +26,7 @@ router.get('/pc-inventory', getInventory);
 router.get('/pc-inventory/search', searchInventory);
 router.get('/pc-inventory/summary', getSummary);
 router.get('/pc-inventory/multi-login', getMultiLoginUsers);
+router.get('/pc-inventory/reincarnated', getReincarnatedMachines); // ✅ เพิ่ม route
 router.get('/pc-inventory/by-fix-asset/:code', getInventoryByFixAsset);
 router.get('/pc-inventory/:hostname/history', getHistory);
 router.get('/pc-inventory/:hostname', getInventoryByHostname);

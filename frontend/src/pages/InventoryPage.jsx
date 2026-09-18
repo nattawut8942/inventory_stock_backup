@@ -1253,7 +1253,8 @@ const handleFileUpload = async (file) => {
                       {/* ✅ S/N + รหัสครุภัณฑ์ + รหัสพนักงาน (Asset) ย้ายไปคอลัมน์ขวา ดูด้านล่าง */}
                       {qtyModal.mode === 'withdraw' && qtyModal.product.DeviceType !== 'Asset' && (
                         <div className="pt-2">
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">กรอกรหัสพนักงานผู้ขอเบิก</label>
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">**ค้นหาชื่อคนที่ขอเบิกที่ไม่ใช่ไอที** </label>
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2"> ที่เป็นผู้ใช้งานจริงๆ เช่น User โดยใช้รหัสพนักงาน  </label>
                           {!empData ? (
                             <>
                               <div className="flex gap-2">
@@ -1332,7 +1333,8 @@ const handleFileUpload = async (file) => {
                       {/* ✅ รหัสพนักงาน — ย้ายมาอยู่คอลัมน์ขวาด้วยเมื่อเป็น Asset */}
                       {qtyModal.mode === 'withdraw' && (
                         <div className="pt-2 border-t border-slate-200">
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2 mt-2">กรอกรหัสพนักงานผู้ขอเบิก</label>
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">**ค้นหาชื่อคนที่ขอเบิกที่ไม่ใช่ไอที** </label>
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2"> ที่เป็นผู้ใช้งานจริงๆ เช่น User โดยใช้รหัสพนักงาน  </label>
                           {!empData ? (
                             <>
                               <div className="flex flex-col gap-2">

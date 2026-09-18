@@ -4,7 +4,8 @@ import {
     LayoutDashboard, Package, ShoppingCart, LogOut, Plus,
     ArrowDownToLine, History, Database, FileSpreadsheet, Shield,
     Printer, ChevronDown, FileKey, Monitor, HardDrive,
-    Camera, ChevronLeft, ChevronRight, Cctv, Calendar, Network, ClipboardList, Activity, Briefcase, BookOpen
+    Camera, ChevronLeft, ChevronRight, Cctv, Calendar, Network, ClipboardList, Activity, Briefcase, BookOpen,
+    LayoutGrid
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import logodaikin from '../../public/DAIKIN_logo.svg.png';
@@ -182,6 +183,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                     {/* 💻 ASSET MANAGEMENT */}
                     <NavGroupHeader label="💻 Asset Management" collapsed={collapsed} />
                     <NavItem icon={Monitor} label="PC INVENTORY" to="/pc-inventory" onClose={onClose} collapsed={collapsed} />
+                    <NavItem icon={LayoutGrid} label="PC LAYOUT" to="/pc-control" onClose={onClose} collapsed={collapsed} />
                     <NavItem icon={Cctv} label="CCTV MANAGEMENT" to="/cctv-management" onClose={onClose} collapsed={collapsed} />
                     <NavItem icon={FileKey} label="MA / LICENSE" to="/ma-license" onClose={onClose} collapsed={collapsed} />
 

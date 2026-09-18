@@ -17,28 +17,7 @@ export const sendDailyReport = async () => {
             WHERE CurrentStock <= MinStock AND MinStock >= 1 AND IsActive = 1
         `);
 
-        // 2. Pending POs
-        const pendingPoResult = await pool.request().query(`
-            SELECT 
-                po.PO_ID, po.VendorName, po.RequestDate, po.DueDate, po.Status, po.PR_No, po.BudgetNo, po.DeliveryTo,
-                (SELECT ISNULL(SUM(d.QtyOrdered), 0) FROM dbo.Stock_PODetails d WHERE d.PO_ID = po.PO_ID) as TotalOrdered,
-                (SELECT ISNULL(SUM(d.QtyOrdered - d.QtyReceived), 0) FROM dbo.Stock_PODetails d WHERE d.PO_ID = po.PO_ID) as TotalRemaining
-            FROM dbo.Stock_PurchaseOrders po 
-            WHERE po.Status IN ('Open', 'Partial') 
-            ORDER BY po.RequestDate
-        `);
-
-        // 2.1 Pending PO Details (Items)
-        const pendingPoDetailsResult = await pool.request().query(`
-            SELECT d.PO_ID, d.ItemName, d.QtyOrdered, ISNULL(d.QtyReceived, 0) as QtyReceived
-            FROM dbo.Stock_PODetails d
-            JOIN dbo.Stock_PurchaseOrders po ON d.PO_ID = po.PO_ID
-            WHERE po.Status IN ('Open', 'Partial')
-            ORDER BY d.PO_ID
-        `);
-        const poDetails = pendingPoDetailsResult.recordset;
-
-        // 3. MA / Licenses
+        // 2. MA / Licenses
         const maResult = await pool.request().query(`
             SELECT m.ItemID, m.Category, m.SubType, m.ItemName, m.SerialNumber, 
                 m.ServiceNumber, m.StartDate, m.EndDate, m.Price, m.Status, 
@@ -107,74 +86,6 @@ export const sendDailyReport = async () => {
             </table>`;
         }
 
-        // Prepare Pending PO HTML
-        let pendingPoHtml = '';
-        if (pendingPoResult.recordset.length > 0) {
-            const statusBadge = (status) => `<span style="background-color: ${status === 'Partial' ? '#fef3c7' : '#e0f2fe'}; color: ${status === 'Partial' ? '#d97706' : '#0284c7'}; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold;">${status}</span>`;
-
-            const poCards = pendingPoResult.recordset.map(po => {
-                const items = poDetails.filter(d => d.PO_ID === po.PO_ID);
-                let itemsTableHtml = '';
-                if (items.length > 0) {
-                    const itemRows = items.map((i, idx) => `
-                        <tr>
-                            <td style="${tdStyle} text-align: center;">${idx + 1}</td>
-                            <td style="${tdStyle}">${i.ItemName}</td>
-                            <td style="${tdStyle} text-align: center;">${i.QtyOrdered}</td>
-                            <td style="${tdStyle} text-align: center; color: ${i.QtyReceived < i.QtyOrdered ? '#d97706' : '#475569'}; font-weight: bold;">${i.QtyReceived}</td>
-                            <td style="${tdStyle} text-align: center; color: ${(i.QtyOrdered - i.QtyReceived) > 0 ? 'red' : '#475569'}; font-weight: bold;">${i.QtyOrdered - i.QtyReceived}</td>
-                        </tr>`).join('');
-
-                    itemsTableHtml = `
-                        <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif;">
-                            <thead>
-                                <tr style="background-color: #f8fafc; color: #475569;">
-                                    <th style="${thStyle} text-align: center; width: 30px;">#</th>
-                                    <th style="${thStyle}">Item Name</th>
-                                    <th style="${thStyle} text-align: center; width: 70px;">To Order</th>
-                                    <th style="${thStyle} text-align: center; width: 70px;">Received</th>
-                                    <th style="${thStyle} text-align: center; width: 70px;">Remaining</th>
-                                </tr>
-                            </thead>
-                            <tbody>${itemRows}</tbody>
-                        </table>`;
-                }
-
-                return `
-                    <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 16px; border: 1px solid #ddd;">
-                        <tr style="background-color: #f8fafc;">
-                            <td style="padding: 10px 12px; border: 1px solid #ddd;" colspan="2">
-                                <table style="width: 100%; border-collapse: collapse;">
-                                    <tr>
-                                        <td style="font-size: 13px; font-weight: bold; color: #475569;">📦 ${po.PO_ID} ${statusBadge(po.Status)}</td>
-                                        <td style="text-align: right; font-size: 12px; color: #475569;">Due: ${po.DueDate ? new Date(po.DueDate).toLocaleDateString('th-TH') : '-'}</td>
-                                    </tr>
-                                </table>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 8px 12px; border: 1px solid #ddd;" colspan="2">
-                                <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: #475569;">
-                                    <tr>
-                                        <td style="padding: 2px 0;"><strong>Vendor:</strong> ${po.VendorName || '-'}</td>
-                                        <td style="padding: 2px 0;"><strong>PR:</strong> ${po.PR_No || '-'}</td>
-                                        <td style="padding: 2px 0;"><strong>Budget:</strong> ${po.BudgetNo || '-'}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding: 2px 0;"><strong>Delivery To:</strong> ${po.DeliveryTo || '-'}</td>
-                                        <td style="padding: 2px 0;"><strong>Total Ordered:</strong> ${po.TotalOrdered} units</td>
-                                        <td style="padding: 2px 0;"><strong>Pending Receipt:</strong> <span style="color: #d97706; font-weight: bold;">${po.TotalRemaining} units</span></td>
-                                    </tr>
-                                </table>
-                            </td>
-                        </tr>
-                        ${items.length > 0 ? `<tr><td style="padding: 8px 12px; border: 1px solid #ddd;" colspan="2">${itemsTableHtml}</td></tr>` : ''}
-                    </table>`;
-            }).join('');
-
-            pendingPoHtml = `<h3 style="color: #0284c7; margin-top: 20px;">📋 Pending Purchase Orders (${pendingPoResult.recordset.length} รายการ)</h3>${poCards}`;
-        }
-
         // Prepare MA/License HTML
         let maHtml = '';
         if (maResult.recordset.length > 0) {
@@ -218,7 +129,7 @@ export const sendDailyReport = async () => {
                 </table>`;
         }
 
-        if (!lowStockHtml && !pendingPoHtml && !maHtml) {
+        if (!lowStockHtml && !maHtml) {
             console.log('No updates to report.');
             return { success: true, message: 'No updates' };
         }
@@ -241,7 +152,6 @@ export const sendDailyReport = async () => {
                 <div style="font-family: Arial, sans-serif; max-width: 850px; margin: 0 auto;">
                     <h2 style="color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px;">📦IT Stock Weekly Report</h2>
                     ${lowStockHtml || '<p style="color: #666; font-style: italic;">No low stock items.</p>'}
-                    ${pendingPoHtml || '<p style="color: #666; font-style: italic;">No pending POs.</p>'}
                     ${maHtml || '<p style="color: #666; font-style: italic;">No expiring MA/Licenses.</p>'}
                     <p style="margin-top: 30px; font-size: 15px; color: #999; border-top: 1px solid #eee; padding-top: 10px;">
                         This is an automated message from IT Inventory Management System.<br/>
@@ -259,7 +169,6 @@ export const sendDailyReport = async () => {
         return { success: false, error: error.message };
     }
 };
-
 // ==========================================================
 // 2. ฟังก์ชันใหม่ (Monthly) - เพิ่มรายการสรุป และไฟล์ Excel
 // ==========================================================

@@ -56,7 +56,9 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
         name: '', ip_address: '', model: '', fix_asset: '', remark: '',
         factory_layout_id: selectedLayoutId || '',
         rack_id: '', switch_id: '',
+        server_record_id: '', recording_days: '',
     });
+    const [recordServers, setRecordServers] = useState([]);
     const [selectedIcon, setSelectedIcon] = useState('bullet');
     const [iconFile,     setIconFile]     = useState(null);
     const [iconPreview,  setIconPreview]  = useState(null);
@@ -72,6 +74,14 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
         [switches, form.rack_id]
     );
 
+    // ดึงรายชื่อ Record Server มาให้เลือก
+    useEffect(() => {
+        fetch(`${API_BASE}/cctv/record-servers`)
+            .then(r => r.json())
+            .then(d => { if (d.success) setRecordServers(d.data); })
+            .catch(() => {});
+    }, []);
+
     // ใช้ data.id เป็น dependency แทน data object ทั้งก้อน — ป้องกัน re-run ทุก render
     useEffect(() => {
         if (isEdit && data) {
@@ -84,6 +94,8 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
                 factory_layout_id: data.factory_layout_id || '',
                 rack_id:           data.rack_id           || '',
                 switch_id:         data.switch_id         || '',
+                server_record_id:  data.server_record_id  || '',
+                recording_days:    data.recording_days    || '',
             });
             if (data.icon_url) { setUseCustom(true); setIconPreview(`${API_URL}${data.icon_url}`); }
             if (data.icon_type) setSelectedIcon(data.icon_type);
@@ -269,6 +281,26 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
                             </Field>
                         </div>
                         <div className="text-[11px] text-purple-500">เลือก Rack ก่อน Switch จะ filter ให้อัตโนมัติ</div>
+                    </div>
+
+                    {/* Record Server */}
+                    <div className="bg-teal-50 rounded-xl p-3 space-y-3">
+                        <div className="text-xs font-semibold text-teal-700">💾 บันทึกที่ Server</div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <Field label="Record Server">
+                                <select value={form.server_record_id} onChange={e => set('server_record_id', e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-teal-400 bg-white">
+                                    <option value="">-- ไม่ระบุ --</option>
+                                    {recordServers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                            </Field>
+                            <Field label="เก็บย้อนหลัง (วัน)">
+                                <input type="number" min="1" value={form.recording_days}
+                                       onChange={e => set('recording_days', e.target.value)}
+                                       placeholder="เช่น 30"
+                                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-teal-400 bg-white"/>
+                            </Field>
+                        </div>
                     </div>
 
                     <Field label="Remark">

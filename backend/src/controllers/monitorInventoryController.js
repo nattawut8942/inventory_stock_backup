@@ -218,6 +218,52 @@ export const getSummary = async (req, res) => {
     // ✅ เครื่องที่ยัง active อยู่ (ไม่รวม inactive) ใช้ตัวนี้กรอง stat ที่เป็น "ปัญหาต้องตามแก้"
     const activeOnly = data.filter(d => d.pc_status !== 'Inactive');
 
+    // ✅ [NEW] หาคู่ "เครื่องเก่า (ค้างนาน) → เครื่องใหม่ (ยัง active)" ผ่าน MAC/Serial ที่ตรงกัน
+    const STALE_DAYS = 14;
+    const MS_STALE = STALE_DAYS * 24 * 60 * 60 * 1000;
+    const isStale = (d) => {
+      if (!d.updated_at) return true;
+      const t = new Date(d.updated_at).getTime();
+      return isNaN(t) || (now - t) > MS_STALE;
+    };
+    const groupBy = (field) => {
+      const map = {};
+      data.forEach(d => {
+        const v = d[field];
+        if (v && String(v).trim() !== '') {
+          (map[v] = map[v] || []).push(d);
+        }
+      });
+      return Object.values(map).filter(g => g.length > 1);
+    };
+    const reincarnatedPairs = [];
+    const seenPairs = new Set();
+    const findReincarnations = (groups, matchLabel) => {
+      groups.forEach(group => {
+        group.forEach(a => {
+          group.forEach(b => {
+            if (a.hostname === b.hostname) return;
+            if (isStale(a) && !isStale(b)) {
+              const pairKey = `${a.hostname}|${b.hostname}`;
+              if (seenPairs.has(pairKey)) return;
+              seenPairs.add(pairKey);
+              reincarnatedPairs.push({
+                old_hostname: a.hostname,
+                old_last_seen: a.updated_at,
+                old_pc_status: a.pc_status,
+                new_hostname: b.hostname,
+                new_last_seen: b.updated_at,
+                match_reason: matchLabel,
+              });
+            }
+          });
+        });
+      });
+    };
+    findReincarnations(groupBy('mac_address'), 'MAC ตรงกัน');
+    findReincarnations(groupBy('serial_number'), 'Serial ตรงกัน');
+    const possiblyRenamed = [...new Set(reincarnatedPairs.map(p => p.old_hostname))];
+
     const summary = {
       total: data.length,
 
@@ -290,6 +336,12 @@ export const getSummary = async (req, res) => {
           return match ? parseInt(match[1], 10) > 10 : false;
         })
         .map(d => d.hostname),
+
+      // ✅ [NEW] เครื่องที่น่าจะถูกลง Windows ใหม่ + เปลี่ยนชื่อ — จับคู่ผ่าน MAC/Serial ที่ตรงกัน
+      // ระหว่างเครื่องที่ "ค้างนาน" (stale) กับเครื่องที่ "ยัง active อยู่" (ไม่กรอง pc_status ออก
+      // เพราะอยากเห็นครบทุกคู่แม้เครื่องเก่าจะถูก mark Inactive ไปแล้วก็ตาม)
+      possiblyRenamed,
+      reincarnatedPairs,
 
       crowdstrikeVerMap: {},
       taniumVerMap: {},

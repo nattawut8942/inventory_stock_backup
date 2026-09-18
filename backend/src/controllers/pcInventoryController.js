@@ -472,6 +472,46 @@ export const getMultiLoginUsers = async (req, res) => {
     }
 };
 
+// ✅ [NEW] หาเครื่องที่ "ค้างนาน" (stale) แต่มี hardware fingerprint (MAC/Serial) ตรงกับ
+// เครื่องที่ยัง active อยู่ — แปลว่าน่าจะถูกลง Windows ใหม่ + เปลี่ยนชื่อไปแล้ว
+export const getReincarnatedMachines = async (req, res) => {
+    try {
+        const db = await getPool();
+        const staleDays = parseInt(req.query.staleDays) || 14;
+        const result = await db.request()
+            .input('staleDays', sql.Int, staleDays)
+            .query(`
+                SELECT
+                    stale.hostname     AS old_hostname,
+                    stale.updated_at   AS old_last_seen,
+                    stale.pc_status    AS old_pc_status,
+                    active.hostname    AS new_hostname,
+                    active.updated_at  AS new_last_seen,
+                    CASE
+                        WHEN stale.mac_address = active.mac_address AND stale.mac_address IS NOT NULL
+                            THEN N'MAC ตรงกัน'
+                        ELSE N'Serial ตรงกัน'
+                    END AS match_reason
+                FROM dbo.info_pc_inventory stale
+                JOIN dbo.info_pc_inventory active
+                    ON stale.hostname <> active.hostname
+                    AND (
+                        (stale.mac_address = active.mac_address AND stale.mac_address IS NOT NULL AND stale.mac_address <> '')
+                        OR
+                        (stale.serial_number = active.serial_number AND stale.serial_number IS NOT NULL AND stale.serial_number <> '')
+                    )
+                WHERE stale.updated_at < DATEADD(DAY, -@staleDays, GETDATE())
+                  AND active.updated_at >= DATEADD(DAY, -@staleDays, GETDATE())
+                ORDER BY stale.updated_at ASC
+            `);
+        const data = result.recordset;
+        const allHostnames = [...new Set(data.map(r => r.old_hostname))];
+        res.json({ success: true, data, allHostnames });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
 export const getInventoryByFixAsset = async (req, res) => {
     try {
         const code = (req.params.code || '').trim();

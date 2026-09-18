@@ -106,11 +106,11 @@ const MapViewTab = ({ hostname, locationData, detailData, onEditLocation, onSele
                 };
 
 
-                const textStartY = pixelY + radius + 12;
+                const textStartY = pixelY + radius + 14;
                 const primaryLabel = labelMode === 'hostname' ? pc.hostname : (rawUser || 'No User');
 
-                drawTextWithBg(primaryLabel, pixelX, textStartY, isCurrent ? 12 : 10, isCurrent ? '#1d4ed8' : '#374151', true);
-                drawTextWithBg(asset, pixelX, textStartY + 16, isCurrent ? 11 : 9, '#6b7280');
+                drawTextWithBg(primaryLabel, pixelX, textStartY, isCurrent ? 15 : 13, isCurrent ? '#1d4ed8' : '#374151', true);
+                drawTextWithBg(asset, pixelX, textStartY + 19, isCurrent ? 14 : 12, '#6b7280');
             }
         });
     }, [imageLoaded, allPCsInLayout, hostname]);

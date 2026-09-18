@@ -9,6 +9,17 @@ import LocationSelectorModal from './LocationSelectorModal';
 import MapViewTab from './MapViewTab';
 import AlertModal from '../components/AlertModal';
 
+// ✅ NEW: Search field dropdown options — เพิ่มให้ตรงกับ PCInventoryPage.jsx
+const SEARCH_FIELD_OPTIONS = [
+  { value: 'all', label: 'ทุกฟิลด์', placeholder: 'ค้นหาทุกฟิลด์: hostname, IP, Serial, Manufacturer ฯลฯ' },
+  { value: 'hostname', label: 'Hostname', placeholder: 'ค้นหา Hostname...' },
+  { value: 'ip_address', label: 'IP Address', placeholder: 'ค้นหา IP Address...' },
+  { value: 'active_usernames', label: 'User', placeholder: 'ค้นหา Username...' },
+  { value: 'model', label: 'Model', placeholder: 'ค้นหา Model...' },
+  { value: 'manufacturer', label: 'Manufacturer', placeholder: 'ค้นหา Manufacturer...' },
+  { value: 'serial_number', label: 'Serial Number', placeholder: 'ค้นหา Serial Number...' },
+];
+
 
 // ─── Debounce hook ────────────────────────────────────────────────────────────
 function useDebounce(value, delay) {
@@ -36,6 +47,7 @@ const direct = {
   noLocation: sumData.noLocation,
   longUptime: sumData.longUptime,
   inactive: sumData.inactive,   // ✅ เพิ่ม
+  possiblyRenamed: sumData.possiblyRenamed,   // ✅ เพิ่ม
 };
   if (key in direct) return direct[key] || [];
   const prefix = [
@@ -64,6 +76,7 @@ const MOInventoryPage = () => {
 
   const [invData, setInvData] = useState([]);
   const [sumData, setSumData] = useState(null);
+  const [showReincarnatedModal, setShowReincarnatedModal] = useState(false); // ✅ เพิ่ม
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const location = useLocation();
@@ -186,9 +199,11 @@ const MOInventoryPage = () => {
       ]);
       if (!invRes.success) throw new Error(invRes.error || 'Failed');
       if (searchQuery.length >= 2) {
-        const res = await fetch(
-          `${API_BASE}/mo-inventory/search?q=${encodeURIComponent(searchQuery)}`
-        ).then(r => r.json());
+        let url = `${API_BASE}/mo-inventory/search?q=${encodeURIComponent(searchQuery)}`;
+        if (searchFieldType !== 'all') {
+          url += `&field=${encodeURIComponent(searchFieldType)}`;
+        }
+        const res = await fetch(url).then(r => r.json());
         if (res.success) setInvData(res.data || []);
       } else {
         setInvData(invRes.data || []);
@@ -467,7 +482,7 @@ const confirmDelete = async () => {
   };
 
   // ─── Sub-components ───────────────────────────────────────────────────────
-  const StatBox = ({ id, label, list, bgClass, textClass, ringClass }) => {
+  const StatBox = ({ id, label, list, bgClass, textClass, ringClass, onSecondaryClick }) => {
     const isOn = filterKeys.find(k => k.key === id);
     const count = list?.length || 0;
     const clickable = count > 0 || isOn;
@@ -476,7 +491,15 @@ const confirmDelete = async () => {
         className={`bg-white border rounded-xl p-3 px-3.5 shadow-sm transition-all
           ${clickable ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md' : 'opacity-70'}
           ${isOn ? `${ringClass} ring-2 ring-offset-2 ${bgClass}` : 'border-gray-200'}`}>
-        <div className="text-xs font-medium text-gray-500 mb-2">{label}</div>
+        <div className="text-xs font-medium text-gray-500 mb-2 flex items-center justify-between">
+          {label}
+          {onSecondaryClick && count > 0 && (
+            <span
+              onClick={e => { e.stopPropagation(); onSecondaryClick(); }}
+              className="text-[10px] text-purple-500 hover:text-purple-700 font-semibold bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5 transition-colors"
+            >Detail</span>
+          )}
+        </div>
         <div className={`text-2xl font-bold leading-none ${textClass}`}>{count}</div>
         {clickable
           ? <div className="text-[11px] text-gray-400 mt-1.5">{isOn ? '✕ คลิกซ้ำเพื่อล้าง' : '☞ คลิกเพื่อ filter'}</div>
@@ -534,6 +557,9 @@ const confirmDelete = async () => {
     ],
   ] : [];
 
+  const currentSearchPlaceholder = SEARCH_FIELD_OPTIONS.find(o => o.value === searchFieldType)?.placeholder
+    || SEARCH_FIELD_OPTIONS[0].placeholder;
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
@@ -582,6 +608,7 @@ const confirmDelete = async () => {
               <StatBox id="longUptime" label="Uptime > 10 วัน" list={sumData?.longUptime} textClass="text-sky-600" bgClass="bg-sky-50" ringClass="ring-sky-500" />
               <StatBox id="inactive" label="ไม่ได้ใช้งาน" list={sumData?.inactive}
   textClass="text-gray-500" bgClass="bg-gray-100" ringClass="ring-gray-400" />
+              <StatBox id="possiblyRenamed" label="อาจถูกลงใหม่/เปลี่ยนชื่อ" list={sumData?.possiblyRenamed} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" onSecondaryClick={() => setShowReincarnatedModal(true)} />
             </div>
 
             {/* Distribution cards */}
@@ -634,16 +661,34 @@ const confirmDelete = async () => {
 
             {/* Search */}
             <div className="relative mb-3 flex w-full gap-2">
+              {/* ✅ NEW: Search field dropdown — driven by SEARCH_FIELD_OPTIONS */}
+              <select
+                value={searchFieldType}
+                onChange={(e) => { setSearchFieldType(e.target.value); setPage(1); }}
+                className="bg-white border border-gray-200 rounded-xl py-2.5 px-3 text-[13px] font-medium text-gray-700 outline-none shadow-sm focus:border-blue-500 transition-colors shrink-0 cursor-pointer"
+              >
+                {SEARCH_FIELD_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+
               <div className="relative flex-1">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Search size={15} /></div>
                 <input type="text"
-                  placeholder="ค้นหาทุกฟิลด์: hostname, IP, Serial, Manufacturer ฯลฯ"
+                  placeholder={currentSearchPlaceholder}
                   className="w-full bg-white border border-gray-200 rounded-xl py-2.5 pl-9 pr-4 text-[13px] outline-none shadow-sm focus:border-blue-500 transition-colors"
                   value={searchQuery} onChange={onSearchInput} />
                 {searchQuery.length >= 2 && searchQuery !== debouncedSearch && (
-                  <div className="absolute inset-y-0 right-3 flex items-center">
+                  <div className="absolute inset-y-0 right-8 flex items-center">
                     <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
                   </div>
+                )}
+                {searchQuery && (
+                  <button
+                    onClick={() => onSearchInput({ target: { value: '' } })}
+                    className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-red-500 transition-colors">
+                    <X size={13} strokeWidth={3} />
+                  </button>
                 )}
               </div>
             </div>
@@ -879,6 +924,18 @@ onClick={async () => {
                       <div>
                         <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Systems</div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-[1px] bg-gray-200 border border-gray-200 rounded-xl overflow-hidden">
+                          {(() => {
+                            const renamedTo = (sumData?.reincarnatedPairs || []).find(r => r.old_hostname === inv.hostname)?.new_hostname;
+                            return renamedTo ? (
+                              <button
+                                onClick={() => { setHostname(renamedTo); setView('detail'); }}
+                                className="bg-orange-50 p-3.5 px-4 text-left hover:bg-orange-100 transition-colors cursor-pointer"
+                              >
+                                <div className="text-[11px] font-semibold uppercase tracking-wider text-orange-500 mb-1">ชื่อใหม่ (New Name)</div>
+                                <div className="text-[13.5px] font-bold text-orange-700">{renamedTo} →</div>
+                              </button>
+                            ) : null;
+                          })()}
                           <InfoCell label="OS Name" value={inv.os_name} />
                           <InfoCell label="OS Release" value={inv.os_release} />
                           <InfoCell label="OS Build" value={inv.os_build} fontCls="font-mono text-[12px] text-gray-500" />
@@ -1247,6 +1304,65 @@ onClick={async () => {
               </div>
             </div>
           </div>
+        </Portal>
+      )}
+
+      {/* ✅ [NEW] REINCARNATED MACHINES MODAL — เครื่องที่น่าจะถูกลง Windows ใหม่ + เปลี่ยนชื่อ */}
+      {showReincarnatedModal && (
+        <Portal>
+        <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-[700px] shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col overflow-hidden border border-gray-200">
+            <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-[10px] bg-orange-50 border border-orange-200 flex items-center justify-center text-[18px] shrink-0">🔄</div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[15px] font-bold text-gray-900">เครื่องที่น่าจะถูกลง Windows ใหม่</span>
+                    <span className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 rounded-full px-2.5 py-0.5 text-[11px] font-semibold">{(sumData?.reincarnatedPairs || []).length} คู่</span>
+                  </div>
+                  <div className="text-[12px] text-gray-400 mt-0.5">จับคู่จาก MAC/Serial ที่ตรงกันระหว่างเครื่องเก่ากับเครื่องใหม่</div>
+                </div>
+              </div>
+              <button onClick={() => setShowReincarnatedModal(false)} className="w-7 h-7 rounded-md border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-2.5">
+              {(sumData?.reincarnatedPairs || []).length === 0 ? (
+                <div className="text-center py-12 text-sm text-gray-400">ไม่พบเครื่องที่น่าจะถูกเปลี่ยนชื่อ</div>
+              ) : (sumData?.reincarnatedPairs || []).map((r, i) => (
+                <div key={i} className="bg-[#fafafa] border border-gray-200 rounded-xl p-3.5 flex items-center gap-3">
+                  <button
+                    onClick={() => { setShowReincarnatedModal(false); setHostname(r.old_hostname); setView('detail'); }}
+                    className="flex-1 text-left bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 rounded-lg px-3 py-2 transition-all group min-w-0"
+                  >
+                    <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5 flex items-center gap-1.5">
+                      เครื่องเก่า
+                      {r.old_pc_status === 'Inactive' && (
+                        <span className="text-[9px] font-bold text-gray-500 bg-gray-200 rounded-full px-1.5 py-0.5 normal-case">Inactive แล้ว</span>
+                      )}
+                    </div>
+                    <div className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-orange-700">{r.old_hostname}</div>
+                    <div className="text-[10px] text-gray-400 font-mono mt-0.5">{fmtDate(r.old_last_seen)}</div>
+                  </button>
+                  <span className="text-gray-300 shrink-0">→</span>
+                  <button
+                    onClick={() => { setShowReincarnatedModal(false); setHostname(r.new_hostname); setView('detail'); }}
+                    className="flex-1 text-left bg-white border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 rounded-lg px-3 py-2 transition-all group min-w-0"
+                  >
+                    <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">เครื่องใหม่</div>
+                    <div className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-emerald-700">{r.new_hostname}</div>
+                    <div className="text-[10px] text-gray-400 font-mono mt-0.5">{fmtDate(r.new_last_seen)}</div>
+                  </button>
+                  <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-1 shrink-0 whitespace-nowrap">{r.match_reason}</span>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowReincarnatedModal(false)} className="px-4 py-2 rounded-lg border border-gray-200 text-[12px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors">ปิด</button>
+            </div>
+          </div>
+        </div>
         </Portal>
       )}
 

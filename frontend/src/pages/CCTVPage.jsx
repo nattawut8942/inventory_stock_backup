@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { MapPin, Plus, RefreshCw, Server, Network, Camera, Wifi, WifiOff, ChevronDown, X } from 'lucide-react';
+import { MapPin, Plus, RefreshCw, Server, Network, Camera, Wifi, WifiOff, ChevronDown, X, Search } from 'lucide-react';
 import { API_BASE, API_URL } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import CCTVFormModal from '../components/cctv/CCTVFormModal';
@@ -86,6 +86,23 @@ function drawFovCone(ctx, px, py, angleDeg, spreadDeg = 60, len = 80,
     ctx.restore();
 }
 
+function drawCornerFrame(ctx, cx, cy, halfSize, color, lineLen = 16, lineWidth = 3) {
+    const x0 = cx - halfSize, x1 = cx + halfSize;
+    const y0 = cy - halfSize, y1 = cy + halfSize;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'round';
+    // มุมบนซ้าย
+    ctx.beginPath(); ctx.moveTo(x0, y0 + lineLen); ctx.lineTo(x0, y0); ctx.lineTo(x0 + lineLen, y0); ctx.stroke();
+    // มุมบนขวา
+    ctx.beginPath(); ctx.moveTo(x1 - lineLen, y0); ctx.lineTo(x1, y0); ctx.lineTo(x1, y0 + lineLen); ctx.stroke();
+    // มุมล่างขวา
+    ctx.beginPath(); ctx.moveTo(x1, y1 - lineLen); ctx.lineTo(x1, y1); ctx.lineTo(x1 - lineLen, y1); ctx.stroke();
+    // มุมล่างซ้าย
+    ctx.beginPath(); ctx.moveTo(x0 + lineLen, y1); ctx.lineTo(x0, y1); ctx.lineTo(x0, y1 - lineLen); ctx.stroke();
+    ctx.restore();
+}
 
 
 // ── CameraListSection — แยก component เพื่อให้ search/listSearch state
@@ -161,9 +178,9 @@ const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilt
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
                         <colgroup>
-                            <col style={{ width: 36 }} /><col style={{ width: '20%' }} /><col style={{ width: '11%' }} />
-                            <col style={{ width: '15%' }} /><col style={{ width: '10%' }} /><col style={{ width: '10%' }} />
-                            <col style={{ width: '10%' }} /><col style={{ width: '10%' }} /><col style={{ width: 64 }} />
+                            <col style={{ width: 36 }} /><col style={{ width: '17%' }} /><col style={{ width: '10%' }} />
+                            <col style={{ width: '13%' }} /><col style={{ width: '9%' }} /><col style={{ width: '9%' }} />
+                            <col style={{ width: '9%' }} /><col style={{ width: '10%' }} /><col style={{ width: '9%' }} /><col style={{ width: 64 }} />
                         </colgroup>
                         <thead>
                             <tr className="border-b border-gray-100 text-xs text-gray-400 font-medium bg-gray-50">
@@ -171,6 +188,7 @@ const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilt
                                 <th className="px-3 py-2 text-left">Model</th><th className="px-3 py-2 text-left">Rack / Switch</th>
                                 <th className="px-3 py-2 text-left">Fix Asset</th><th className="px-3 py-2 text-left">Status</th>
                                 <th className="px-3 py-2 text-left">Factory</th>
+                                <th className="px-3 py-2 text-left">Server Record</th>
                                 <th className="px-3 py-2 text-left">ตำแหน่ง</th><th className="px-3 py-2" />
                                 <th className="px-3 py-2" />
                             </tr>
@@ -209,6 +227,13 @@ const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilt
                                         </td>
                                         {/* Factory — ย้ายมาก่อนตำแหน่ง */}
                                         <td className="px-3 py-2 text-gray-600 text-xs whitespace-normal leading-tight">{cam.layout_name || '—'}</td>
+                                        {/* Server Record */}
+                                        <td className="px-3 py-2 text-xs">
+                                            {cam.record_server_name
+                                                ? <span className="text-teal-700 font-medium truncate block">{cam.record_server_name}</span>
+                                                : <span className="text-gray-300">—</span>
+                                            }
+                                        </td>
                                         {/* ตำแหน่ง */}
                                         <td className="px-3 py-2">
                                             {hasLoc
@@ -230,7 +255,7 @@ const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilt
                                 );
                             })}
                             {!paginated.length && (
-                                <tr><td colSpan={9} className="text-center py-8 text-gray-400 text-sm">
+                                <tr><td colSpan={10} className="text-center py-8 text-gray-400 text-sm">
                                     {listLocFilter === 'no-location' ? '🎉 กล้องทุกตัวมีตำแหน่งแล้ว!' : 'ยังไม่มีกล้องใน Factory นี้'}
                                 </td></tr>
                             )}
@@ -352,7 +377,7 @@ function MaintenanceDetailModal({ data, onClose }) {
 
     return createPortal(
         <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', padding: 16 }}>
-            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
+            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
                 {/* Header */}
                 <div className={`flex items-center justify-between px-6 py-4 rounded-t-2xl ${isRepair ? 'bg-blue-50' : 'bg-orange-50'}`}>
                     <div className="flex items-center gap-2">
@@ -372,11 +397,11 @@ function MaintenanceDetailModal({ data, onClose }) {
                     {/* กล้อง */}
                     <div>
                         <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">กล้อง ({camList.length} ตัว)</div>
-                        <div className="bg-gray-50 rounded-xl p-3 space-y-1">
-                            {camList.map((name, i) => (
-                                <div key={i} className="text-xs font-medium text-gray-700">• {name}</div>
-                            ))}
-                        </div>
+                        <div className="bg-gray-50 rounded-xl p-3 grid grid-cols-2 gap-x-4 gap-y-1">
+    {camList.map((name, i) => (
+        <div key={i} className="text-xs font-medium text-gray-700 truncate" title={name}>• {name}</div>
+    ))}
+</div>
                     </div>
 
                     {/* ข้อมูลหลัก */}
@@ -460,8 +485,84 @@ function TooltipPortal({ tooltip, canvasRef }) {
     );
 }
 
+// ── Global Camera Search Modal ────────────────────────────────────────────
+function GlobalSearchModal({ cameras, onSelect, onClose }) {
+    const [query, setQuery] = useState('');
+    const inputRef = useRef(null);
+
+    useEffect(() => { inputRef.current?.focus(); }, []);
+
+    const q = query.trim().toLowerCase();
+    const results = (q
+        ? cameras.filter(c =>
+            (c.name || '').toLowerCase().includes(q) ||
+            (c.ip_address || '').toLowerCase().includes(q) ||
+            (c.model || '').toLowerCase().includes(q) ||
+            (c.fix_asset || '').toLowerCase().includes(q) ||
+            (c.rack_name || '').toLowerCase().includes(q) ||
+            (c.switch_name || '').toLowerCase().includes(q) ||
+            (c.layout_name || '').toLowerCase().includes(q)
+        )
+        : cameras
+    ).slice(0, 30);
+
+    return createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', padding: 16, paddingTop: '10vh' }}
+            onClick={onClose}
+            onKeyDown={e => e.key === 'Escape' && onClose()}>
+            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden" style={{ maxHeight: '70vh' }}
+                onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 flex-shrink-0">
+                    <Search size={16} className="text-gray-400 flex-shrink-0" />
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        value={query}
+                        onChange={e => setQuery(e.target.value)}
+                        placeholder="ค้นหากล้อง ชื่อ, IP, model, asset, rack, factory..."
+                        className="flex-1 outline-none text-sm bg-transparent"
+                    />
+                    <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full text-gray-400 flex-shrink-0">
+                        <X size={16} />
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                    {results.length ? results.map(cam => {
+                        const hasLoc = cam.location_x !== null && cam.location_y !== null;
+                        return (
+                            <button key={cam.id}
+                                onClick={() => onSelect(cam)}
+                                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 text-left border-b border-gray-50 last:border-0 transition-colors">
+                                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: STATUS_COLOR[cam.status] }} />
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium text-gray-800 truncate">{cam.name}</div>
+                                    <div className="text-[11px] text-gray-400 truncate">
+                                        {cam.ip_address || '—'} · {cam.layout_name || 'ไม่ระบุ Factory'}
+                                        {cam.rack_name && ` · ${cam.rack_name}`}
+                                    </div>
+                                </div>
+                                {!hasLoc && (
+                                    <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full flex-shrink-0">ไม่มีตำแหน่ง</span>
+                                )}
+                            </button>
+                        );
+                    }) : (
+                        <div className="text-center py-8 text-gray-400 text-sm">ไม่พบกล้องที่ตรงกับคำค้นหา</div>
+                    )}
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+}
+
+
 function CCTVPage() {
     const { user } = useAuth();
+    const isStaff = user?.role === 'Staff'; // ✅ ลากย้ายตำแหน่งกล้องได้เฉพาะ staff — ดูอย่างเดียวได้ทุกคน
+    const isStaffRef = useRef(isStaff);
+    useEffect(() => { isStaffRef.current = isStaff; }, [isStaff]);
     const [layouts, setLayouts] = useState([]);
     const [selectedLayout, setSelectedLayout] = useState(null);
     const [allCameras, setAllCameras] = useState([]);
@@ -495,12 +596,22 @@ function CCTVPage() {
     const [listPage, setListPage] = useState(1);
     const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
     const [layoutDropOpen, setLayoutDropOpen] = useState(false);
+const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพิ่มบรรทัดนี้
+
 
     const canvasRef = useRef(null);
     const mapRef = useRef(null);  // ← เพิ่ม
     const animFrameRef = useRef(null);
     const animTickRef = useRef(0);
     const imageRef = useRef(null);
+
+    // ── Drag-to-move ตำแหน่งกล้องบน map ──────────────────────────────────
+    const draggingRef  = useRef(null); // { id, startClientX, startClientY, startX, startY, moved }
+    const dragPosRef   = useRef(null); // { id, x, y } — ตำแหน่งล่าสุดระหว่างลาก (อ่านโดย draw loop ทุก frame)
+    const suppressClickRef = useRef(false); // กัน click event ยิงเปิด modal ซ้ำหลังลากเสร็จ
+    const [isDraggingCam, setIsDraggingCam] = useState(false); // แค่ใช้ toggle cursor/flag ฝั่ง React
+    const [savingCamId, setSavingCamId] = useState(null);
+    const DRAG_THRESHOLD = 4; // px
 
     // derived cameras + racks — filter ตาม selectedLayout ใน frontend
     // ต้อง declare ก่อน useEffect เพราะ canvas useEffect ใช้ทั้งคู่
@@ -558,6 +669,20 @@ function CCTVPage() {
         fetchSwitches();
     }, [fetchCameras, fetchRacks]);
 
+
+    const jumpToCamera = useCallback((cam) => {
+    if (cam.factory_layout_id && cam.factory_layout_id !== selectedLayout) {
+        setSelectedLayout(cam.factory_layout_id);
+    }
+    setActiveTab('map');
+    setSelectedCam(cam.id);
+    setSelectedRackId(null);
+    setTimeout(() => {
+        mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+}, [selectedLayout]);
+
+
     useEffect(() => { fetchLayouts(); fetchCameras(); fetchRacks(); fetchSwitches(); fetchMaintenanceLogs(); }, []);
     useEffect(() => { if (selectedLayout) { setImageLoaded(false); setListPage(1); } }, [selectedLayout]);
 
@@ -581,6 +706,14 @@ function CCTVPage() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
 
+            // ตำแหน่งกล้อง — ถ้ากำลังลากตัวนี้อยู่ ให้ใช้ตำแหน่งล่าสุดจาก dragPosRef แทนค่าจาก DB
+            const getCamPos = (cam) => {
+                if (dragPosRef.current && dragPosRef.current.id === cam.id) {
+                    return { x: dragPosRef.current.x, y: dragPosRef.current.y };
+                }
+                return { x: cam.location_x, y: cam.location_y };
+            };
+
             // ── เส้นสาย (Rack → Camera) ──────────────────────────────
             cameras.forEach(cam => {
                 if (cam.location_x == null || !cam.rack_id) return;
@@ -593,10 +726,11 @@ function CCTVPage() {
                 const show = showLines || isHovered || isCamSel || isRackSel;
                 if (!show) return;
 
+                const camPos = getCamPos(cam);
                 const x1 = (canvas.width * rack.location_x) / 100;
                 const y1 = (canvas.height * rack.location_y) / 100;
-                const x2 = (canvas.width * cam.location_x) / 100;
-                const y2 = (canvas.height * cam.location_y) / 100;
+                const x2 = (canvas.width * camPos.x) / 100;
+                const y2 = (canvas.height * camPos.y) / 100;
 
                 ctx.save();
                 ctx.beginPath();
@@ -649,8 +783,9 @@ function CCTVPage() {
             const fovLen = Math.min(canvas.width, canvas.height) * 0.06;
             cameras.forEach(cam => {
                 if (cam.location_x === null || !cam.fov_direction) return;
-                const px = (canvas.width * cam.location_x) / 100;
-                const py = (canvas.height * cam.location_y) / 100;
+                const camPos = getCamPos(cam);
+                const px = (canvas.width * camPos.x) / 100;
+                const py = (canvas.height * camPos.y) / 100;
                 const angle = getFovAngle(cam.fov_direction);
                 if (angle === null) return;
 
@@ -670,11 +805,13 @@ function CCTVPage() {
             // ── วาด Camera pins (Style E — beacon ring + pulse) ───────
             cameras.forEach(cam => {
                 if (cam.location_x === null) return;
-                const px = (canvas.width * cam.location_x) / 100;
-                const py = (canvas.height * cam.location_y) / 100;
+                const camPos = getCamPos(cam);
+                const px = (canvas.width * camPos.x) / 100;
+                const py = (canvas.height * camPos.y) / 100;
                 const isHover = hoveredCam === cam.id;
                 const isSel = selectedCam === cam.id;
-                const r = isHover || isSel ? 20 : 15
+                const isBeingDragged = draggingRef.current?.id === cam.id && draggingRef.current?.moved;
+                const r = isHover || isSel || isBeingDragged ? 20 : 15
                 const dim = showLines && hoveredCam && !isHover && !isSel;
                 const bgColor = isSel ? '#f59e0b' : (STATUS_COLOR[cam.status] || '#9ca3af');
 
@@ -708,6 +845,29 @@ function CCTVPage() {
                     ctx.globalAlpha = 1;
                     ctx.shadowBlur = 14;
                     ctx.shadowColor = '#f59e0b';
+                        drawCornerFrame(ctx, px, py, r + 32 + Math.sin(pulse * 2) * 3, '#f50b0b');
+
+                }
+                if (isBeingDragged) {
+                    // วงประขาวทึบ — บอกว่ากำลังลากอยู่
+                    ctx.save();
+                    ctx.setLineDash([4, 3]);
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 2;
+                    ctx.globalAlpha = 0.9;
+                    ctx.beginPath(); ctx.arc(px, py, r + 10, 0, Math.PI * 2); ctx.stroke();
+                    ctx.restore();
+                }
+                if (savingCamId === cam.id) {
+                    // arc หมุน — กำลังบันทึก
+                    ctx.save();
+                    ctx.strokeStyle = '#16a34a';
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.arc(px, py, r + 10, pulse * 3, pulse * 3 + Math.PI * 0.6);
+                    ctx.stroke();
+                    ctx.restore();
                 }
                 // icon กระพริบตาม bgAlpha ด้วย
                 ctx.globalAlpha = dim ? 0.25 : bgAlpha;
@@ -741,6 +901,111 @@ function CCTVPage() {
     }, [imageLoaded, cameras, racks, hoveredCam, selectedCam, selectedRackId, showLines]);
 
     // ── Canvas events ─────────────────────────────────────────────────────
+    // ── Drag-to-move ตำแหน่งกล้อง ─────────────────────────────────────────
+    // แปลงพิกัดหน้าจอ (client px) → เปอร์เซ็นต์ตำแหน่งบน canvas โดยคิด object-fit:contain letterbox ด้วย
+    const getRenderedCanvasRect = () => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const imgRatio = canvas.width / canvas.height;
+        const containerRatio = rect.width / rect.height;
+        let renderedWidth, renderedHeight, offsetX = 0, offsetY = 0;
+        if (imgRatio > containerRatio) {
+            renderedWidth = rect.width;
+            renderedHeight = rect.width / imgRatio;
+            offsetY = (rect.height - renderedHeight) / 2;
+        } else {
+            renderedHeight = rect.height;
+            renderedWidth = rect.height * imgRatio;
+            offsetX = (rect.width - renderedWidth) / 2;
+        }
+        return { rect, renderedWidth, renderedHeight, offsetX, offsetY };
+    };
+
+    const handleWindowMouseMoveDrag = useCallback((e) => {
+        const drag = draggingRef.current;
+        if (!drag || !canvasRef.current) return;
+        const dxPx = e.clientX - drag.startClientX;
+        const dyPx = e.clientY - drag.startClientY;
+        if (Math.abs(dxPx) > DRAG_THRESHOLD || Math.abs(dyPx) > DRAG_THRESHOLD) drag.moved = true;
+        if (!drag.moved) return;
+
+        const { renderedWidth, renderedHeight } = getRenderedCanvasRect();
+        const dxPct = (dxPx / renderedWidth) * 100;
+        const dyPct = (dyPx / renderedHeight) * 100;
+        let newX = drag.startX + dxPct;
+        let newY = drag.startY + dyPct;
+        newX = Math.min(99, Math.max(1, newX));
+        newY = Math.min(99, Math.max(1, newY));
+        dragPosRef.current = { id: drag.id, x: newX, y: newY };
+        if (!isDraggingCam) setIsDraggingCam(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handleWindowMouseUpDrag = useCallback(async () => {
+        const drag = draggingRef.current;
+        window.removeEventListener('mousemove', handleWindowMouseMoveDrag);
+        window.removeEventListener('mouseup', handleWindowMouseUpDrag);
+        draggingRef.current = null;
+        setIsDraggingCam(false);
+
+        if (!drag) return;
+
+        if (!drag.moved) {
+            // ไม่ได้ลาก แค่คลิก — ปล่อยให้ onClick ของ canvas เปิด detail modal ตามปกติ
+            dragPosRef.current = null;
+            return;
+        }
+
+        // ลากจริง — กัน click event (ที่จะยิงตามหลัง mouseup) ไม่ให้เปิด modal ซ้อน
+        suppressClickRef.current = true;
+
+        const finalPos = dragPosRef.current;
+        if (!finalPos || finalPos.id !== drag.id) { dragPosRef.current = null; return; }
+
+        setSavingCamId(drag.id);
+        try {
+            const res = await fetch(`${API_BASE}/cctv/cameras/${drag.id}/location`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    location_x: finalPos.x,
+                    location_y: finalPos.y,
+                    factory_layout_id: selectedLayout,
+                    updated_by: user?.username || user?.name || '',
+                }),
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'บันทึกตำแหน่งไม่สำเร็จ');
+
+            setAllCameras(prev => prev.map(c =>
+                c.id === drag.id ? { ...c, location_x: finalPos.x, location_y: finalPos.y } : c
+            ));
+        } catch (err) {
+            setAlertModal({ isOpen: true, type: 'error', title: 'บันทึกตำแหน่งไม่สำเร็จ', message: err.message });
+        } finally {
+            setSavingCamId(null);
+            dragPosRef.current = null;
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedLayout, user]);
+
+    const handleCamMouseDown = (e) => {
+        if (!isStaffRef.current) return; // ไม่ใช่ staff — ดูได้อย่างเดียว ลากไม่ได้ (คลิกยังเปิด detail ได้ตามปกติ)
+        const cam = getHitCamera(e);
+        if (!cam) return; // ไม่ได้จับกล้อง — ปล่อยให้ event ปกติ (คลิก rack ฯลฯ) ทำงานต่อ
+        e.preventDefault();
+        draggingRef.current = {
+            id: cam.id,
+            startClientX: e.clientX,
+            startClientY: e.clientY,
+            startX: cam.location_x,
+            startY: cam.location_y,
+            moved: false,
+        };
+        window.addEventListener('mousemove', handleWindowMouseMoveDrag);
+        window.addEventListener('mouseup', handleWindowMouseUpDrag);
+    };
+
     const getHitCamera = (e) => {
         const canvas = canvasRef.current;
         if (!canvas) return null;
@@ -777,6 +1042,7 @@ function CCTVPage() {
     };
 
     const handleMouseMove = (e) => {
+        if (draggingRef.current) return; // กำลังลากอยู่ ไม่ต้องอัปเดต hover/tooltip ให้กระพริบ
         const cam = getHitCamera(e);
         setHoveredCam(cam?.id ?? null);
 
@@ -805,6 +1071,7 @@ function CCTVPage() {
     };
 
     const handleClick = (e) => {
+        if (suppressClickRef.current) { suppressClickRef.current = false; return; } // เพิ่งลากเสร็จ ไม่ต้องเปิด modal
         const cam = getHitCamera(e);
         if (cam) {
             setSelectedCam(cam.id);
@@ -993,29 +1260,36 @@ function CCTVPage() {
             )}
 
             {/* ── Toolbar ────────────────────────────────────────────────── */}
-            <div className="flex items-center gap-3 flex-wrap">
-                {/* Tab buttons */}
-                <div className="flex gap-1">
-                    {[
-                        { id: 'map', label: '🗺️ Map' },
-                        { id: 'repair', label: '🔧 บันทึกซ่อม' },
-                        { id: 'removal', label: '📤 บันทึกถอด' },
-                    ].map(t => (
-                        <button key={t.id} onClick={() => setActiveTab(t.id)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
-                                    ${activeTab === t.id ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:border-blue-300'}`}>
-                            {t.label}
-                        </button>
-                    ))}
-                </div>
+<div className="flex items-center gap-3 flex-wrap">
+    {/* Tab buttons */}
+    <div className="flex gap-1">
+        {[
+            { id: 'map', label: '🗺️ Map' },
+            { id: 'repair', label: '🔧 บันทึกซ่อม' },
+            { id: 'removal', label: '📤 บันทึกถอด' },
+        ].map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
+                        ${activeTab === t.id ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:border-blue-300'}`}>
+                {t.label}
+            </button>
+        ))}
+    </div>
 
-                {activeTab === 'map' && (
-                    <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none ml-auto">
-                        <input type="checkbox" checked={showLines} onChange={e => setShowLines(e.target.checked)} className="rounded" />
-                        แสดงเส้นสายทั้งหมด
-                    </label>
-                )}
-            </div>
+    {/* ปุ่มค้นหา — ย้ายออกมาเป็น sibling */}
+    <button onClick={() => setGlobalSearchOpen(true)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-500 hover:border-blue-300 hover:text-blue-600 transition-colors"
+        title="ค้นหากล้อง">
+        <Search size={13} /> ค้นหากล้อง
+    </button>
+
+    {activeTab === 'map' && (
+        <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none ml-auto">
+            <input type="checkbox" checked={showLines} onChange={e => setShowLines(e.target.checked)} className="rounded" />
+            แสดงเส้นสายทั้งหมด
+        </label>
+    )}
+</div>
 
             {/* ── MAP TAB — map + list below ────────────────────────────── */}
             {activeTab === 'map' && (
@@ -1035,9 +1309,10 @@ function CCTVPage() {
                                     {imageLoaded
                                         ? <canvas ref={canvasRef}
                                             onClick={handleClick}
+                                            onMouseDown={handleCamMouseDown}
                                             onMouseMove={handleMouseMove}
                                             onMouseLeave={() => { setHoveredCam(null); setTooltip(null); }}
-                                            style={{ width: '100%', height: 'auto', cursor: 'crosshair', display: 'block' }}
+                                            style={{ width: '100%', height: 'auto', cursor: isDraggingCam ? 'grabbing' : hoveredCam ? (isStaff ? 'grab' : 'pointer') : 'crosshair', display: 'block' }}
                                         />
                                         : <div className="text-gray-400 text-sm">Loading map...</div>
                                     }
@@ -1054,7 +1329,11 @@ function CCTVPage() {
                             <span className="flex items-center gap-1.5">
                                 <svg width="14" height="10" viewBox="0 0 16 12"><path d="M8,6 L2,1 A7,7 0 0,1 14,1 Z" fill="rgba(59,130,246,0.3)" stroke="rgba(59,130,246,0.7)" strokeWidth="1" /></svg>FOV
                             </span>
-                            <span className="ml-auto text-gray-400">คลิกกล้อง/Rack = รายละเอียด · คลิก Rack ซ้ำ = highlight เส้นสาย</span>
+                            <span className="ml-auto text-gray-400">
+                                {isStaff
+                                    ? 'ลากกล้องเพื่อย้ายตำแหน่ง (บันทึกอัตโนมัติ) · คลิกกล้อง/Rack = รายละเอียด · คลิก Rack ซ้ำ = highlight เส้นสาย'
+                                    : 'คลิกกล้อง/Rack = รายละเอียด · คลิก Rack ซ้ำ = highlight เส้นสาย'}
+                            </span>
                         </div>
                     </div>
 
@@ -1073,16 +1352,7 @@ function CCTVPage() {
                         setCamModal={setCamModal}
                         fullUrl={fullUrl}
                         selectedLayout={selectedLayout}
-                        onJumpToCamera={(cam) => {
-                            // เปลี่ยน layout ถ้ากล้องอยู่คนละ layout
-                            if (cam.factory_layout_id && cam.factory_layout_id !== selectedLayout) {
-                                setSelectedLayout(cam.factory_layout_id);
-                            }
-                            setSelectedCam(cam.id);
-                            setSelectedRackId(null);
-                            // scroll ไปที่ map ก่อน แล้วค่อยเปิด modal
-                            mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }}
+                        onJumpToCamera={jumpToCamera}
                     />
 
                     {/* ── Rack & Switch section (รวมในหน้าเดียว) ─────── */}
@@ -1447,13 +1717,13 @@ function CCTVPage() {
                 </Portal>
             )}
             {/* ── Camera Detail Modal ──────────────────────────────────── */}
-            {detailModal && (
-                <Portal>
-                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-                        onClick={() => { setDetailModal(null); setSelectedCam(null); }}>
-                        <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col overflow-hidden"
-                            style={{ maxHeight: '90vh' }}
-                            onClick={e => e.stopPropagation()}>
+           {detailModal && (
+    <Portal>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+            onClick={() => { setDetailModal(null); setSelectedCam(null); }}>
+            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden"
+                style={{ maxHeight: '90vh' }}
+                onClick={e => e.stopPropagation()}>
 
                             {/* Header */}
                             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0"
@@ -1668,7 +1938,14 @@ function CCTVPage() {
                 />
             )}
             {tooltip?.cam?.snapshot_url && <TooltipPortal tooltip={tooltip} canvasRef={canvasRef} />}
+            {globalSearchOpen && (
+    <GlobalSearchModal
+        cameras={allCameras}
+        onClose={() => setGlobalSearchOpen(false)}
+        onSelect={(cam) => { setGlobalSearchOpen(false); jumpToCamera(cam); }}
+    />)}
         </div>
+
     );
 }
 export default CCTVPage;

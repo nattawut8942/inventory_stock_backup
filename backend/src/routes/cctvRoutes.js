@@ -7,6 +7,7 @@ import {
     pingCameraById, pingAllCameras, reorderLayouts,
     getMaintenanceLogs, createMaintenanceLog, updateMaintenanceLog,
     deleteMaintenanceLog, exportMaintenanceLogs,
+    getRecordServers, createRecordServer, updateRecordServer, deleteRecordServer,
 } from '../controllers/cctvController.js';
 
 const router = express.Router();
@@ -47,5 +48,28 @@ router.get   ('/cctv/maintenance-logs/export',  exportMaintenanceLogs);
 router.post  ('/cctv/maintenance-logs',         createMaintenanceLog);
 router.put   ('/cctv/maintenance-logs/:id',     updateMaintenanceLog);
 router.delete('/cctv/maintenance-logs/:id',     deleteMaintenanceLog);
+
+// ─── Record Servers ────────────────────────────────────────────────────────
+router.get   ('/cctv/record-servers',      getRecordServers);
+router.post  ('/cctv/record-servers',      createRecordServer);
+router.put   ('/cctv/record-servers/:id',  updateRecordServer);
+router.delete('/cctv/record-servers/:id',  deleteRecordServer);
+
+router.post('/cctv/capture/trigger', async (req, res) => {
+    // ป้องกันคนอื่นสุ่มยิง endpoint นี้เล่น
+    const { secret } = req.body;
+    if (secret !== '613861') {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // ตอบกลับทันทีไม่ต้องรอ (เพราะ capture ใช้เวลานาน)
+    res.json({ success: true, message: 'Capture started in background' });
+
+    // รันแบบ background ไม่ block response
+    const { runCctvCaptureJob } = await import('../cctv/cctvCaptureJob.js');
+    runCctvCaptureJob()
+        .then(r => console.log('[Manual Trigger] Done:', r))
+        .catch(e => console.error('[Manual Trigger] Error:', e.message));
+});
 
 export default router;
