@@ -9,6 +9,57 @@ import { formatThaiDateShort } from '../utils/formatDate';
 import { API_BASE, API_URL } from '../config/api';
 
 // ─── Helper: check if date falls in range ────────────────────────────────────
+const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+// key รูปแบบ "YYYY-MM" ใช้แยกเดือนเดียวกันของคนละปีออกจากกัน
+const monthKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+const monthLabelOf = (key) => MONTHS_TH[Number(key.slice(5)) - 1];
+
+// 6 เดือนล่าสุด (เก่า → ใหม่)
+const recentMonthKeys = (count = 6) => {
+    const now = new Date();
+    return Array.from({ length: count }, (_, i) =>
+        monthKeyOf(new Date(now.getFullYear(), now.getMonth() - (count - 1 - i), 1))
+    );
+};
+
+// กฎการนับความเคลื่อนไหว: ไม่รวม Invoice ที่ยกเลิกและรายการปรับยอดนับสต็อก
+const isCountedMovement = (t) => {
+    const ref = t.RefInfo || '';
+    return !ref.includes('ยกเลิก Invoice') && !ref.includes('Stock Count Adjust');
+};
+
+// วันที่แบบ YYYY-MM-DD ตาม timezone เครื่อง
+const toDateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// แปลง preset ของตัวกรองเป็นช่วงวันที่ (ตรงกับ isInDateRange)
+const presetRange = (preset, customStart, customEnd) => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    switch (preset) {
+        case 'thisMonth':
+            return { start: toDateKey(new Date(y, m, 1)), end: toDateKey(new Date(y, m + 1, 0)) };
+        case 'last3months': {
+            const start = new Date(now);
+            start.setMonth(start.getMonth() - 3);
+            return { start: toDateKey(start), end: toDateKey(now) };
+        }
+        case 'thisQuarter': {
+            const q = Math.floor(m / 3) * 3;
+            return { start: toDateKey(new Date(y, q, 1)), end: toDateKey(new Date(y, q + 3, 0)) };
+        }
+        case 'thisYear': {
+            const startYear = m < 3 ? y - 1 : y;
+            return { start: `${startYear}-04-01`, end: `${startYear + 1}-03-31` };
+        }
+        case 'custom':
+            return { start: customStart || '', end: customEnd || '' };
+        default:
+            return { start: '', end: '' };
+    }
+};
+
 const isInDateRange = (dateStr, preset, customStart, customEnd) => {
     if (!dateStr) return true;
     const d = new Date(dateStr);
@@ -71,6 +122,10 @@ const StatCard = ({ icon: Icon, title, value, subtitle, color }) => (
 
 const ReportPage = () => {
     const { products, deviceTypes, purchaseOrders, transactions } = useData();
+    const typeLabel = useMemo(
+        () => Object.fromEntries((deviceTypes || []).map(t => [t.TypeId, t.Label])),
+        [deviceTypes]
+    );
     const [selectedTypes, setSelectedTypes] = useState(['products']);
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
@@ -99,7 +154,7 @@ const ReportPage = () => {
         { id: 'thisMonth', label: 'เดือนนี้' },
         { id: 'last3months', label: '3 เดือน' },
         { id: 'thisQuarter', label: 'ไตรมาสนี้' },
-        { id: 'thisYear', label: 'ปีนี้' },
+        { id: 'thisYear', label: 'ปีงบประมาณ' },
         { id: 'custom', label: 'กำหนดเอง' },
     ];
 
@@ -174,7 +229,7 @@ const ReportPage = () => {
     const totalValue = products.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
     const lowStockCount = products.filter(p => p.CurrentStock <= p.MinStock && p.MinStock > 0).length;
     const pendingPOCount = (purchaseOrders || []).filter(po => po.Status !== 'Completed').length;
-    const transactionCount = (transactions || []).length;
+    const transactionCount = (transactions || []).filter(isCountedMovement).length;
 
     // MA Stats
     const activeMACount = maItems.filter(i => i.Status === 'Active').length;
@@ -229,32 +284,18 @@ const ReportPage = () => {
 
     // Calculate real stock movement from transactions (quantity-based)
     const stockMovementData = useMemo(() => {
-        const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
         const dataMap = {};
+        recentMonthKeys().forEach(key => {
+            dataMap[key] = { month: monthLabelOf(key), inbound: 0, outbound: 0 };
+        });
 
-        // Initialize last 6 months
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const key = months[d.getMonth()];
-            dataMap[key] = { month: key, inbound: 0, outbound: 0 };
-        }
-
-        // Sum transactions by month
         filteredTransactions.forEach(t => {
-            const date = new Date(t.TransDate);
-            const monthKey = months[date.getMonth()];
-            if (dataMap[monthKey]) {
-                const type = (t.TransType || '').toUpperCase().trim();
-                const qty = Math.abs(t.Qty);
-                const ref = t.RefInfo || '';
-                if (type === 'IN' && !ref.includes('ยกเลิก Invoice') && !ref.includes('Stock Count Adjust')) {
-                    dataMap[monthKey].inbound += qty;
-                }
-                if (type === 'OUT' && !ref.includes('ยกเลิก Invoice') && !ref.includes('Stock Count Adjust')) {
-                    dataMap[monthKey].outbound += qty;
-                }
-            }
+            const bucket = dataMap[monthKeyOf(new Date(t.TransDate))];
+            if (!bucket || !isCountedMovement(t)) return;
+            const type = (t.TransType || '').toUpperCase().trim();
+            const qty = Math.abs(t.Qty);
+            if (type === 'IN') bucket.inbound += qty;
+            if (type === 'OUT') bucket.outbound += qty;
         });
 
         return Object.values(dataMap);
@@ -262,16 +303,10 @@ const ReportPage = () => {
 
     // NEW: Cost & Usage Analysis (Money-based)
     const costAnalysisData = useMemo(() => {
-        const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
         const dataMap = {};
-
-        // Initialize last 6 months
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const key = months[d.getMonth()];
-            dataMap[key] = { month: key, spending: 0, consumption: 0 };
-        }
+        recentMonthKeys().forEach(key => {
+            dataMap[key] = { month: monthLabelOf(key), spending: 0, consumption: 0 };
+        });
 
         // Create product price lookup
         const priceMap = {};
@@ -281,24 +316,20 @@ const ReportPage = () => {
 
         // Sum transactions by month (value-based)
         filteredTransactions.forEach(t => {
-            const date = new Date(t.TransDate);
-            const monthKey = months[date.getMonth()];
-            if (dataMap[monthKey]) {
-                const type = (t.TransType || '').toUpperCase().trim();
-                const qty = Math.abs(t.Qty);
-                const price = priceMap[t.ProductID] || 0;
-                const value = qty * price;
-
-                if (type === 'IN' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].spending += value;
-                if (type === 'OUT' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].consumption += value;
-            }
+            const bucket = dataMap[monthKeyOf(new Date(t.TransDate))];
+            if (!bucket || !isCountedMovement(t)) return;
+            const type = (t.TransType || '').toUpperCase().trim();
+            const value = Math.abs(t.Qty) * (priceMap[t.ProductID] || 0);
+            if (type === 'IN') bucket.spending += value;
+            if (type === 'OUT') bucket.consumption += value;
         });
 
         return Object.values(dataMap);
     }, [filteredTransactions, products]);
 
     // NEW: Slow Moving Items (No OUT transactions in last 3 months)
-    const slowMovingItems = useMemo(() => {
+    // deadStockAll = ทุกรายการที่ค้าง (ใช้คำนวณมูลค่า), slowMovingItems = 10 อันดับแรก (ใช้แสดงผล)
+    const deadStockAll = useMemo(() => {
         const threeMonthsAgo = new Date();
         threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
@@ -306,21 +337,16 @@ const ReportPage = () => {
         (transactions || []).forEach(t => {
             const date = new Date(t.TransDate);
             const type = (t.TransType || '').toUpperCase().trim();
-            const refInfo = t.RefInfo || '';
-            if (type === 'OUT' &&
-                date >= threeMonthsAgo &&
-                !refInfo.includes('ยกเลิก Invoice') &&
-                !refInfo.includes('Stock Count Adjust')
-            ) {
+            if (type === 'OUT' && date >= threeMonthsAgo && isCountedMovement(t)) {
                 activeProductIds.add(t.ProductID);
             }
         });
 
         return filteredProducts
             .filter(p => !activeProductIds.has(p.ProductID) && p.CurrentStock > 0)
-            .sort((a, b) => (b.CurrentStock * (b.LastPrice || 0)) - (a.CurrentStock * (a.LastPrice || 0)))
-            .slice(0, 10);
+            .sort((a, b) => (b.CurrentStock * (b.LastPrice || 0)) - (a.CurrentStock * (a.LastPrice || 0)));
     }, [transactions, filteredProducts]);
+    const slowMovingItems = useMemo(() => deadStockAll.slice(0, 10), [deadStockAll]);
     const outOfStockItems = useMemo(() => {
         return products
             .filter(p => p.CurrentStock === 0 && p.IsActive !== 0)
@@ -391,6 +417,7 @@ const ReportPage = () => {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const m = d.getMonth();   // ← เพิ่ม
             const y = d.getFullYear(); // ← เพิ่ม
+            const key = monthKeyOf(d);
             let inQty = 0, outQty = 0, inValue = 0, outValue = 0;
 
             (transactions || []).forEach(t => {
@@ -406,13 +433,13 @@ const ReportPage = () => {
                 if (type === 'OUT') { outQty += qty; outValue += val; }
             });
 
-            result.push({ month: months[m], inQty, outQty, inValue, outValue });
+            result.push({ key, month: months[m], inQty, outQty, inValue, outValue });
         }
         return result;
     }, [transactions, products]);
 
     // Calculate total dead stock value
-    const deadStockValue = slowMovingItems.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
+    const deadStockValue = deadStockAll.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
 
     // NEW: Top Consumers (Users who withdraw the most)
     const topConsumers = useMemo(() => {
@@ -495,18 +522,18 @@ const ReportPage = () => {
         const catMap = {};
         filteredTransactions.forEach(t => {
             const type = (t.TransType || '').toUpperCase().trim();
-            if (type === 'OUT' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) {
+            if (type === 'OUT' && isCountedMovement(t)) {
                 const product = products.find(p => p.ProductID === t.ProductID);
                 const category = product?.DeviceType || 'ไม่ระบุ';
                 if (!catMap[category]) {
-                    catMap[category] = { name: category, value: 0, transactionCount: 0 };
+                    catMap[category] = { name: category, label: typeLabel[category] ?? category, value: 0, transactionCount: 0 };
                 }
                 catMap[category].value += Math.abs(t.Qty);
                 catMap[category].transactionCount += 1;
             }
         });
         return Object.values(catMap).sort((a, b) => b.value - a.value);
-    }, [filteredTransactions, products]);
+    }, [filteredTransactions, products, typeLabel]);
 
     // NEW: Stock Value by Category (Bubble-style)
     const stockValueByCategory = useMemo(() => {
@@ -519,28 +546,23 @@ const ReportPage = () => {
             catMap[cat].items += 1;
         });
         return Object.values(catMap)
-            .map(c => ({ ...c, color: getChartColor(c.name) }))
+            .map(c => ({ ...c, label: typeLabel[c.name] ?? c.name, color: getChartColor(c.name) }))
             .sort((a, b) => b.value - a.value);
-    }, [filteredProducts]);
+    }, [filteredProducts, typeLabel]);
 
     // NEW: Net Movement Trend (IN minus OUT per month)
     const netMovementTrend = useMemo(() => {
-        const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
         const dataMap = {};
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date(); d.setMonth(d.getMonth() - i);
-            const key = months[d.getMonth()];
-            dataMap[key] = { month: key, inbound: 0, outbound: 0, net: 0 };
-        }
+        recentMonthKeys().forEach(key => {
+            dataMap[key] = { month: monthLabelOf(key), inbound: 0, outbound: 0, net: 0 };
+        });
         filteredTransactions.forEach(t => {
-            const date = new Date(t.TransDate);
-            const monthKey = months[date.getMonth()];
-            if (dataMap[monthKey]) {
-                const type = (t.TransType || '').toUpperCase().trim();
-                const qty = Math.abs(t.Qty);
-                if (type === 'IN' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].inbound += qty;
-                if (type === 'OUT' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].outbound += qty;
-            }
+            const bucket = dataMap[monthKeyOf(new Date(t.TransDate))];
+            if (!bucket || !isCountedMovement(t)) return;
+            const type = (t.TransType || '').toUpperCase().trim();
+            const qty = Math.abs(t.Qty);
+            if (type === 'IN') bucket.inbound += qty;
+            if (type === 'OUT') bucket.outbound += qty;
         });
         Object.values(dataMap).forEach(m => { m.net = m.inbound - m.outbound; });
         return Object.values(dataMap);
@@ -577,14 +599,25 @@ const ReportPage = () => {
             setAlertModal({ isOpen: true, type: 'warning', title: 'กรุณาเลือกข้อมูล', message: 'กรุณาเลือกอย่างน้อย 1 ประเภทข้อมูลเพื่อ Export' });
             return;
         }
+        if (startDate && endDate && startDate > endDate) {
+            setAlertModal({ isOpen: true, type: 'warning', title: 'ช่วงวันที่ไม่ถูกต้อง', message: 'วันที่เริ่มต้องไม่มากกว่าวันที่สิ้นสุด' });
+            return;
+        }
 
         setIsExporting(true);
 
         try {
+            // ช่วงวันที่ในแผง Export มีความสำคัญกว่า preset ด้านบน ถ้าไม่กรอกจึงใช้ preset
+            const preset = presetRange(filterDateRange, filterCustomStart, filterCustomEnd);
+            const effectiveStart = startDate || preset.start;
+            const effectiveEnd = endDate || preset.end;
+
             const params = new URLSearchParams();
             params.append('types', selectedTypes.join(','));
-            if (startDate) params.append('startDate', startDate);
-            if (endDate) params.append('endDate', endDate);
+            if (effectiveStart) params.append('startDate', effectiveStart);
+            if (effectiveEnd) params.append('endDate', effectiveEnd);
+            if (filterCategories.length > 0) params.append('categories', filterCategories.join(','));
+            if (filterTransType !== 'all') params.append('transType', filterTransType);
 
             const response = await fetch(`${API_BASE}/report/export?${params.toString()}`);
 
@@ -593,7 +626,9 @@ const ReportPage = () => {
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `report_${new Date().toISOString().split('T')[0]}.xlsx`;
+                const now = new Date(); // ใช้วันที่ตาม timezone เครื่อง ไม่ใช้ toISOString (UTC)
+                const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                a.download = `report_${today}.xlsx`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -857,17 +892,13 @@ const ReportPage = () => {
                         </thead>
                         <tbody>
                             {momData.map((row, i) => {
-                                const isExpanded = expandedMonth === row.month;
+                                const isExpanded = expandedMonth === row.key;
                                 const isCurrentMonth = i === momData.length - 1;
 
-                                // หา transactions ของเดือนนี้
-                                const monthTransactions = (transactions || []).filter(t => {
-                                    const td = new Date(t.TransDate);
-                                    const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-                                    return months[td.getMonth()] === row.month &&
-                                        !(t.RefInfo || '').includes('ยกเลิก Invoice') &&
-                                        !(t.RefInfo || '').includes('Stock Count Adjust');
-                                });
+                                // หา transactions ของเดือนนี้ (ตรวจทั้งปีและเดือน)
+                                const monthTransactions = (transactions || []).filter(t =>
+                                    monthKeyOf(new Date(t.TransDate)) === row.key && isCountedMovement(t)
+                                );
 
                                 const inItems = monthTransactions
                                     .filter(t => (t.TransType || '').toUpperCase().trim() === 'IN')
@@ -883,7 +914,7 @@ const ReportPage = () => {
                                     <React.Fragment key={i}>
                                         <tr
                                             className={`cursor-pointer transition-colors ${isCurrentMonth ? 'font-bold bg-slate-50' : ''} ${isExpanded ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
-                                            onClick={() => setExpandedMonth(isExpanded ? null : row.month)}
+                                            onClick={() => setExpandedMonth(isExpanded ? null : row.key)}
                                         >
                                             <td className="py-1.5 text-slate-700">
                                                 <div className="flex items-center gap-1.5">
@@ -1165,7 +1196,7 @@ const ReportPage = () => {
                             </tbody>
                             <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                                 <tr>
-                                    <td colSpan={9} className="py-2 px-3 text-right font-bold text-slate-600 text-xs">
+                                    <td colSpan={10} className="py-2 px-3 text-right font-bold text-slate-600 text-xs">
                                         รวมทั้งหมด {forecastItems.length} รายการ
                                     </td>
                                     <td className="py-2 px-3 text-right font-black text-rose-600 text-sm">
@@ -1290,7 +1321,7 @@ const ReportPage = () => {
                                         <div className="flex items-center justify-between mb-1.5">
                                             <span className="text-sm font-bold text-slate-700 flex items-center gap-2">
                                                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
-                                                {cat.name}
+                                                {cat.label}
                                             </span>
                                             <span className="text-sm font-bold text-slate-800 font-mono">฿{cat.value.toLocaleString()}</span>
                                         </div>
@@ -1682,7 +1713,7 @@ const ReportPage = () => {
                                         <XAxis type="number" stroke="#64748b" />
                                         <YAxis
                                             type="category"
-                                            dataKey="name"
+                                            dataKey="label"
                                             width={100}
                                             stroke="#475569"
                                             tick={{ fontSize: 12 }}
@@ -1695,7 +1726,7 @@ const ReportPage = () => {
                                                 borderRadius: '8px',
                                                 boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
                                             }}
-                                            formatter={(value, name, props) => [`${value} ชิ้น — คลิกเพื่อ Filter`, props.payload.name]}
+                                            formatter={(value, name, props) => [`${value} ชิ้น — คลิกเพื่อ Filter`, props.payload.label]}
                                         />
                                         <Bar
                                             dataKey="value"
@@ -1879,6 +1910,18 @@ const ReportPage = () => {
                                         })}
                                     </div>
                                 </div>
+
+                                {/* Export ใช้ตัวกรองด้านบนร่วมด้วย (ช่วงวันที่ ถ้าไม่กรอกช่วงด้านล่าง, ประเภทอุปกรณ์, IN/OUT ใช้กับชีต Transaction) */}
+                                <p className="text-[11px] text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+                                    🎯 ใช้ตัวกรองด้านบนร่วมด้วย:{' '}
+                                    {activeFilterCount === 0
+                                        ? 'ไม่มีตัวกรอง (Export ข้อมูลทั้งหมด)'
+                                        : [
+                                            filterDateRange !== 'all' && `ช่วงวันที่ ${datePresets.find(p => p.id === filterDateRange)?.label}`,
+                                            filterCategories.length > 0 && `ประเภท ${filterCategories.length} รายการ`,
+                                            filterTransType !== 'all' && `${filterTransType === 'IN' ? 'รับเข้า' : 'เบิกออก'} (ชีต Transaction)`
+                                        ].filter(Boolean).join(' • ')}
+                                </p>
 
                                 {/* Date Range + Export — Single Row */}
                                 <div className="flex flex-wrap items-end gap-3">

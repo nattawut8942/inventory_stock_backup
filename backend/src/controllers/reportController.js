@@ -2,9 +2,26 @@ import { sql, getPool } from '../config/db.js';
 import * as XLSX from 'xlsx';
 import { sendDailyReport } from '../services/emailService.js';
 
+// เพิ่มเงื่อนไขประเภทอุปกรณ์เป็น subquery โดยส่งค่าเป็น parameter (ไม่ต่อ string ตรง ๆ)
+const categorySubquery = (request, categories) => {
+    if (categories.length === 0) return '';
+    const names = categories.map((c, i) => {
+        request.input(`cat${i}`, sql.NVarChar(100), c);
+        return `@cat${i}`;
+    });
+    return ` AND t.ProductID IN (SELECT p.ProductID FROM dbo.Stock_Products p WHERE p.DeviceType IN (${names.join(',')}))`;
+};
+
 // EXPORT REPORT
 export const exportReport = async (req, res) => {
-    const { types, startDate, endDate } = req.query;
+    const { types, startDate, endDate, categories: categoryParam, transType } = req.query;
+    // ตัวกรองจากหน้า Report: ประเภทอุปกรณ์ (TypeId คั่นด้วย ,) และ IN/OUT
+    const categories = categoryParam ? String(categoryParam).split(',').filter(Boolean) : [];
+    const keepCategory = (row) => categories.length === 0 || categories.includes(row.DeviceType);
+    const keepTransType = (row) => !transType || transType === 'all' || row.TransType === transType;
+    // วันที่สิ้นสุดรวมทั้งวัน (23:59:59.999) เพื่อให้รายการของวันนั้นถูกนับด้วย
+    const rangeStart = startDate ? new Date(`${startDate}T00:00:00`) : null;
+    const rangeEnd = endDate ? new Date(`${endDate}T23:59:59.999`) : null;
     console.log('📊 Export Report called with types:', types);
 
     try {
@@ -31,7 +48,7 @@ export const exportReport = async (req, res) => {
                         WHERE p.IsActive = 1
                         ORDER BY p.DeviceType, p.ProductName
                     `);
-                        data = prodResult.recordset.map(row => ({
+                        data = prodResult.recordset.filter(keepCategory).map(row => ({
                             'รหัสสินค้า': row.ProductID,
                             'ชื่อสินค้า': row.ProductName,
                             'ประเภท': row.DeviceType,
@@ -69,7 +86,7 @@ export const exportReport = async (req, res) => {
     WHERE p.IsActive = 1 AND p.CurrentStock <= p.MinStock
     ORDER BY p.business_priority ASC, p.CurrentStock ASC
 `);
-                        data = lowStockResult.recordset.map(row => {
+                        data = lowStockResult.recordset.filter(keepCategory).map(row => {
                             const orderQty = (row.MaxStock || row.MinStock) - row.CurrentStock;
                             const estimatedCost = orderQty * (row.LastPrice || 0);
                             return {
@@ -92,8 +109,8 @@ export const exportReport = async (req, res) => {
                     case 'transactions': {
                         sheetName = '📊 ประวัติรับ-เบิก';
                         const transRequest = pool.request();
-                        if (startDate) transRequest.input('startDate', sql.DateTime, new Date(startDate));
-                        if (endDate) transRequest.input('endDate', sql.DateTime, new Date(endDate));
+                        if (startDate) transRequest.input('startDate', sql.DateTime, rangeStart);
+                        if (endDate) transRequest.input('endDate', sql.DateTime, rangeEnd);
 
                         let transQuery = `
                         SELECT t.TransID, t.TransDate, t.TransType, t.Qty, t.RefInfo, t.UserID,
@@ -104,10 +121,12 @@ export const exportReport = async (req, res) => {
                     `;
                         if (startDate) transQuery += ' AND t.TransDate >= @startDate';
                         if (endDate) transQuery += ' AND t.TransDate <= @endDate';
+                        // ไม่รวม Invoice ที่ยกเลิกและการปรับยอดนับสต็อก (ตรงกับหน้า Report)
+                        transQuery += " AND ISNULL(t.RefInfo, '') NOT LIKE '%ยกเลิก Invoice%' AND ISNULL(t.RefInfo, '') NOT LIKE '%Stock Count Adjust%'";
                         transQuery += ' ORDER BY t.TransDate DESC';
 
                         const transResult = await transRequest.query(transQuery);
-                        data = transResult.recordset.map(row => ({
+                        data = transResult.recordset.filter(row => keepCategory(row) && keepTransType(row)).map(row => ({
                             'เลขที่': row.TransID,
                             'วันที่': row.TransDate ? new Date(row.TransDate).toLocaleDateString('th-TH') : '-',
                             'เวลา': row.TransDate ? new Date(row.TransDate).toLocaleTimeString('th-TH') : '-',
@@ -125,8 +144,8 @@ export const exportReport = async (req, res) => {
                     case 'invoices': {
                         sheetName = '🧾 ข้อมูล Invoice';
                         const invRequest = pool.request();
-                        if (startDate) invRequest.input('startDate', sql.DateTime, new Date(startDate));
-                        if (endDate) invRequest.input('endDate', sql.DateTime, new Date(endDate));
+                        if (startDate) invRequest.input('startDate', sql.DateTime, rangeStart);
+                        if (endDate) invRequest.input('endDate', sql.DateTime, rangeEnd);
 
                         let invQuery = `
                         SELECT i.InvoiceID, i.InvoiceNo, i.PO_ID, i.ReceiveDate, i.ReceivedBy,
@@ -154,8 +173,8 @@ export const exportReport = async (req, res) => {
                     case 'pos': {
                         sheetName = '📋 ใบสั่งซื้อ (PO)';
                         const poRequest = pool.request();
-                        if (startDate) poRequest.input('startDate', sql.DateTime, new Date(startDate));
-                        if (endDate) poRequest.input('endDate', sql.DateTime, new Date(endDate));
+                        if (startDate) poRequest.input('startDate', sql.DateTime, rangeStart);
+                        if (endDate) poRequest.input('endDate', sql.DateTime, rangeEnd);
 
                         let poQuery = `
                         SELECT po.PO_ID, po.PR_No, po.VendorName, po.RequestDate, po.DueDate,
@@ -205,7 +224,7 @@ export const exportReport = async (req, res) => {
                         ))
                         ORDER BY p.CurrentStock * ISNULL(p.LastPrice, 0) DESC
                     `);
-                        data = slowResult.recordset.map(row => ({
+                        data = slowResult.recordset.filter(keepCategory).map(row => ({
                             'รหัสสินค้า': row.ProductID,
                             'ชื่อสินค้า': row.ProductName,
                             'ประเภท': row.DeviceType || '-',
@@ -219,8 +238,8 @@ export const exportReport = async (req, res) => {
                     case 'topwithdrawn': {
                         sheetName = '🔥 สินค้าเบิกมากสุด';
                         const topRequest = pool.request();
-                        if (startDate) topRequest.input('startDate', sql.DateTime, new Date(startDate));
-                        if (endDate) topRequest.input('endDate', sql.DateTime, new Date(endDate));
+                        if (startDate) topRequest.input('startDate', sql.DateTime, rangeStart);
+                        if (endDate) topRequest.input('endDate', sql.DateTime, rangeEnd);
 
                         let topQuery = `
                         SELECT p.ProductID, p.ProductName, p.DeviceType,
@@ -236,7 +255,7 @@ export const exportReport = async (req, res) => {
                         topQuery += ' GROUP BY p.ProductID, p.ProductName, p.DeviceType ORDER BY TotalQty DESC';
 
                         const topResult = await topRequest.query(topQuery);
-                        data = topResult.recordset.map((row, idx) => ({
+                        data = topResult.recordset.filter(keepCategory).map((row, idx) => ({
                             'อันดับ': idx + 1,
                             'รหัสสินค้า': row.ProductID,
                             'ชื่อสินค้า': row.ProductName,
@@ -250,8 +269,8 @@ export const exportReport = async (req, res) => {
                     case 'topconsumers': {
                         sheetName = '👤 ผู้เบิกมากสุด';
                         const consRequest = pool.request();
-                        if (startDate) consRequest.input('startDate', sql.DateTime, new Date(startDate));
-                        if (endDate) consRequest.input('endDate', sql.DateTime, new Date(endDate));
+                        if (startDate) consRequest.input('startDate', sql.DateTime, rangeStart);
+                        if (endDate) consRequest.input('endDate', sql.DateTime, rangeEnd);
 
                         let consQuery = `
                         SELECT t.UserID,
@@ -263,6 +282,7 @@ export const exportReport = async (req, res) => {
                     `;
                         if (startDate) consQuery += ' AND t.TransDate >= @startDate';
                         if (endDate) consQuery += ' AND t.TransDate <= @endDate';
+                        consQuery += categorySubquery(consRequest, categories);
                         consQuery += ' GROUP BY t.UserID ORDER BY TotalQty DESC';
 
                         const consResult = await consRequest.query(consQuery);
@@ -278,8 +298,8 @@ export const exportReport = async (req, res) => {
                     case 'bycategory': {
                         sheetName = '📂 เบิกตามประเภท';
                         const catRequest = pool.request();
-                        if (startDate) catRequest.input('startDate', sql.DateTime, new Date(startDate));
-                        if (endDate) catRequest.input('endDate', sql.DateTime, new Date(endDate));
+                        if (startDate) catRequest.input('startDate', sql.DateTime, rangeStart);
+                        if (endDate) catRequest.input('endDate', sql.DateTime, rangeEnd);
 
                         let catQuery = `
                         SELECT p.DeviceType,
@@ -296,7 +316,7 @@ export const exportReport = async (req, res) => {
                         catQuery += ' GROUP BY p.DeviceType ORDER BY TotalQty DESC';
 
                         const catResult = await catRequest.query(catQuery);
-                        data = catResult.recordset.map((row, idx) => ({
+                        data = catResult.recordset.filter(keepCategory).map((row, idx) => ({
                             'อันดับ': idx + 1,
                             'ประเภท': row.DeviceType || 'ไม่ระบุ',
                             'จำนวนเบิก (รวม)': row.TotalQty,
@@ -309,8 +329,8 @@ export const exportReport = async (req, res) => {
                     case 'ma': {
                         sheetName = '🛡️ สัญญา MA';
                         const maRequest = pool.request();
-                        if (startDate) maRequest.input('startDate', sql.DateTime, new Date(startDate));
-                        if (endDate) maRequest.input('endDate', sql.DateTime, new Date(endDate));
+                        if (startDate) maRequest.input('startDate', sql.DateTime, rangeStart);
+                        if (endDate) maRequest.input('endDate', sql.DateTime, rangeEnd);
 
                         let maQuery = `
                         SELECT m.Category, m.ItemName, m.SubType, m.Brand, m.SerialNumber, 
