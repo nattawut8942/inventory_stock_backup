@@ -594,13 +594,13 @@ const MALicensePage = () => {
     const handleDelete = (item) => {
         setAlertModal({
             isOpen: true, type: 'danger', title: 'ลบรายการ?',
-            message: `ต้องการลบ "${item.ItemName}" ใช่หรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้`,
+            message: `ต้องการลบ "${item.ItemName}" ใช่หรือไม่?\n\nเป็น soft delete: รายการจะถูกซ่อนจากระบบ แต่ข้อมูลยังเก็บอยู่ในฐานข้อมูล`,
             onConfirm: async () => {
                 try {
                     const res = await fetch(`${API_BASE}/ma/${item.ItemID}`, { method: 'DELETE' });
                     if (res.ok) {
                         fetchItems(); setDetailItem(null);
-                        setAlertModal({ isOpen: true, type: 'success', title: 'ลบสำเร็จ', message: 'ลบรายการเรียบร้อยแล้ว' });
+                        setAlertModal({ isOpen: true, type: 'success', title: 'ลบสำเร็จ', message: 'ลบรายการเรียบร้อยแล้ว (soft delete: ซ่อนจากระบบ ข้อมูลยังอยู่ในฐานข้อมูล)' });
                     }
                 } catch (err) {
                     setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: 'ไม่สามารถลบได้' });

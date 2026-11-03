@@ -6,12 +6,16 @@ import {
     scanPrinterNow,
     createPrinter,
     updatePrinter,
-    getFactoryOptions
+    getFactoryOptions,
+    getPrinterLocations,
+    updatePrinterLocation
 } from '../controllers/printerController.js';
 
 const router = express.Router();
 
 router.get('/printer-health', getPrinterHealth);
+router.get('/printer-locations', getPrinterLocations);
+router.put('/printer-locations/:id', updatePrinterLocation);
 router.post('/printer-health', createPrinter);
 router.get('/printer-health/meta/factories', getFactoryOptions);
 router.put('/printer-health/:id', updatePrinter);

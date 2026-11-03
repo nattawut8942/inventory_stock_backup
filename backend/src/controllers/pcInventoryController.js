@@ -73,6 +73,7 @@ export const getInventory = async (req, res) => {
                 i.[battery_status],i.[battery_percent],i.[battery_health],i.[battery_wear],
                 i.[battery_charging],i.[battery_cycle],i.[battery_name],i.[battery_voltage],
                 i.[battery_type],i.[battery_manufacturer],
+                i.[warranty_package],CONVERT(varchar(10), i.[warranty_expire_date], 23) AS warranty_expire_date,
                 (SELECT COUNT(DISTINCT au2.[username])
                  FROM [dbo].[info_pc_active_users] au2
                  WHERE au2.[hostname] = i.[hostname]) AS active_users,
@@ -118,7 +119,8 @@ export const getInventoryByHostname = async (req, res) => {
                 [secure_boot],[tpm_present],[tpm_enabled],[tpm_version],[uac_level],
                 [last_patch_kb],[last_patch_date],[shutdown_events],
                 [disk_smart_info],[monitor_info],[printer_info],[usb_info],
-                [net_gateway],[net_dns],[net_subnet],[net_dhcp],[net_proxy],[net_proxy_server]
+                [net_gateway],[net_dns],[net_subnet],[net_dhcp],[net_proxy],[net_proxy_server],
+                [warranty_package],CONVERT(varchar(10), [warranty_expire_date], 23) AS warranty_expire_date
             FROM [dbo].[info_pc_inventory]
             WHERE [hostname] = @hostname
         `);
@@ -129,6 +131,71 @@ export const getInventoryByHostname = async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 };
+
+// PUT: Update warranty package and expiry date (manual entry)
+export const updateWarranty = async (req, res) => {
+    try {
+        const warrantyPackage = (req.body.warranty_package || '').trim();
+        const expireRaw = (req.body.warranty_expire_date || '').trim();
+        // ต้องเป็น yyyy-mm-dd หรือว่าง (ว่าง = ล้างค่า)
+        if (expireRaw && !/^\d{4}-\d{2}-\d{2}$/.test(expireRaw)) {
+            return res.status(400).json({ success: false, error: 'รูปแบบวันหมดประกันไม่ถูกต้อง (yyyy-mm-dd)' });
+        }
+
+        const db = await getPool();
+        const request = db.request();
+        request.input('hostname', sql.NVarChar, req.params.hostname);
+        request.input('warranty_package', sql.NVarChar, warrantyPackage || null);
+        // ส่งเป็นข้อความแล้ว CAST ใน SQL เพื่อไม่ให้ driver แปลง timezone จนวันเลื่อน
+        request.input('warranty_expire_date', sql.NVarChar, expireRaw || null);
+        await request.query(`
+            UPDATE dbo.info_pc_inventory
+            SET warranty_package = @warranty_package,
+                warranty_expire_date = CAST(@warranty_expire_date AS DATE)
+            WHERE hostname = @hostname
+        `);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+// PUT: Set warranty for many PCs at once
+export const bulkUpdateWarranty = async (req, res) => {
+    try {
+        const hostnames = [...new Set((req.body.hostnames || []).map(h => String(h).trim()).filter(Boolean))];
+        if (hostnames.length === 0) {
+            return res.status(400).json({ success: false, error: 'ไม่ได้เลือกเครื่อง' });
+        }
+        if (hostnames.length > 500) {
+            return res.status(400).json({ success: false, error: 'เลือกได้สูงสุด 500 เครื่องต่อครั้ง' });
+        }
+        const warrantyPackage = (req.body.warranty_package || '').trim();
+        const expireRaw = (req.body.warranty_expire_date || '').trim();
+        if (expireRaw && !/^\d{4}-\d{2}-\d{2}$/.test(expireRaw)) {
+            return res.status(400).json({ success: false, error: 'รูปแบบวันหมดประกันไม่ถูกต้อง (yyyy-mm-dd)' });
+        }
+
+        const db = await getPool();
+        const request = db.request();
+        request.input('warranty_package', sql.NVarChar, warrantyPackage || null);
+        request.input('warranty_expire_date', sql.NVarChar, expireRaw || null);
+        const placeholders = hostnames.map((h, i) => {
+            request.input(`h${i}`, sql.NVarChar, h);
+            return `@h${i}`;
+        });
+        const result = await request.query(`
+            UPDATE dbo.info_pc_inventory
+            SET warranty_package = @warranty_package,
+                warranty_expire_date = CAST(@warranty_expire_date AS DATE)
+            WHERE hostname IN (${placeholders.join(',')})
+        `);
+        res.json({ success: true, updated: result.rowsAffected[0] });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
 export const updateAsset = async (req, res) => {
     try {
         // ✅ validate fix_asset format on backend too
@@ -259,7 +326,7 @@ export const searchInventory = async (req, res) => {
                     i.[fix_asset],i.[bitlocker],i.[bitlocker_key_c],i.[crowdstrike_ver],i.[tanium_ver],i.[uems_ver],
                     i.[computer_type],i.[manufacturer],i.[model],
                     i.[os_name],i.[os_release],i.[os_build],i.[os_full_version],i.[os_arch],
-                    i.[collected_at],i.[updated_at]
+                    i.[collected_at],i.[updated_at],i.[warranty_package],CONVERT(varchar(10), i.[warranty_expire_date], 23) AS warranty_expire_date
                 FROM [dbo].[info_pc_inventory] i
                 WHERE ${whereClause}
             )
@@ -269,7 +336,7 @@ export const searchInventory = async (req, res) => {
                 m.[fix_asset],m.[bitlocker],m.[bitlocker_key_c],m.[crowdstrike_ver],m.[tanium_ver],m.[uems_ver],
                 m.[computer_type],m.[manufacturer],m.[model],
                 m.[os_name],m.[os_release],m.[os_build],m.[os_full_version],m.[os_arch],
-                m.[collected_at],m.[updated_at],
+                m.[collected_at],m.[updated_at],m.[warranty_package],m.[warranty_expire_date],
                 (SELECT TOP 1 au2.[username]
                  FROM [dbo].[info_pc_active_users] au2
                  WHERE au2.[hostname] = m.[hostname]
@@ -294,9 +361,10 @@ export const getSummary = async (req, res) => {
 
         const baseResult = await db.request().query(`
     SELECT i.hostname, i.bitlocker, i.crowdstrike_ver, i.tanium_ver, i.uems_ver,
-           i.os_release, i.os_build, i.computer_type, i.manufacturer, i.fix_asset,
+           i.os_release, i.os_build, i.computer_type, i.manufacturer, i.model, i.fix_asset,
            i.updated_at, i.bitlocker_key_c, i.battery_health, i.disk_info,
            i.factory_layout_id, i.uptime, i.last_patch_kb, i.pc_status,
+           i.last_patch_date, i.local_admin_users, i.disk_smart_info,
            fl.name AS location_name
     FROM dbo.info_pc_inventory i
     LEFT JOIN dbo.factory_layouts fl ON i.factory_layout_id = fl.id
@@ -357,6 +425,29 @@ export const getSummary = async (req, res) => {
         const lowBatteryHealth = lowBatteryRes.recordset.map(r => r.hostname);
         const lowDiskCSpace = lowDiskRes.recordset.map(r => r.hostname);
 
+        // ✅ Patch ค้างเกิน 30 วัน (last_patch_date เป็นข้อความ yyyy-mm-dd, ข้ามเครื่องที่ไม่มีข้อมูล)
+        const patchCutoff = Date.now() - 30 * 86400000;
+        const noRecentPatch = activeOnly.filter(r => {
+            if (!r.last_patch_date) return false;
+            const t = new Date(String(r.last_patch_date).slice(0, 10)).getTime();
+            return !isNaN(t) && t < patchCutoff;
+        }).map(r => r.hostname);
+
+        // ✅ มี Local Admin (ไม่นับ "Not Admin")
+        const localAdmin = activeOnly.filter(r => {
+            const v = (r.local_admin_users || '').toLowerCase();
+            return v.includes('admin') && v !== 'not admin';
+        }).map(r => r.hostname);
+
+        // ✅ ดิสก์ที่ SMART แจ้งเตือน: disk_smart_info แยกดิสก์ด้วย " || " และ health อยู่ในช่อง "Health:xxx"
+        const diskSmartWarn = activeOnly.filter(r => {
+            if (!r.disk_smart_info) return false;
+            return r.disk_smart_info.split('||').some(disk => {
+                const m = disk.match(/Health:\s*([^|]+)/i);
+                return m && /bad|caution|warn|pred|fail|critical/i.test(m[1]);
+            });
+        }).map(r => r.hostname);
+
         const currentYear = new Date().getFullYear();
         const oldFixAssets = activeOnly.filter(r => {
             if (!r.fix_asset || r.fix_asset.trim() === '') return false;
@@ -379,6 +470,8 @@ export const getSummary = async (req, res) => {
         const osVersionMap = {};
         const osBuildMap = {};
         const computerTypeMap = {};
+        const modelMap = {};
+        const modelByType = {}; // ✅ { Notebook: { "ยี่ห้อ Model": [hostnames] }, Desktop: {...} }
         const crowdstrikeVerMap = {};
         const taniumVerMap = {};
         const lastPatchKBMap = {};
@@ -397,6 +490,14 @@ export const getSummary = async (req, res) => {
             const t = r.computer_type || 'Unknown';
             if (!computerTypeMap[t]) computerTypeMap[t] = [];
             computerTypeMap[t].push(r.hostname);
+
+            // ✅ รุ่นเครื่อง: "ยี่ห้อ + Model" เช่น "Dell Inc. Latitude 5320"
+            const m = `${(r.manufacturer || '').trim()} ${(r.model || '').trim()}`.trim() || 'Unknown';
+            if (!modelMap[m]) modelMap[m] = [];
+            modelMap[m].push(r.hostname);
+            if (!modelByType[t]) modelByType[t] = {};
+            if (!modelByType[t][m]) modelByType[t][m] = [];
+            modelByType[t][m].push(r.hostname);
 
             const cs = r.crowdstrike_ver || 'Not Installed';
             if (!crowdstrikeVerMap[cs]) crowdstrikeVerMap[cs] = [];
@@ -423,7 +524,8 @@ export const getSummary = async (req, res) => {
             inactive,              // ✅ เพิ่มเข้ามา
             noEdr, noTanium, noUems, blDisabled, noAsset,
             noLocation, noBlKeyNotebook, inactivePC, lowBatteryHealth, lowDiskCSpace, oldFixAssets, longUptime,
-            osVersionMap, osBuildMap, computerTypeMap, crowdstrikeVerMap, taniumVerMap, lastPatchKBMap,
+            noRecentPatch, localAdmin, diskSmartWarn,
+            osVersionMap, osBuildMap, computerTypeMap, modelMap, modelByType, crowdstrikeVerMap, taniumVerMap, lastPatchKBMap,
             locationMap,
         });
     } catch (err) {

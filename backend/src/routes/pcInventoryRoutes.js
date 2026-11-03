@@ -14,7 +14,9 @@ import {
     getMultiLoginUsers,
     getReincarnatedMachines, // ✅ เพิ่ม import
     getHistory,
-    getInventoryByFixAsset 
+    getInventoryByFixAsset,
+    updateWarranty,
+    bulkUpdateWarranty
 } from '../controllers/pcInventoryController.js';
 
 const router = express.Router();
@@ -32,6 +34,8 @@ router.get('/pc-inventory/:hostname/history', getHistory);
 router.get('/pc-inventory/:hostname', getInventoryByHostname);
 router.put('/pc-inventory/:hostname/asset', updateAsset);
 router.put('/pc-inventory/:hostname/status', updateStatus);   // ✅ เพิ่มบรรทัดนี้
+router.put('/pc-inventory/:hostname/warranty', updateWarranty);
+router.put('/pc-inventory-bulk/warranty', bulkUpdateWarranty);
 router.get('/pc-inventory/:hostname/software', getSoftwareByHostname);
 router.delete('/pc-inventory/:hostname', deleteInventory);
 

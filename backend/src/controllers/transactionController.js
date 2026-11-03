@@ -15,7 +15,11 @@ export const getStockHistory = async (req, res) => {
                     t.TransType,
                     t.RefInfo,
                     t.UserID,
-                    t.BG_No,
+                    ISNULL(t.EmployeeName, t.UserID) AS DisplayUser,
+                    t.EmployeeName,
+                    t.EmployeeCode,
+                    t.CostCenter,
+                    t.BG_No AS BudgetNo,
                     t.SerialNumber,
                     t.FixedAssetCode
                 FROM dbo.Stock_Transactions t

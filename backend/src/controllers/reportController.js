@@ -339,6 +339,7 @@ export const exportReport = async (req, res) => {
                         LEFT JOIN dbo.Stock_Vendors v ON m.VendorID = v.VendorID
                         WHERE 1=1
                     `;
+                        maQuery += ' AND m.IsDeleted = 0';
                         if (startDate) maQuery += ' AND m.EndDate >= @startDate';
                         if (endDate) maQuery += ' AND m.EndDate <= @endDate';
                         maQuery += ' ORDER BY m.EndDate ASC';
@@ -455,7 +456,7 @@ export const exportReport = async (req, res) => {
                                DATEDIFF(day, GETDATE(), m.EndDate) as DaysLeft
                         FROM dbo.MA_Items m
                         LEFT JOIN dbo.Stock_Vendors v ON m.VendorID = v.VendorID
-                        WHERE m.EndDate >= @startDate AND m.EndDate <= @endDate AND m.Status = 'Active'
+                        WHERE m.EndDate >= @startDate AND m.EndDate <= @endDate AND m.Status = 'Active' AND m.IsDeleted = 0
                         ORDER BY m.EndDate ASC
                     `;
 

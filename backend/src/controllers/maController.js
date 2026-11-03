@@ -9,9 +9,10 @@ export const getMAItems = async (req, res) => {
             SELECT m.*, v.VendorName, v.ContactInfo AS VendorContact
             FROM dbo.MA_Items m
             LEFT JOIN dbo.Stock_Vendors v ON m.VendorID = v.VendorID
+            WHERE m.IsDeleted = 0
         `;
         if (category) {
-            query += ` WHERE m.Category = @Category`;
+            query += ` AND m.Category = @Category`;
         }
         query += ` ORDER BY m.EndDate ASC`;
 
@@ -37,7 +38,7 @@ export const getMAItemById = async (req, res) => {
                 SELECT m.*, v.VendorName, v.ContactInfo AS VendorContact
                 FROM dbo.MA_Items m
                 LEFT JOIN dbo.Stock_Vendors v ON m.VendorID = v.VendorID
-                WHERE m.ItemID = @ItemID
+                WHERE m.ItemID = @ItemID AND m.IsDeleted = 0
             `);
         if (result.recordset.length === 0) {
             return res.status(404).json({ error: 'Item not found' });
@@ -161,14 +162,14 @@ export const updateMAItem = async (req, res) => {
     }
 };
 
-// DELETE MA Item
+// DELETE MA Item — soft delete: ซ่อนจากระบบ แต่ไม่ลบแถวออกจากฐานข้อมูล
 export const deleteMAItem = async (req, res) => {
     const { id } = req.params;
     try {
         const pool = getPool();
         await pool.request()
             .input('ItemID', sql.Int, id)
-            .query('DELETE FROM dbo.MA_Items WHERE ItemID = @ItemID');
+            .query('UPDATE dbo.MA_Items SET IsDeleted = 1, DeletedAt = GETDATE() WHERE ItemID = @ItemID AND IsDeleted = 0');
         res.json({ success: true });
     } catch (err) {
         console.error('Delete MA Item Error:', err);

@@ -343,7 +343,7 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
           body: JSON.stringify({
             ProductID: product.ProductID,
             Qty: selectQty,
-            UserID: user.username,
+            UserID: (user?.username || '').toUpperCase(),
             RefInfo: getRefInfo(),
             EmployeeCode: empData.EmployeeCode,
             EmployeeName: empData.FormattedName,
@@ -389,7 +389,7 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
             body: JSON.stringify({
               ProductID: item.ProductID,
               Qty: item.qty,
-              UserID: user.username,
+              UserID: (user?.username || '').toUpperCase(),
               RefInfo: getRefInfo(item.reason, item.reasonDetail),
               SerialNumber: item.DeviceType === 'Asset' ? item.serialNumber : null,
               FixedAssetCode: item.DeviceType === 'Asset' ? item.fixedAssetCode : null,
@@ -448,7 +448,7 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
           body: JSON.stringify({
             ProductID: product.ProductID,
             Qty: scanQty,
-            UserID: user.username,
+            UserID: (user?.username || '').toUpperCase(),
             RefInfo: getRefInfo(scanReason, scanReasonDetail),
             SerialNumber: product.DeviceType === 'Asset' ? scanSerialNumber.trim() : null,
             FixedAssetCode: product.DeviceType === 'Asset' ? scanFixedCode.trim() : null,
@@ -874,7 +874,7 @@ const handleFileUpload = async (file) => {
         {historyItem && (
           <Portal>
             <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden">
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-[95vw] max-w-screen-2xl bg-white rounded-2xl shadow-xl overflow-hidden">
                 <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
                   <div className="flex justify-between items-start relative z-10">
@@ -894,10 +894,10 @@ const handleFileUpload = async (file) => {
                           <th className="p-4 whitespace-nowrap">วันที่</th>
                           <th className="p-4 text-center whitespace-nowrap">จำนวน</th>
                           <th className="p-4 whitespace-nowrap">เหตุผล</th>
-                          <th className="p-4 whitespace-nowrap">Budget No.</th>
+                          <th className="p-4 whitespace-nowrap">User</th>
+                          <th className="p-4 whitespace-nowrap">เบิกให้</th>
                           <th className="p-4 whitespace-nowrap">S/N</th>
                           <th className="p-4 whitespace-nowrap">รหัสครุภัณฑ์</th>
-                          <th className="p-4 whitespace-nowrap">User</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
@@ -908,10 +908,10 @@ const handleFileUpload = async (file) => {
                               {(h.TransType || '').toUpperCase().trim() === 'IN' || (h.RefInfo || '').toLowerCase().includes('invoice') ? '+' : '-'}{Math.abs(h.Qty)}
                             </td>
                             <td className="p-4 text-indigo-600 font-medium whitespace-nowrap">{h.RefInfo}</td>
-                            <td className="p-4 text-slate-500 font-mono text-xs whitespace-nowrap">{h.BudgetNo || '-'}</td>
+                            <td className="p-4 text-xs text-slate-400 whitespace-nowrap uppercase">{(h.UserID || '-').toUpperCase()}</td>
+                            <td className="p-4 text-slate-600 font-medium whitespace-nowrap">{h.EmployeeName || '-'}</td>
                             <td className="p-4 text-slate-500 font-mono text-xs whitespace-nowrap">{h.SerialNumber || '-'}</td>
                             <td className="p-4 text-slate-500 font-mono text-xs whitespace-nowrap">{h.FixedAssetCode || '-'}</td>
-                            <td className="p-4 text-xs text-slate-400 whitespace-nowrap">{h.UserID}</td>
                           </motion.tr>
                         ))}
                         {historyData.length === 0 && <tr><td colSpan="7" className="p-8 text-center text-slate-400">ไม่มีประวัติ</td></tr>}
@@ -1578,4 +1578,4 @@ const handleFileUpload = async (file) => {
   );
 };
 
-export default InventoryPage;
+export default InventoryPage; 

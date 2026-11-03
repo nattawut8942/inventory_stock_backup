@@ -13,6 +13,7 @@ export const getInventory = async (req, res) => {
         uptime, last_boot, domain,
         updated_at, collected_at,
         factory_layout_id, location_x, location_y, location_updated_at,
+        pc_status,
         (SELECT TOP 1 username FROM [dbo].[info_mo_active_users]
           WHERE hostname = [dbo].[info_mo_inventory].hostname
           ORDER BY TRY_CONVERT(datetime, logon_time, 103) DESC) as active_usernames,
@@ -160,10 +161,28 @@ export const updateLocation = async (req, res) => {
   }
 };
 
+// ตัวกรองฟิลด์ที่อนุญาต (ตรงกับ SEARCH_FIELD_OPTIONS ใน MOInventoryPage.jsx)
+const SEARCH_FIELD_WHERE = {
+  hostname: 'hostname LIKE @q',
+  ip_address: 'ip_address LIKE @q',
+  serial_number: 'serial_number LIKE @q',
+  manufacturer: 'manufacturer LIKE @q',
+  model: 'model LIKE @q',
+  active_usernames: `EXISTS (SELECT 1 FROM [dbo].[info_mo_active_users] u
+    WHERE u.hostname = [dbo].[info_mo_inventory].hostname AND u.username LIKE @q)`,
+};
+const SEARCH_ALL_WHERE = `hostname LIKE @q OR ip_address LIKE @q OR serial_number LIKE @q
+          OR manufacturer LIKE @q OR model LIKE @q`;
+
 export const searchInventory = async (req, res) => {
   try {
-    const { q } = req.query;
+    const { q, field } = req.query;
     if (!q || q.length < 2) return res.json({ success: true, data: [] });
+    const useAll = !field || field === 'all';
+    if (!useAll && !Object.prototype.hasOwnProperty.call(SEARCH_FIELD_WHERE, field)) {
+      return res.status(400).json({ success: false, error: 'field ไม่ถูกต้อง' });
+    }
+    const whereClause = useAll ? SEARCH_ALL_WHERE : SEARCH_FIELD_WHERE[field];
     const pool = getPool();
     const result = await pool.request()
       .input('q', sql.VarChar, `%${q}%`)
@@ -175,6 +194,7 @@ export const searchInventory = async (req, res) => {
           crowdstrike_ver, tanium_ver, uems_ver,
           uptime, last_boot, domain,
           updated_at, collected_at,
+          pc_status,
           (SELECT TOP 1 username FROM [dbo].[info_mo_active_users]
             WHERE hostname = [dbo].[info_mo_inventory].hostname
             ORDER BY TRY_CONVERT(datetime, logon_time, 103) DESC) as active_usernames,
@@ -182,8 +202,7 @@ export const searchInventory = async (req, res) => {
             WHERE hostname = [dbo].[info_mo_inventory].hostname
             ORDER BY TRY_CONVERT(datetime, logon_time, 103) DESC) as logon_time
         FROM [dbo].[info_mo_inventory]
-        WHERE hostname LIKE @q OR ip_address LIKE @q OR serial_number LIKE @q
-          OR manufacturer LIKE @q OR model LIKE @q
+        WHERE ${whereClause}
         ORDER BY updated_at DESC
       `);
     res.json({ success: true, data: result.recordset });
@@ -208,6 +227,11 @@ export const getSummary = async (req, res) => {
       `);
     const logonMap = {};
     logonRows.forEach(r => { logonMap[r.hostname] = r.last_logon; });
+
+    const { recordset: layoutRows } = await pool.request()
+      .query(`SELECT id, name FROM dbo.factory_layouts`);
+    const layoutNameMap = {};
+    layoutRows.forEach(r => { layoutNameMap[r.id] = r.name; });
 
     const now = Date.now();
     const MS_30_DAYS = 30 * 24 * 60 * 60 * 1000;
@@ -348,6 +372,8 @@ export const getSummary = async (req, res) => {
       uemsVerMap: {},
       manufacturerMap: {},
       modelMap: {},
+      mfrModelMap: {},
+      locationMap: {},
       osNameMap: {},
       osReleaseMap: {},
       osBuildMap: {},
@@ -364,6 +390,10 @@ export const getSummary = async (req, res) => {
       push(summary.uemsVerMap, d.uems_ver || 'Not Installed', d.hostname);
       push(summary.manufacturerMap, d.manufacturer || 'Unknown', d.hostname);
       push(summary.modelMap, d.model || 'Unknown', d.hostname);
+      push(summary.mfrModelMap, [d.manufacturer, d.model].filter(Boolean).join(' ') || 'Unknown', d.hostname);
+      if (d.factory_layout_id !== null && d.factory_layout_id !== undefined) {
+        push(summary.locationMap, layoutNameMap[d.factory_layout_id] || `Layout #${d.factory_layout_id}`, d.hostname);
+      }
       push(summary.osNameMap, d.os_name || 'Unknown', d.hostname);
       push(summary.osReleaseMap, d.os_release || 'Unknown', d.hostname);
       push(summary.osBuildMap, d.os_build || 'Unknown', d.hostname);

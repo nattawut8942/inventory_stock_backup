@@ -361,7 +361,7 @@ const ITBorrowSystem = () => {
           brReason: form.brReason,
           StartDate: form.StartDate,
           EndDate: form.EndDate,
-          recorded_by: user?.username,
+          recorded_by: (user?.username || '').toUpperCase(),
         }),
       });
       const data = await res.json();
@@ -391,14 +391,14 @@ const ITBorrowSystem = () => {
       const res = await fetch(`${API_BASE}/borrowings/${id}/return`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ received_by: user?.username }),
+        body: JSON.stringify({ received_by: (user?.username || '').toUpperCase() }), 
       });
       if (!res.ok) throw new Error('รับคืนไม่สำเร็จ');
       // ✅ อัปเดตสถานะในแถวเดิมแทนการลบทิ้ง เพื่อให้ยังเห็นข้อมูลรายการนี้เหมือนเดิม (แค่สถานะเปลี่ยนเป็นคืนแล้ว)
       setList((prev) =>
         prev.map((l) =>
           l.brID === id
-            ? { ...l, brStatus: 'returned', received_by: user?.username, ActualReturnDate: now }
+            ? { ...l, brStatus: 'returned', received_by: (user?.username || '').toUpperCase(), ActualReturnDate: now } 
             : l
         )
       );
@@ -484,7 +484,7 @@ const ITBorrowSystem = () => {
         body: JSON.stringify({
           ...editForm,
           brqty: editForm.Category === 'Asset' ? 1 : (Number(editForm.brqty) || 1),
-          received_by: editForm.brStatus === 'returned' ? (editForm.received_by || user?.username) : null,
+          received_by: editForm.brStatus === 'returned' ? (editForm.received_by || user?.username || '').toUpperCase() : null,
         }),
       });
       const data = await res.json();
@@ -653,7 +653,9 @@ const ITBorrowSystem = () => {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-2 text-slate-500 break-words leading-snug uppercase">{b.received_by || '-'}</td>
+                    <td className="px-4 py-2 text-slate-500 break-words leading-snug uppercase">
+  {(b.received_by || '-').toUpperCase()}
+</td>
                     <td className="px-4 py-2 text-center">
                       <div className="flex items-center justify-center gap-3">
                         <button
@@ -1109,7 +1111,7 @@ const ITBorrowSystem = () => {
                       {
                         label: 'รับคืน',
                         date: detailItem.ActualReturnDate ? new Date(detailItem.ActualReturnDate).toLocaleDateString('th-TH') : 'ยังไม่คืน',
-                        sub: returned ? detailItem.received_by : null,
+                        sub: returned ? (detailItem.received_by || '').toUpperCase() : null,
                         dot: returned ? 'bg-emerald-500' : 'bg-slate-300',
                         done: returned,
                       },
@@ -1189,8 +1191,8 @@ const ITBorrowSystem = () => {
                     <span className="text-[12px] font-medium text-slate-800 whitespace-pre-wrap">{detailItem.brReason || '-'}</span>
                   </div>
                   {[
-                    { label: 'บันทึกโดย', value: detailItem.recorded_by || '-' },
-                    { label: 'รับคืนโดย', value: detailItem.received_by || '-' },
+                    { label: 'บันทึกโดย', value: (detailItem.recorded_by || '-').toUpperCase() },
+                    { label: 'รับคืนโดย', value: (detailItem.received_by || '-').toUpperCase() },
                   ].map(({ label, value }) => (
                     <div key={label} className="flex items-center px-4 py-2">
                       <span className="text-[12px] text-slate-400 w-28 shrink-0">{label}</span>
@@ -1420,8 +1422,8 @@ const ITBorrowSystem = () => {
                     <input
                       type="text"
                       value={editForm.received_by}
-                      onChange={(e) => setEditForm((f) => ({ ...f, received_by: e.target.value }))}
-                      placeholder={user?.username || ''}
+                      onChange={(e) => setEditForm((f) => ({ ...f, received_by: e.target.value.toUpperCase() }))}
+                      pplaceholder={(user?.username || '').toUpperCase()}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>

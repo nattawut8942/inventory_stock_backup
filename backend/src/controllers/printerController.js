@@ -157,6 +157,58 @@ export const getFactoryOptions = async (req, res) => {
     }
 };
 
+// GET /api/printer-locations
+// printer ที่ใช้งานอยู่ทั้งหมด + ตำแหน่งบนแผนผัง (ยังไม่ได้วางจะเป็น null)
+export const getPrinterLocations = async (req, res) => {
+    try {
+        const pool = getPool();
+        const result = await pool.request().query(`
+            SELECT PrinterId, Name, IpAddress, Model, Location, Factory,
+                   FactoryLayoutID AS factory_layout_id,
+                   LocationX AS location_x,
+                   LocationY AS location_y
+            FROM dbo.Printers
+            WHERE IsActive = 1
+            ORDER BY Name
+        `);
+        res.json({ success: true, data: result.recordset });
+    } catch (err) {
+        console.error('Get Printer Locations Error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+// PUT /api/printer-locations/:id
+// วาง / ย้ายแผนผัง / ลากปรับพิกัด ของ printer
+export const updatePrinterLocation = async (req, res) => {
+    const { id } = req.params;
+    const { factory_layout_id, location_x, location_y } = req.body;
+
+    try {
+        const pool = getPool();
+        const result = await pool.request()
+            .input('PrinterId', sql.Int, id)
+            .input('FactoryLayoutID', sql.Int, factory_layout_id || null)
+            .input('LocationX', sql.Float, location_x ?? null)
+            .input('LocationY', sql.Float, location_y ?? null)
+            .query(`
+                UPDATE dbo.Printers
+                SET FactoryLayoutID = @FactoryLayoutID,
+                    LocationX = @LocationX,
+                    LocationY = @LocationY,
+                    LocationUpdatedAt = GETDATE()
+                WHERE PrinterId = @PrinterId AND IsActive = 1
+            `);
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ success: false, error: 'Printer not found' });
+        }
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Update Printer Location Error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
 // GET /api/printer-health/:id/errors
 // ประวัติ error ของเครื่องเดียว (ล่าสุดก่อน)
 export const getPrinterErrors = async (req, res) => {

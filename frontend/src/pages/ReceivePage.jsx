@@ -95,7 +95,7 @@ const ReceivePage = () => {
                     PO_ID: poId,
                     InvoiceNo: invoiceNo,
                     ItemsReceived: itemsReceived,
-                    UserID: user.username
+                    UserID: (user?.username || '').toUpperCase()
                 })
             });
             if (res.ok) {
@@ -119,7 +119,7 @@ const ReceivePage = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     InvoiceNo: invoiceNo,
-                    UserID: user?.username || 'system'
+                    UserID: (user?.username || 'system').toUpperCase()
                 })
             });
             if (res.ok) {
@@ -494,7 +494,7 @@ const ReceivePage = () => {
                                     <td className="p-4 text-center whitespace-nowrap">
                                         <div className="flex items-center justify-center gap-2">
                                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-bold border border-slate-200">
-                                                {inv.ReceivedBy || '?'}
+                                                {(inv.ReceivedBy || '?').toUpperCase()}
                                             </span>
                                         </div>
                                     </td>
@@ -534,22 +534,24 @@ const ReceivePage = () => {
                 )}
             </div>
 
-            {/* DETAIL MODAL */}
-            <AnimatePresence>
+                {/* 1. DETAIL MODAL */}
+<AnimatePresence>
                 {selectedPO && (
-                    <Portal>
+                    <Portal> {/* 👈 Portal ต้องอยู่ตรงนี้! */}
                         <motion.div
+                            key="modal-po"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4"
+                            className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4"
+                            onClick={() => setSelectedPO(null)} // เพิ่มให้กด Backdrop แล้วปิดได้
                         >
                             <motion.div
-                                initial={{ opacity: 0, scale: 0.95 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.95 }}
-                                className="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden"
-
+                                initial={{ opacity: 0, scale: 0.95, y: 15 }} // เลียนแบบแอนิเมชันให้สมูท
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                                className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden"
+                                onClick={(e) => e.stopPropagation()} // ป้องกันกดข้างในแล้วปิด Modal
                             >
                                 {/* Header */}
                                 <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
@@ -639,19 +641,19 @@ const ReceivePage = () => {
                                                         return (
                                                             <tr key={idx} className={`border-b border-slate-50 last:border-0 ${isFullyReceived ? 'bg-emerald-100' : ''}`}>
                                                                 <td className={`p-2 font-medium ${isFullyReceived ? 'text-emerald-900' : 'text-slate-700'}`}>
-                                                                        {prodName}
-                                                                    </td>
-                                                                    <td className="p-2">
-                                                                        {item.BG_No ? (
-                                                                            <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
-                                                                                {item.BG_No}
-                                                                            </span>
-                                                                        ) : (
-                                                                            <span className="text-xs text-slate-300">—</span>
-                                                                        )}
-                                                                    </td>
-                                                                    <td className="p-2 text-center">
-                                                                        <div className={`inline-flex items-center rounded-lg px-2 py-1 font-mono text-xs ${isFullyReceived ? 'bg-emerald-200/50 text-emerald-800' : 'bg-slate-100'}`}>
+                                                                    {prodName}
+                                                                </td>
+                                                                <td className="p-2">
+                                                                    {item.BG_No ? (
+                                                                        <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                                                                            {item.BG_No}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-xs text-slate-300">—</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="p-2 text-center">
+                                                                    <div className={`inline-flex items-center rounded-lg px-2 py-1 font-mono text-xs ${isFullyReceived ? 'bg-emerald-200/50 text-emerald-800' : 'bg-slate-100'}`}>
                                                                         <span className="font-bold">{item.QtyReceived || 0}</span>
                                                                         <span className="mx-1 opacity-50">/</span>
                                                                         <span className="font-bold">{item.QtyOrdered}</span>
@@ -664,7 +666,7 @@ const ReceivePage = () => {
                                                                         </span>
                                                                     ) : (
                                                                         <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-100 mx-auto">
-                                                                            <Clock size={12} /> รอของ                                                                       </span>
+                                                                            <Clock size={12} /> รอของ       </span>
                                                                     )}
                                                                 </td>
                                                                 <td className="p-2 text-right font-mono text-slate-600">฿{(item.UnitCost || 0).toLocaleString()}</td>
@@ -696,25 +698,28 @@ const ReceivePage = () => {
                                 </div>
                             </motion.div>
                         </motion.div>
-                    </Portal>
-                )}
-            </AnimatePresence>
+                        </Portal>
+                    )}
+                </AnimatePresence>
 
-            {/* INVOICE DETAIL MODAL */}
-            <AnimatePresence>
+                {/* 2. INVOICE DETAIL MODAL */}
+                <AnimatePresence>
                 {selectedInvoice && (
                     <Portal>
                         <motion.div
+                            key="modal-invoice"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4"
+                            className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4"
+                            onClick={() => setSelectedInvoice(null)}
                         >
                             <motion.div
-                                initial={{ opacity: 0, scale: 0.95 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.95 }}
-                                className="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden"
+                                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                                className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden"
+                                onClick={(e) => e.stopPropagation()}
                             >
                                 {/* Header */}
                                 <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
@@ -840,25 +845,28 @@ const ReceivePage = () => {
                                 </div>
                             </motion.div>
                         </motion.div>
-                    </Portal>
-                )}
-            </AnimatePresence>
+                        </Portal>
+                    )}
+                </AnimatePresence>
 
-            {/* RECEIVE MODAL */}
-            <AnimatePresence>
+                {/* 3. RECEIVE MODAL */}
+                <AnimatePresence>
                 {isModalOpen && activePo && (
                     <Portal>
                         <motion.div
+                            key="modal-receive"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4"
+                            className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4"
+                            onClick={() => setIsModalOpen(false)}
                         >
                             <motion.div
-                                initial={{ opacity: 0, scale: 0.95 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.95 }}
-                                className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden"
+                                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                                className="w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden"
+                                onClick={(e) => e.stopPropagation()}
                             >
                                 <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
@@ -930,16 +938,16 @@ const ReceivePage = () => {
 
                                                             <div className="flex-1 min-w-0">
                                                                 <p className={`font-bold text-sm truncate ${isFullyReceived ? 'text-emerald-900' : 'text-slate-800'}`}>{prodName}</p>
-                                                                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                                                        <p className="text-xs text-slate-400 font-medium">
-                                                                            สั่งซื้อ: {item.QtyOrdered} | รับแล้ว: {item.QtyReceived || 0}
-                                                                        </p>
-                                                                        {item.BG_No && (
-                                                                            <span className="text-[10px] font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
-                                                                                BG: {item.BG_No}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
+                                                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                                                    <p className="text-xs text-slate-400 font-medium">
+                                                                        สั่งซื้อ: {item.QtyOrdered} | รับแล้ว: {item.QtyReceived || 0}
+                                                                    </p>
+                                                                    {item.BG_No && (
+                                                                        <span className="text-[10px] font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                                                                            BG: {item.BG_No}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </div>
 
                                                             {isFullyReceived ? (
@@ -1004,9 +1012,10 @@ const ReceivePage = () => {
                                 </form>
                             </motion.div>
                         </motion.div>
-                    </Portal>
-                )}
-            </AnimatePresence>
+                        </Portal>
+                    )}
+                </AnimatePresence>
+
 
             {/* Result Modal */}
             <AlertModal
