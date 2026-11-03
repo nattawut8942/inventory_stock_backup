@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Trash2, Edit2, Upload, MapPin, Factory, LayoutGrid, Plug, X, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AlertModal from './AlertModal';
+import PhotoPicker from './CameraCapture';
 import Portal from './Portal';
 import { API_BASE, API_URL } from '../config/api';
 
@@ -677,14 +678,7 @@ const PlugMasterTab = () => {
                                             ? <img src={shown || fallback} alt="" className={`max-w-full max-h-full object-contain ${shown ? '' : 'opacity-50'}`} />
                                             : <span className="text-[10px] text-slate-400">ไม่มีรูป</span>}
                                     </div>
-                                    <label className={`${btnGhost} cursor-pointer`}>
-                                        เลือกรูป
-                                        <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                                            const f = e.target.files?.[0];
-                                            if (f) setPointModal({ ...pointModal, imageFile: f, imagePreview: URL.createObjectURL(f), removeImage: false });
-                                            e.target.value = '';
-                                        }} />
-                                    </label>
+                                    <PhotoPicker onFile={(f) => setPointModal({ ...pointModal, imageFile: f, imagePreview: URL.createObjectURL(f), removeImage: false })} />
                                     {(shown) && (
                                         <button type="button" className={btnGhost} onClick={() => setPointModal({ ...pointModal, imageFile: null, imagePreview: '', removeImage: true })}>ลบรูป</button>
                                     )}

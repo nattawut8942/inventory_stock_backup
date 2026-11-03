@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Printer, PlusCircle, RefreshCw, Lock, Unlock, CheckSquare, Square, Camera, X, FilePlus2, Plug } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE, API_URL } from '../config/api';
+import PhotoPicker from '../components/CameraCapture';
 
 // ───────────────────────── constants ─────────────────────────
 const MONTHS = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
@@ -134,7 +135,9 @@ const SheetPage = ({
     const fy = sheet.fiscalYear;
     const cur = currentFiscal();
     const n = points.length;
-    const rh = n <= 20 ? 31 : Math.max(16, Math.floor(612 / n));
+    const blanks = isLast && n < 20 ? 20 - n : 0;
+    const totalRows = n + blanks;
+    const rh = totalRows <= 20 ? 31 : Math.max(16, Math.floor(612 / totalRows));
     const stdByCode = useMemo(() => Object.fromEntries((snap.standards || []).map(s => [s.code, s])), [snap]);
     const usedStds = useMemo(() => {
         const used = new Set(sheet.points.map(p => p.StdCode).filter(Boolean));
@@ -187,7 +190,7 @@ const SheetPage = ({
                     <tr>
                         <th>เลขที่</th><th>จุดตรวจสอบ</th><th>มาตรฐาน</th><th>วิธีการ</th><th>เครื่องมือ</th><th>ความถี่ใน<br />การตรวจสอบ</th>
                         {MONTHS.map((m, i) => (
-                            <th key={m} className={`mo ${i === cur.monthIdx && fy === cur.fiscalYear ? 'cur' : ''} ${interactive && i === bulkMonth ? 'sel' : ''}`}
+                            <th key={m} className={`mo ${interactive && i === cur.monthIdx && fy === cur.fiscalYear ? 'cur' : ''} ${interactive && i === bulkMonth ? 'sel' : ''}`}
                                 style={interactive ? { cursor: 'pointer' } : undefined}
                                 onClick={interactive ? () => onMonthClick(i) : undefined}>
                                 {m}'{String((i < 9 ? fy : fy + 1) % 100).padStart(2, '0')}
@@ -215,6 +218,16 @@ const SheetPage = ({
                                     </td>
                                 );
                             })}
+                        </tr>
+                    ))}
+                    {Array.from({ length: blanks }).map((_, i) => (
+                        <tr key={`blank-${i}`}>
+                            <td><span className="pcs-num" style={{ visibility: 'hidden' }}>0</span></td>
+                            <td /><td />
+                            <td className="sub"><div /><div /></td>
+                            <td className="sub"><div /><div /></td>
+                            <td />
+                            {MONTHS.map((_, m) => <td key={m} />)}
                         </tr>
                     ))}
                     {isLast && [['TOP', 'TN , TE , EN ผู้รับผิดชอบ'], ['BOT', 'SE , S.EN , EN ผู้รับทราบ']].map(([slot, label]) => (
@@ -313,7 +326,6 @@ const PlugCheckPage = () => {
 
     const wrapRef = useRef(null);
     const [zoom, setZoom] = useState(1);
-    const photoInputRef = useRef(null);
 
     const showToast = useCallback((msg, type = 'info') => {
         setToast({ msg, type });
@@ -676,8 +688,7 @@ const PlugCheckPage = () => {
                         <input type="text" value={cell.note} onChange={e => setCell(c => ({ ...c, note: e.target.value }))} placeholder="หมายเหตุ (ถ้ามี)"
                             className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500" />
                         <div className="flex items-center gap-3">
-                            <button onClick={() => photoInputRef.current?.click()} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50"><Camera size={16} /> แนบรูปที่ตรวจ</button>
-                            <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { uploadPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+                            <PhotoPicker onFile={uploadPhoto} />
                             {cell.photo && <a href={imgUrl(cell.photo)} target="_blank" rel="noreferrer"><img src={imgUrl(cell.photo)} alt="" className="h-12 rounded-lg border border-slate-200" /></a>}
                         </div>
                         <div className="flex justify-between pt-1">
