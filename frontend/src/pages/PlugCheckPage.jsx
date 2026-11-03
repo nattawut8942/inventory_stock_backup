@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Printer, PlusCircle, RefreshCw, Lock, Unlock, CheckSquare, Square, Camera, X, FilePlus2, Plug, ListChecks, FileText } from 'lucide-react';
+import { Printer, PlusCircle, RefreshCw, Lock, Unlock, CheckSquare, Square, Camera, X, FilePlus2, Plug, ListChecks, FileText, Pencil } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE } from '../config/api';
 import PhotoPicker from '../components/CameraCapture';
 import PlugChecklist from '../components/PlugChecklist';
+import AlertModal from '../components/AlertModal';
 import { MONTHS, RESULT_INFO, SIGN_LEVELS, normPos, fyLabel, currentFiscal, imgUrl, Sym } from '../components/PlugShared';
 
 const ROWS_PER_PAGE = 30;
@@ -85,7 +86,7 @@ const SHEET_CSS = `
 .pcs-pn .imgslot{margin:6px 10px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .pcs-pn .imgslot img{width:100%;height:100%;object-fit:contain}
 .pcs-pn .cap{margin:0 10px;font-size:12.5px;line-height:18px;white-space:pre-line}
-.pcs-notes{position:absolute}
+.pcs-notes{position:absolute;border-right:1px solid #000;border-bottom:1px solid #000}
 .pcs-notes .ln{height:16px;border-bottom:1px solid #aaa}
 .pcs-notes textarea{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent;font:13px/16px "Times New Roman","Leelawadee UI",serif;resize:none;padding:0 6px;overflow:hidden;outline:none}
 .pcs-foot{border:2px solid #000;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center}
@@ -103,7 +104,7 @@ const SHEET_CSS = `
 // ───────────────────────── one printable page ─────────────────────────
 const SheetPage = ({
     sheet, points, isFirst, isLast, interactive, results, signs, lockedMonths,
-    selectedRows, bulkMonth, notes, onNotes, onNotesBlur,
+    selectedRows, bulkMonth, notes, onNotesClick,
     onCellClick, onToggleRow, onMonthClick, onSign
 }) => {
     const snap = sheet.snapshot;
@@ -265,9 +266,9 @@ const SheetPage = ({
             <div className="pcs-ab pcs-notes" style={{ left: 1060, top: 868, width: 720, height: 347 }}>
                 {Array.from({ length: 22 }).map((_, i) => <div key={i} className="ln" />)}
                 {isLast && (
-                    <textarea value={notes} readOnly={!interactive} title="หมายเหตุ"
-                        onChange={interactive ? (e) => onNotes(e.target.value) : undefined}
-                        onBlur={interactive ? onNotesBlur : undefined} />
+                    <textarea value={notes} readOnly title={interactive ? 'คลิกเพื่อแก้ไขหมายเหตุ' : undefined}
+                        style={interactive ? { cursor: 'pointer' } : undefined}
+                        onClick={interactive ? onNotesClick : undefined} />
                 )}
             </div>
             <div className="pcs-ab pcs-foot" style={{ left: 20, top: 1229, width: 1760, height: 33 }}>DAIKIN COMPRESSOR INDUSTRIES LTD.</div>
@@ -301,6 +302,8 @@ const PlugCheckPage = () => {
     const [sheet, setSheet] = useState(null);
     const [loading, setLoading] = useState(false);
     const [toast, setToast] = useState(null);
+    const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
+    const [noteModal, setNoteModal] = useState(null); // { text } while the note dialog is open
 
     const [selectedRows, setSelectedRows] = useState(new Set());
     const [bulkMonth, setBulkMonth] = useState(currentFiscal().monthIdx);
@@ -319,10 +322,21 @@ const PlugCheckPage = () => {
     const [zoom, setZoom] = useState(1);
 
     const showToast = useCallback((msg, type = 'info') => {
+        if (type === 'error') {
+            setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: msg || 'เกิดข้อผิดพลาด', confirmText: 'ตกลง', onConfirm: () => setAlertModal(a => ({ ...a, isOpen: false })) });
+            return;
+        }
         setToast({ msg, type });
         window.clearTimeout(showToast._t);
         showToast._t = window.setTimeout(() => setToast(null), 3500);
     }, []);
+
+    const closeAlert = () => setAlertModal(a => ({ ...a, isOpen: false }));
+    const confirmAction = (message, onConfirm, { title = 'ยืนยัน', confirmText = 'ยืนยัน' } = {}) => setAlertModal({
+        isOpen: true, type: 'confirm', title, message, confirmText, cancelText: 'ยกเลิก',
+        onConfirm: () => { closeAlert(); onConfirm(); },
+        onCancel: closeAlert
+    });
 
     const authFetch = useCallback(async (path, opts = {}) => {
         const headers = { ...(opts.headers || {}) };
@@ -438,14 +452,17 @@ const PlugCheckPage = () => {
         } catch (e) { showToast(e.message, 'error'); }
     };
 
-    const refreshFromMaster = async () => {
-        if (!window.confirm('อัปเดตรูป มาตรฐาน ผัง และข้อมูลจุดตรวจของใบนี้ให้ตรงกับ Plug Master ล่าสุด? (ผลตรวจและลายเซ็นที่บันทึกไว้ไม่ถูกแก้ไข)')) return;
-        try {
-            await authFetch(`/plug/sheets/${sheet.sheetId}/refresh`, { method: 'POST' });
-            await loadSheet(sheet.sheetId);
-            showToast('อัปเดตข้อมูลจาก Plug Master แล้ว', 'success');
-        } catch (e) { showToast(e.message, 'error'); }
-    };
+    const refreshFromMaster = () => confirmAction(
+        'อัปเดตรูป มาตรฐาน ผัง และข้อมูลจุดตรวจของใบนี้ให้ตรงกับ Plug Master ล่าสุด? (ผลตรวจและลายเซ็นที่บันทึกไว้ไม่ถูกแก้ไข)',
+        async () => {
+            try {
+                await authFetch(`/plug/sheets/${sheet.sheetId}/refresh`, { method: 'POST' });
+                await loadSheet(sheet.sheetId);
+                showToast('อัปเดตข้อมูลจาก Plug Master แล้ว', 'success');
+            } catch (e) { showToast(e.message, 'error'); }
+        },
+        { title: 'อัปเดตจาก Master' }
+    );
 
     const saveResults = async (monthIdx, items, ow = true) => {
         const d = await authFetch(`/plug/sheets/${sheet.sheetId}/results`, {
@@ -498,13 +515,14 @@ const PlugCheckPage = () => {
         try { await saveResults(bulkMonth, [{ sheetPointId: point.SheetPointID, result: r?.Result || null, note }], true); }
         catch (e) { showToast(e.message, 'error'); }
     };
-    const fillOk = async () => {
+    const fillOk = () => {
         const targets = (sheet.points || []).filter(p => bulkMonth >= p.StartMonth);
-        if (!window.confirm(`ตั้ง "ปกติ" ให้ทุกจุดที่ยังว่างของเดือน ${MONTHS[bulkMonth]} ?`)) return;
-        try {
-            const changed = await saveResults(bulkMonth, targets.map(p => ({ sheetPointId: p.SheetPointID, result: 'ok' })), false);
-            showToast(`บันทึก ${changed} จุด`, 'success');
-        } catch (e) { showToast(e.message, 'error'); }
+        confirmAction(`ตั้ง "ปกติ" ให้ทุกจุดที่ยังว่างของเดือน ${MONTHS[bulkMonth]} ?`, async () => {
+            try {
+                const changed = await saveResults(bulkMonth, targets.map(p => ({ sheetPointId: p.SheetPointID, result: 'ok' })), false);
+                showToast(`บันทึก ${changed} จุด`, 'success');
+            } catch (e) { showToast(e.message, 'error'); }
+        });
     };
 
     const toggleRow = (id) => setSelectedRows(prev => {
@@ -522,14 +540,21 @@ const PlugCheckPage = () => {
         const targets = (sheet.points || []).filter(p => (selectedRows.size === 0 || selectedRows.has(p.SheetPointID)) && bulkMonth >= p.StartMonth);
         if (!targets.length) { showToast('ไม่มีจุดที่ตรวจได้ในเดือนนี้', 'error'); return; }
         const label = `${RESULT_INFO[result].label} ให้ ${targets.length} จุด เดือน ${MONTHS[bulkMonth]}${overwrite ? ' (ทับผลเดิม)' : ' (เฉพาะช่องว่าง)'}`;
-        if (!window.confirm(`ตั้งผล "${label}" ใช่หรือไม่?`)) return;
-        try {
-            const changed = await saveResults(bulkMonth, targets.map(p => ({ sheetPointId: p.SheetPointID, result })), overwrite);
-            showToast(`บันทึก ${changed} ช่อง`, 'success');
-        } catch (e) { showToast(e.message, 'error'); }
+        confirmAction(`ตั้งผล "${label}" ใช่หรือไม่?`, async () => {
+            try {
+                const changed = await saveResults(bulkMonth, targets.map(p => ({ sheetPointId: p.SheetPointID, result })), overwrite);
+                showToast(`บันทึก ${changed} ช่อง`, 'success');
+            } catch (e) { showToast(e.message, 'error'); }
+        });
     };
 
-    const onSign = async (slot, month) => {
+    const onSign = (slot, month) => confirmAction(
+        `เซ็นรับรองเดือน ${MONTHS[month]} (${slot === 'TOP' ? 'ผู้รับผิดชอบ' : 'ผู้รับทราบ'}) ในนาม ${user?.name || ''} ?${slot === 'TOP' ? ' หลังเซ็นช่องบน เดือนนี้จะถูกล็อก แก้ไขไม่ได้' : ''}`,
+        () => doSign(slot, month),
+        { title: 'เซ็นรับรอง', confirmText: 'เซ็น' }
+    );
+
+    const doSign = async (slot, month) => {
         try {
             await authFetch(`/plug/sheets/${sheet.sheetId}/sign`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -553,14 +578,20 @@ const PlugCheckPage = () => {
     };
 
     const saveNotes = async () => {
-        if (!sheet || notes === (sheet.notes || '')) return;
+        const text = noteModal?.text ?? '';
         try {
             await authFetch(`/plug/sheets/${sheet.sheetId}/notes`, {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notes })
+                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notes: text })
             });
-            setSheet(s => ({ ...s, notes }));
+            setNotes(text);
+            setSheet(s => ({ ...s, notes: text }));
+            setNoteModal(null);
+            showToast('บันทึกหมายเหตุแล้ว', 'success');
         } catch (e) { showToast(e.message, 'error'); }
     };
+
+    // rough line count of the note as printed (about 105 characters per ruled line, 22 lines available)
+    const noteLines = (noteModal?.text || '').split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 105)), 0);
 
     const fyOptions = useMemo(() => {
         const set = new Set(sheetList.map(s => s.FiscalYear));
@@ -613,6 +644,9 @@ const PlugCheckPage = () => {
                                     <RefreshCw size={16} /> อัปเดตจาก Master
                                 </button>
                             )}
+                            <button onClick={() => setNoteModal({ text: notes })} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl text-sm font-bold hover:border-indigo-400">
+                                <Pencil size={16} /> {notes ? 'แก้ไขหมายเหตุ' : 'เพิ่มหมายเหตุ'}
+                            </button>
                             <button onClick={() => window.print()} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700">
                                 <Printer size={16} /> พิมพ์ A3
                             </button>
@@ -693,7 +727,7 @@ const PlugCheckPage = () => {
                         <div key={idx} style={{ marginBottom: idx < pages.length - 1 ? 12 : 0 }}>
                             <div style={{ zoom }}>
                                 <SheetPage {...pageProps(chunk, idx)} interactive
-                                    onNotes={setNotes} onNotesBlur={saveNotes}
+                                    onNotesClick={() => setNoteModal({ text: notes })}
                                     onCellClick={onCellClick} onToggleRow={toggleRow} onMonthClick={setBulkMonth} onSign={onSign} />
                             </div>
                         </div>
@@ -713,7 +747,7 @@ const PlugCheckPage = () => {
 
             {/* Cell modal */}
             {cell && createPortal(
-                <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={() => setCell(null)}>
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setCell(null)}>
                     <div className="bg-white rounded-2xl p-5 w-full max-w-md shadow-2xl space-y-4" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-between items-start">
                             <div>
@@ -747,7 +781,7 @@ const PlugCheckPage = () => {
 
             {/* Unlock modal */}
             {showUnlock && createPortal(
-                <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowUnlock(false)}>
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowUnlock(false)}>
                     <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-2xl space-y-3" onClick={e => e.stopPropagation()}>
                         <h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><Unlock size={18} /> ปลดล็อกเดือน {MONTHS[bulkMonth]}</h3>
                         <p className="text-xs text-slate-500">ลายเซ็นของเดือนนี้จะถูกลบ และต้องเซ็นใหม่หลังแก้ไข ระบบบันทึกเหตุผลไว้ใน Log</p>
@@ -761,6 +795,35 @@ const PlugCheckPage = () => {
                 </div>,
                 document.body
             )}
+
+            {noteModal && createPortal(
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setNoteModal(null)}>
+                    <div className="bg-white rounded-2xl p-5 w-full max-w-lg shadow-2xl space-y-3" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <h3 className="text-lg font-black text-slate-800">หมายเหตุของใบตรวจ</h3>
+                                <p className="text-xs text-slate-500">ปีงบ {sheet ? fyLabel(sheet.fiscalYear) : ''} · พิมพ์ลงช่องเส้นบรรทัดมุมขวาล่างของฟอร์ม</p>
+                            </div>
+                            <button onClick={() => setNoteModal(null)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+                        </div>
+                        <textarea autoFocus rows={9} maxLength={2000} value={noteModal.text} onChange={e => setNoteModal({ text: e.target.value })}
+                            placeholder="พิมพ์หมายเหตุ…" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-indigo-500 resize-none" />
+                        <div className="flex items-center justify-between text-xs">
+                            <span className={noteLines > 22 ? 'text-red-600 font-bold' : 'text-slate-400'}>
+                                {noteLines > 22 ? `ยาวเกินพื้นที่ในฟอร์ม (ประมาณ ${noteLines}/22 บรรทัด) ส่วนที่เกินจะไม่แสดง` : `ประมาณ ${noteLines}/22 บรรทัด`}
+                            </span>
+                            <span className="text-slate-400">{(noteModal.text || '').length}/2000</span>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button onClick={() => setNoteModal(null)} className="px-4 py-2 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-100">ยกเลิก</button>
+                            <button onClick={saveNotes} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700">บันทึก</button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            <AlertModal {...alertModal} />
 
             {toast && createPortal(
                 <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[120] px-4 py-2.5 rounded-xl text-sm font-bold shadow-2xl text-white ${toast.type === 'error' ? 'bg-red-600' : toast.type === 'success' ? 'bg-emerald-600' : 'bg-slate-800'}`}>

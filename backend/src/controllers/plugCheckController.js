@@ -501,9 +501,10 @@ export const syncSheet = wrap('syncSheet', async (req, res) => {
     if (!sheetRes.recordset.length) return res.status(404).json({ success: false, error: 'Sheet not found' });
     const sheet = sheetRes.recordset[0];
 
-    // New points start counting from the current month (earlier months stay "-")
-    const cur = currentFiscal();
-    const startMonth = sheet.FiscalYear === cur.fiscalYear ? cur.monthIdx : 0;
+    // A plug added to a running sheet can be checked in every month (it may already have been in use);
+    // pass startMonth (0-11) to make earlier months not applicable instead.
+    const requested = parseInt(req.body?.startMonth, 10);
+    const startMonth = requested >= 0 && requested <= 11 ? requested : 0;
 
     const ins = await pool.request()
         .input('SheetID', sql.Int, sheet.SheetID)
