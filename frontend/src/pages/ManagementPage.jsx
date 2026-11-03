@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server } from 'lucide-react';
+import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, Plug } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import Portal from '../components/Portal';
 import AlertModal from '../components/AlertModal';
+import PlugMasterTab from '../components/PlugMasterTab';
 import { API_BASE, API_URL } from '../config/api';
 import { getBadgeStyle, getDeviceTypeColor, getChartColor } from '../utils/styleHelpers';
 
@@ -756,7 +757,8 @@ const handleFileSelect = (e) => {
                         { id: 'budgets', label: 'Budgets', icon: DollarSign },
                         { id: 'factory-layouts', label: 'Maps', icon: Map },
                         { id: 'record-servers', label: 'Record Servers', icon: Server },
-                        { id: 'activity-categories', label: 'Activity Categories', icon: Camera }
+                        { id: 'activity-categories', label: 'Activity Categories', icon: Camera },
+                        { id: 'plug-master', label: 'Plug Master', icon: Plug }
                     ].map(tab => (
                         <button
                             key={tab.id}
@@ -1239,6 +1241,9 @@ const handleFileSelect = (e) => {
         </div>
     </div>
 )}
+
+{/* PLUG MASTER TAB */}
+{activeTab === 'plug-master' && <PlugMasterTab />}
 
 {/* ACTIVITY CATEGORIES TAB */}
 {activeTab === 'activity-categories' && (

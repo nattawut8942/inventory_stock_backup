@@ -51,6 +51,10 @@ export const login = async (req, res) => {
             const sect = sectKey ? apiData[sectKey] : '';
             const empPic = picKey ? apiData[picKey] : '';
 
+            // Position (TE, EN, SE, S.EN, ...) used for Plug Check sign-off levels
+            const posKey = keys.find(k => k.toLowerCase() === 'position') || '';
+            const position = posKey ? String(apiData[posKey] ?? '').trim() : '';
+
             const ccKey = keys.find(k => k.toLowerCase() === 'cost_center') || '';
             const costCenter = ccKey ? String(apiData[ccKey]).trim() : '';
 
@@ -83,7 +87,8 @@ export const login = async (req, res) => {
                     role: role,
                     name: shortName || username,
                     sect: sect,
-                    empcode: empCode
+                    empcode: empCode,
+                    position: position
                 },
                 SECRET_KEY,
                 { expiresIn: '1h' }
@@ -98,6 +103,7 @@ export const login = async (req, res) => {
                     name: shortName || username,
                     sect: sect,
                     empcode: empCode,
+                    position: position,
                     empPic: empPic
                 }
             });

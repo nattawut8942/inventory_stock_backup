@@ -27,7 +27,7 @@ const LoginPage = () => {
             const data = await res.json();
 
             if (data.success) {
-                login(data.user);
+                login({ ...data.user, token: data.token });
                 navigate('/');
             } else {
                 setError(data.message || 'Login failed');

@@ -6,7 +6,7 @@
 <title>Plug Check Preview</title>
 <style>
 :root{--bg:#e9ecf2;--line:#000;--brand:#0b6bcb}
-*{box-sizing:border-box}
+*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 body{margin:0;background:var(--bg);color:#000;font:13px/1.4 "Segoe UI",Tahoma,sans-serif}
 .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 14px;background:#fff;border-bottom:1px solid #cfd5df;position:sticky;top:0;z-index:5}
 .bar h1{font-size:15px;margin:0 8px 0 0}
@@ -50,22 +50,22 @@ body{margin:0;background:var(--bg);color:#000;font:13px/1.4 "Segoe UI",Tahoma,sa
 /* check table */
 #tbl{left:825px;top:131px;width:955px;border-collapse:collapse;table-layout:fixed;font-size:11px;border:2px solid var(--line)}
 #tbl th,#tbl td{border:1px solid var(--line);padding:0;text-align:center;white-space:nowrap;overflow:hidden}
-#tbl th{height:35px;font-weight:400;font-size:11px;line-height:1.2;white-space:normal}
+#tbl th{height:36px;font-weight:400;font-size:10.5px;line-height:1.05;white-space:normal}
 #tbl th.mo{font-weight:700;font-size:10.5px}
 #tbl th.cur{background:#cfe3fb}
-#tbl td{height:32px}
+#tbl td{height:31px}
 #tbl td.tp{vertical-align:top;text-align:left;padding:1px 2px;line-height:14px}
 #tbl td.tp.c{text-align:center}
 #tbl td.sub{vertical-align:top}
-#tbl td.sub div{height:15.5px;line-height:15px;text-align:left;padding-left:1px}
+#tbl td.sub div{height:14px;line-height:14px;text-align:left;padding-left:1px}
 #tbl td.sub div+div{border-top:1px solid var(--line)}
 #tbl td.m{cursor:pointer;position:relative}
 #tbl td.m:hover{background:rgba(11,107,203,.12)}
-.num{display:flex;margin:0 auto;width:32px;height:27px;border:1px solid #000;border-radius:50%;align-items:flex-end;justify-content:center;font:10px Arial,sans-serif;padding-bottom:2px}
+.num{display:flex;margin:0 auto;width:32px;height:26px;border:1px solid #000;border-radius:50%;align-items:flex-end;justify-content:center;font:10px Arial,sans-serif;padding-bottom:2px}
 .cam{position:absolute;right:2px;bottom:2px;width:5px;height:5px;border-radius:50%;background:#2563eb}
-#tbl tr.sig td{height:31px;line-height:1}
+#tbl tr.sig td{height:38px;line-height:1}
 #tbl tr.sig td.lb{font-weight:700;font-size:13px}
-#tbl tr.sig td>div,#tbl tr.sig td>button{max-height:29px;overflow:hidden}
+#tbl tr.sig td>div,#tbl tr.sig td>button{max-height:36px;overflow:hidden}
 .sigcell{font-family:"Segoe Script","Brush Script MT",cursive;font-size:10px;color:#1d4ed8;line-height:1.05;white-space:normal}
 .sigcell small{display:block;font:7px "Segoe UI",sans-serif;color:#555}
 .sigbtn{display:block;margin:0 auto;font:10px "Segoe UI",sans-serif;padding:1px 4px;border:1px solid #c5ccd8;border-radius:4px;background:#fff;cursor:pointer}
@@ -91,7 +91,9 @@ body{margin:0;background:var(--bg);color:#000;font:13px/1.4 "Segoe UI",Tahoma,sa
 .pn .imgslot img{width:100%;height:100%;object-fit:contain}
 .pn textarea{display:block;margin:0 10px;width:calc(100% - 20px);border:1px solid transparent;resize:none;font:12.5px/18px "Times New Roman","Leelawadee UI",serif;background:transparent;overflow:hidden}
 .pn textarea:hover,.pn textarea:focus{border-color:#bbb}
-#notes{left:1060px;top:868px;width:720px;height:347px;background:repeating-linear-gradient(transparent 0 15px,#bdbdbd 15px 16px)}
+#notes{left:1060px;top:868px;width:720px;height:347px;border-right:1px solid #fff}
+#notes .ln{height:16px;border-bottom:1px solid #aaa}
+#notes textarea{position:absolute;inset:0}
 #notes textarea{width:100%;height:100%;border:0;background:transparent;font:13px/16px "Times New Roman","Leelawadee UI",serif;resize:none;padding:0 6px;overflow:hidden}
 #foot{left:20px;top:1229px;width:1760px;height:33px;border:2px solid #000;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center}
 
@@ -168,7 +170,7 @@ body{margin:0;background:var(--bg);color:#000;font:13px/1.4 "Segoe UI",Tahoma,sa
  <div id="stdBox" class="ab"><div id="stdGrid"></div></div>
  <div id="pn1" class="ab pn" style="left:440px;top:868px;width:355px;height:347px;border-right:0"></div>
  <div id="pn2" class="ab pn" style="left:795px;top:868px;width:265px;height:347px;border-left:0"></div>
- <div id="notes" class="ab"><textarea title="หมายเหตุ"></textarea></div>
+ <div id="notes" class="ab"><div id="lines"></div><textarea title="หมายเหตุ"></textarea></div>
  <div id="foot" class="ab">DAIKIN COMPRESSOR INDUSTRIES LTD.</div>
 </div>
 </div>
@@ -224,6 +226,7 @@ const shapeSvg=(s,c='#2b64b8')=>({
 const stdOf=k=>std.find(s=>s.key===k)||std[0];
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
+$('lines').innerHTML=Array(22).fill('<div class="ln"></div>').join('');
 function fit(){const w=$('wrap').clientWidth-24;$('page').style.zoom=Math.min(1,w/1800)}
 addEventListener('resize',fit);
 
