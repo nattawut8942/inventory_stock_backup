@@ -5,7 +5,7 @@ import {
     getAreas, createArea, updateArea, deleteArea, uploadAreaImage,
     getStandards, createStandard, updateStandard, deleteStandard, uploadStandardImage,
     getPoints, createPoint, updatePoint, deletePoint, uploadPointImage, clearPointImage,
-    getSheets, getSheet, createSheet, syncSheet, saveResults, uploadResultPhoto, updateSheetNotes,
+    getSheets, getSheet, createSheet, syncSheet, refreshSheet, saveResults, uploadResultPhoto, updateSheetNotes,
     signMonth, unlockMonth
 } from '../controllers/plugCheckController.js';
 
@@ -42,6 +42,7 @@ router.get('/plug/sheets', getSheets);
 router.get('/plug/sheets/:id', getSheet);
 router.post('/plug/sheets', verifyToken, createSheet);
 router.post('/plug/sheets/:id/sync', verifyToken, syncSheet);
+router.post('/plug/sheets/:id/refresh', ...staff, refreshSheet);
 router.put('/plug/sheets/:id/results', verifyToken, saveResults);
 router.post('/plug/sheets/:id/photo', verifyToken, uploadResultPhoto);
 router.put('/plug/sheets/:id/notes', verifyToken, updateSheetNotes);

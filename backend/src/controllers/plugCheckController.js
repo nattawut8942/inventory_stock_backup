@@ -450,6 +450,49 @@ export const createSheet = wrap('createSheet', async (req, res) => {
     }
 });
 
+// Re-copy appearance data (standards, images, panels, layout, point photos/positions) from the master into an existing sheet.
+// Results and signatures are kept; only descriptive fields change.
+export const refreshSheet = wrap('refreshSheet', async (req, res) => {
+    const pool = getPool();
+    const sheetRes = await pool.request().input('id', sql.Int, req.params.id)
+        .query('SELECT SheetID, AreaID FROM dbo.Stock_PlugSheets WHERE SheetID = @id');
+    if (!sheetRes.recordset.length) return res.status(404).json({ success: false, error: 'Sheet not found' });
+    const { SheetID, AreaID } = sheetRes.recordset[0];
+
+    const areaRes = await pool.request().input('a', sql.Int, AreaID).query(`
+        SELECT ${AREA_COLS} FROM dbo.Stock_PlugAreas a JOIN dbo.Stock_PlugFactories f ON f.FactoryID = a.FactoryID
+        WHERE a.AreaID = @a`);
+    const area = areaRes.recordset[0];
+    const stds = await pool.request().query(
+        'SELECT Code, Name, Shape, ImageUrl FROM dbo.Stock_PlugStandards WHERE IsActive = 1 ORDER BY SortOrder, Code');
+
+    const snapshot = {
+        factoryName: area.FactoryName,
+        areaName: area.AreaName,
+        deptName: area.DeptName,
+        layoutCaption: area.LayoutCaption,
+        layoutImage: area.LayoutImage,
+        standards: stds.recordset.map(s => ({ code: s.Code, name: s.Name, shape: s.Shape, imageUrl: s.ImageUrl })),
+        panels: [
+            { title: area.Panel1Title, imageUrl: area.Panel1Image, caption: area.Panel1Caption },
+            { title: area.Panel2Title, imageUrl: area.Panel2Image, caption: area.Panel2Caption }
+        ]
+    };
+
+    await pool.request()
+        .input('id', sql.Int, SheetID)
+        .input('snap', sql.NVarChar(sql.MAX), JSON.stringify(snapshot))
+        .query('UPDATE dbo.Stock_PlugSheets SET SnapshotJson = @snap WHERE SheetID = @id');
+    const upd = await pool.request().input('id', sql.Int, SheetID).query(`
+        UPDATE sp SET sp.PointName = p.PointName, sp.StdCode = p.StdCode, sp.PosX = p.PosX, sp.PosY = p.PosY,
+            sp.Method1 = p.Method1, sp.Method2 = p.Method2, sp.Tool1 = p.Tool1, sp.Tool2 = p.Tool2, sp.ImageUrl = p.ImageUrl
+        FROM dbo.Stock_PlugSheetPoints sp JOIN dbo.Stock_PlugPoints p ON p.PointID = sp.PointID
+        WHERE sp.SheetID = @id;
+        SELECT @@ROWCOUNT AS updated;`);
+    await logAction(pool, SheetID, null, 'REFRESH_FROM_MASTER', `points ${upd.recordset[0].updated}`, req.user?.name);
+    res.json({ success: true, data: { updated: upd.recordset[0].updated } });
+});
+
 // Add master points that are not in the sheet yet (a plug added mid-year)
 export const syncSheet = wrap('syncSheet', async (req, res) => {
     const pool = getPool();

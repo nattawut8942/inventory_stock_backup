@@ -537,7 +537,7 @@ const PlugMasterTab = () => {
                                             key={p.PointID}
                                             data-pin
                                             title={`จุดที่ ${p.PointNo} · ${p.PointName}`}
-                                            className="absolute w-7 h-7 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center cursor-grab active:cursor-grabbing drop-shadow touch-none"
+                                            className="absolute w-7 h-7 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none"
                                             style={{ left: `${p.PosX}%`, top: `${p.PosY}%` }}
                                             onPointerDown={(e) => onPinPointerDown(e, p)}
                                             onPointerMove={(e) => onPinPointerMove(e, p)}
@@ -545,7 +545,7 @@ const PlugMasterTab = () => {
                                             onDoubleClick={() => editPoint(p)}
                                         >
                                             {(p.ImageUrl || std?.ImageUrl) && <img src={imgSrc(p.ImageUrl || std.ImageUrl)} alt="" draggable={false} className="absolute right-full mr-0.5 top-1/2 -translate-y-1/2 max-h-11 max-w-10 object-contain pointer-events-none" />}
-                                            <ShapeIcon shape={std?.Shape || 'circle'} className="absolute inset-0 w-full h-full" />
+                                            <ShapeIcon shape={std?.Shape || 'circle'} className="absolute inset-0 w-full h-full drop-shadow" />
                                             <span className="relative text-white text-[11px] font-bold">{p.PointNo}</span>
                                         </div>
                                     );

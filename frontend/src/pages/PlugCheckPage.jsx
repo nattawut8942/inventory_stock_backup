@@ -1,40 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Printer, PlusCircle, RefreshCw, Lock, Unlock, CheckSquare, Square, Camera, X, FilePlus2, Plug } from 'lucide-react';
+import { Printer, PlusCircle, RefreshCw, Lock, Unlock, CheckSquare, Square, Camera, X, FilePlus2, Plug, ListChecks, FileText } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { API_BASE, API_URL } from '../config/api';
+import { API_BASE } from '../config/api';
 import PhotoPicker from '../components/CameraCapture';
+import PlugChecklist from '../components/PlugChecklist';
+import { MONTHS, RESULT_INFO, SIGN_LEVELS, normPos, fyLabel, currentFiscal, imgUrl, Sym } from '../components/PlugShared';
 
-// ───────────────────────── constants ─────────────────────────
-const MONTHS = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
-const RESULT_INFO = {
-    ok: { cls: 'pcs-ok', label: 'ในมาตรฐาน' },
-    bad: { cls: 'pcs-bad', label: 'ต้องซ่อมด่วน' },
-    use: { cls: 'pcs-use', label: 'ไม่ได้มาตรฐาน แต่ใช้งานได้' },
-    fix: { cls: 'pcs-fix', label: 'ปรับแก้แล้ว อยู่ในมาตรฐาน' }
-};
-const SIGN_LEVELS = { TOP: ['TE', 'EN'], BOT: ['SE', 'S.EN', 'EN'] };
 const ROWS_PER_PAGE = 30;
 
-const normPos = (p) => String(p || '').toUpperCase().replace(/\s+/g, '').replace(/^SEN$/, 'S.EN');
-const fyLabel = (fy) => `${fy}/${String((fy + 1) % 100).padStart(2, '0')}`;
-const currentFiscal = () => {
-    const now = new Date();
-    return { fiscalYear: now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1, monthIdx: (now.getMonth() + 9) % 12 };
-};
-const imgUrl = (u) => (u ? (u.startsWith('http') ? u : `${API_URL}${u}`) : '');
-
 // ───────────────────────── svg bits ─────────────────────────
-const Sym = ({ r, size = 20 }) => {
-    const p = { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' };
-    if (r === 'ok') return <svg {...p}><circle cx="10" cy="10" r="7.5" /></svg>;
-    if (r === 'bad') return <svg {...p}><path d="M3 3L17 17M17 3L3 17" /></svg>;
-    if (r === 'use') return <svg {...p}><path d="M3 3H17L3 17H17ZM3 3L17 17" /></svg>;
-    if (r === 'fix') return <svg {...p}><circle cx="10" cy="10" r="7.5" /><path d="M5 5L15 15M15 5L5 15" /></svg>;
-    if (r === 'fixSq') return <svg {...p}><rect x="3" y="3" width="14" height="14" /><path d="M3 3L17 17M17 3L3 17" /></svg>;
-    return null;
-};
-
 const ShapeSvg = ({ shape, color = '#2b64b8' }) => {
     const p = { viewBox: '0 0 30 30' };
     switch (shape) {
@@ -66,9 +41,9 @@ const SHEET_CSS = `
 .pcs-layout{border:1px solid #000;border-top:0;overflow:hidden}
 .pcs-layout .cap{position:absolute;left:3px;top:9px;font-size:17px;line-height:17px;z-index:1;pointer-events:none;white-space:pre-line}
 .pcs-layout img.bg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
-.pcs-pin{position:absolute;transform:translate(-50%,-50%);width:28px;height:28px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));z-index:2}
+.pcs-pin{position:absolute;transform:translate(-50%,-50%);width:28px;height:28px;display:flex;align-items:center;justify-content:center;z-index:2}
 .pcs-pinimg{position:absolute;right:30px;top:50%;transform:translateY(-50%);max-height:46px;max-width:40px;object-fit:contain;filter:none}
-.pcs-pin svg{position:absolute;inset:0;width:100%;height:100%}.pcs-pin span{position:relative;color:#fff;font:700 12px Arial,sans-serif}
+.pcs-pin svg{position:absolute;inset:0;width:100%;height:100%;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}.pcs-pin span{position:relative;color:#fff;font:700 12px Arial,sans-serif}
 .pcs-tbl{border-collapse:collapse;table-layout:fixed;font-size:11px;border:2px solid #000}
 .pcs-tbl th,.pcs-tbl td{border:1px solid #000;padding:0;text-align:center;white-space:nowrap;overflow:hidden}
 .pcs-tbl th{height:36px;font-weight:400;font-size:10.5px;line-height:1.05;white-space:normal}
@@ -300,6 +275,18 @@ const SheetPage = ({
     );
 };
 
+const useIsMobile = () => {
+    const query = '(max-width: 767px)';
+    const [m, setM] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
+    useEffect(() => {
+        const mq = window.matchMedia(query);
+        const h = (e) => setM(e.matches);
+        mq.addEventListener('change', h);
+        return () => mq.removeEventListener('change', h);
+    }, []);
+    return m;
+};
+
 // ───────────────────────── main page ─────────────────────────
 const PlugCheckPage = () => {
     const { user } = useAuth();
@@ -323,6 +310,10 @@ const PlugCheckPage = () => {
     const [cell, setCell] = useState(null); // { point, month, result, note }
     const [unlockReason, setUnlockReason] = useState('');
     const [showUnlock, setShowUnlock] = useState(false);
+
+    const isMobile = useIsMobile();
+    const [view, setView] = useState(null); // 'list' | 'form' | null = auto (list on phones)
+    const mode = view ?? (isMobile ? 'list' : 'form');
 
     const wrapRef = useRef(null);
     const [zoom, setZoom] = useState(1);
@@ -447,6 +438,15 @@ const PlugCheckPage = () => {
         } catch (e) { showToast(e.message, 'error'); }
     };
 
+    const refreshFromMaster = async () => {
+        if (!window.confirm('อัปเดตรูป มาตรฐาน ผัง และข้อมูลจุดตรวจของใบนี้ให้ตรงกับ Plug Master ล่าสุด? (ผลตรวจและลายเซ็นที่บันทึกไว้ไม่ถูกแก้ไข)')) return;
+        try {
+            await authFetch(`/plug/sheets/${sheet.sheetId}/refresh`, { method: 'POST' });
+            await loadSheet(sheet.sheetId);
+            showToast('อัปเดตข้อมูลจาก Plug Master แล้ว', 'success');
+        } catch (e) { showToast(e.message, 'error'); }
+    };
+
     const saveResults = async (monthIdx, items, ow = true) => {
         const d = await authFetch(`/plug/sheets/${sheet.sheetId}/results`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -469,16 +469,41 @@ const PlugCheckPage = () => {
         } catch (e) { showToast(e.message, 'error'); }
     };
 
-    const uploadPhoto = async (file) => {
-        if (!file || !cell) return;
+    const uploadPointPhoto = async (point, month, file) => {
+        if (!file) return null;
         try {
             const fd = new FormData();
             fd.append('image', file);
-            fd.append('sheetPointId', cell.point.SheetPointID);
-            fd.append('monthIdx', cell.month);
+            fd.append('sheetPointId', point.SheetPointID);
+            fd.append('monthIdx', month);
             const d = await authFetch(`/plug/sheets/${sheet.sheetId}/photo`, { method: 'POST', body: fd });
-            setCell(c => ({ ...c, photo: d.data.url }));
             await loadSheet(sheet.sheetId);
+            return d.data.url;
+        } catch (e) { showToast(e.message, 'error'); return null; }
+    };
+
+    const uploadPhoto = async (file) => {
+        if (!file || !cell) return;
+        const url = await uploadPointPhoto(cell.point, cell.month, file);
+        if (url) setCell(c => ({ ...c, photo: url }));
+    };
+
+    // checklist (phone) helpers
+    const setOne = async (point, result) => {
+        try { await saveResults(bulkMonth, [{ sheetPointId: point.SheetPointID, result }], true); }
+        catch (e) { showToast(e.message, 'error'); }
+    };
+    const setNote = async (point, note) => {
+        const r = resultMap[`${point.SheetPointID}|${bulkMonth}`];
+        try { await saveResults(bulkMonth, [{ sheetPointId: point.SheetPointID, result: r?.Result || null, note }], true); }
+        catch (e) { showToast(e.message, 'error'); }
+    };
+    const fillOk = async () => {
+        const targets = (sheet.points || []).filter(p => bulkMonth >= p.StartMonth);
+        if (!window.confirm(`ตั้ง "ปกติ" ให้ทุกจุดที่ยังว่างของเดือน ${MONTHS[bulkMonth]} ?`)) return;
+        try {
+            const changed = await saveResults(bulkMonth, targets.map(p => ({ sheetPointId: p.SheetPointID, result: 'ok' })), false);
+            showToast(`บันทึก ${changed} จุด`, 'success');
         } catch (e) { showToast(e.message, 'error'); }
     };
 
@@ -576,9 +601,18 @@ const PlugCheckPage = () => {
                     </select>
                     {sheet && (
                         <>
+                            <div className="flex bg-slate-100 p-1 rounded-xl">
+                                <button onClick={() => setView('list')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${mode === 'list' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}><ListChecks size={16} /> ลิสต์ตรวจ</button>
+                                <button onClick={() => setView('form')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${mode === 'form' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}><FileText size={16} /> ฟอร์ม</button>
+                            </div>
                             <button onClick={syncPoints} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl text-sm font-bold hover:border-indigo-400" title="เพิ่มจุดตรวจใหม่จาก Plug Master เข้าใบนี้">
                                 <RefreshCw size={16} /> เพิ่มจุดใหม่เข้าใบ
                             </button>
+                            {user?.role === 'Staff' && (
+                                <button onClick={refreshFromMaster} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl text-sm font-bold hover:border-indigo-400" title="ดึงรูป/มาตรฐาน/ผัง/จุดตรวจล่าสุดจาก Plug Master มาใส่ใบนี้">
+                                    <RefreshCw size={16} /> อัปเดตจาก Master
+                                </button>
+                            )}
                             <button onClick={() => window.print()} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700">
                                 <Printer size={16} /> พิมพ์ A3
                             </button>
@@ -604,8 +638,19 @@ const PlugCheckPage = () => {
                 </div>
             )}
 
+            {/* Phone-friendly checklist */}
+            {sheet && mode === 'list' && (
+                <PlugChecklist
+                    sheet={sheet} month={bulkMonth} setMonth={setBulkMonth}
+                    resultMap={resultMap} signMap={signMap} lockedMonths={lockedMonths}
+                    position={position} canUnlock={canUnlock}
+                    onSet={setOne} onNote={setNote} onPhoto={(p, f) => uploadPointPhoto(p, bulkMonth, f)}
+                    onFillOk={fillOk} onSign={(slot) => onSign(slot, bulkMonth)} onUnlock={() => setShowUnlock(true)}
+                />
+            )}
+
             {/* Bulk toolbar */}
-            {sheet && (
+            {sheet && mode === 'form' && (
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
                     <div className="flex flex-wrap items-center gap-3">
                         <span className="text-sm font-black text-slate-700">ติ๊กทีเดียวทั้งเดือน</span>
@@ -642,7 +687,7 @@ const PlugCheckPage = () => {
             )}
 
             {/* Sheet (screen) */}
-            {sheet && (
+            {sheet && mode === 'form' && (
                 <div ref={wrapRef} className="bg-slate-200/60 rounded-2xl p-2 overflow-hidden">
                     {pages.map((chunk, idx) => (
                         <div key={idx} style={{ marginBottom: idx < pages.length - 1 ? 12 : 0 }}>
