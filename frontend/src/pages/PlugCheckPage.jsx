@@ -66,6 +66,7 @@ const SHEET_CSS = `
 .pcs-layout .cap{position:absolute;left:3px;top:9px;font-size:17px;line-height:17px;z-index:1;pointer-events:none;white-space:pre-line}
 .pcs-layout img.bg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 .pcs-pin{position:absolute;transform:translate(-50%,-50%);width:28px;height:28px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));z-index:2}
+.pcs-pinimg{position:absolute;right:30px;top:50%;transform:translateY(-50%);max-height:46px;max-width:40px;object-fit:contain;filter:none}
 .pcs-pin svg{position:absolute;inset:0;width:100%;height:100%}.pcs-pin span{position:relative;color:#fff;font:700 12px Arial,sans-serif}
 .pcs-tbl{border-collapse:collapse;table-layout:fixed;font-size:11px;border:2px solid #000}
 .pcs-tbl th,.pcs-tbl td{border:1px solid #000;padding:0;text-align:center;white-space:nowrap;overflow:hidden}
@@ -171,6 +172,7 @@ const SheetPage = ({
                         {snap.layoutImage && <img className="bg" src={imgUrl(snap.layoutImage)} alt="" />}
                         {sheet.points.filter(p => p.PosX != null && p.PosY != null).map(p => (
                             <div key={p.SheetPointID} className="pcs-pin" style={{ left: `${p.PosX}%`, top: `${p.PosY}%` }} title={p.PointName}>
+                                {(p.ImageUrl || stdByCode[p.StdCode]?.imageUrl) && <img className="pcs-pinimg" src={imgUrl(p.ImageUrl || stdByCode[p.StdCode].imageUrl)} alt="" />}
                                 <ShapeSvg shape={stdByCode[p.StdCode]?.shape} />
                                 <span>{p.PointNo}</span>
                             </div>

@@ -27,6 +27,7 @@ const runMigrations = async () => {
             { file: '008_add_soft_delete_to_ma_items.sql', label: 'Migration 008: Add soft delete to MA_Items' },
             { file: '009_add_location_to_printers.sql', label: 'Migration 009: Add factory layout position to Printers' },
             { file: '010_create_plug_check_tables.sql', label: 'Migration 010: Create Plug Check tables' },
+            { file: '011_add_image_to_plug_points.sql', label: 'Migration 011: Add image to Plug Check points' },
         ];
 
         for (const { file, label } of migrations) {

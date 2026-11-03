@@ -4,7 +4,7 @@ import {
     getFactories, createFactory, updateFactory, deleteFactory,
     getAreas, createArea, updateArea, deleteArea, uploadAreaImage,
     getStandards, createStandard, updateStandard, deleteStandard, uploadStandardImage,
-    getPoints, createPoint, updatePoint, deletePoint,
+    getPoints, createPoint, updatePoint, deletePoint, uploadPointImage, clearPointImage,
     getSheets, getSheet, createSheet, syncSheet, saveResults, uploadResultPhoto, updateSheetNotes,
     signMonth, unlockMonth
 } from '../controllers/plugCheckController.js';
@@ -34,6 +34,8 @@ router.get('/plug/areas/:id/points', getPoints);
 router.post('/plug/areas/:id/points', ...staff, createPoint);
 router.put('/plug/points/:id', ...staff, updatePoint);
 router.delete('/plug/points/:id', ...staff, deletePoint);
+router.post('/plug/points/:id/image', ...staff, uploadPointImage);
+router.delete('/plug/points/:id/image', ...staff, clearPointImage);
 
 // ---- Check sheets (any logged-in user; sign level is checked from the login Position) ----
 router.get('/plug/sheets', getSheets);

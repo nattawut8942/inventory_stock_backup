@@ -252,7 +252,7 @@ export const uploadStandardImage = wrap('uploadStandardImage', async (req, res) 
 
 export const getPoints = wrap('getPoints', async (req, res) => {
     const r = await getPool().request().input('areaId', sql.Int, req.params.id).query(`
-        SELECT PointID, AreaID, PointNo, PointName, StdCode, PosX, PosY, Method1, Method2, Tool1, Tool2
+        SELECT PointID, AreaID, PointNo, PointName, StdCode, PosX, PosY, Method1, Method2, Tool1, Tool2, ImageUrl
         FROM dbo.Stock_PlugPoints WHERE AreaID = @areaId AND IsActive = 1 ORDER BY PointNo`);
     res.json({ success: true, data: r.recordset });
 });
@@ -306,6 +306,22 @@ export const deletePoint = wrap('deletePoint', async (req, res) => {
     res.json({ success: true });
 });
 
+export const uploadPointImage = wrap('uploadPointImage', async (req, res) => {
+    let url;
+    try { url = await saveImage(req.files?.image); } catch (e) { return fail(res, e); }
+    await getPool().request()
+        .input('id', sql.Int, req.params.id)
+        .input('url', sql.NVarChar(500), url)
+        .query('UPDATE dbo.Stock_PlugPoints SET ImageUrl = @url WHERE PointID = @id');
+    res.json({ success: true, data: { url } });
+});
+
+export const clearPointImage = wrap('clearPointImage', async (req, res) => {
+    await getPool().request().input('id', sql.Int, req.params.id)
+        .query('UPDATE dbo.Stock_PlugPoints SET ImageUrl = NULL WHERE PointID = @id');
+    res.json({ success: true });
+});
+
 // ============================== SHEETS ==============================
 
 const lockedMonths = async (pool, sheetId) => {
@@ -329,7 +345,7 @@ export const getSheet = wrap('getSheet', async (req, res) => {
 
     const [points, results, signs] = await Promise.all([
         pool.request().input('id', sql.Int, s.SheetID).query(`
-            SELECT SheetPointID, PointID, PointNo, PointName, StdCode, PosX, PosY, Method1, Method2, Tool1, Tool2, StartMonth
+            SELECT SheetPointID, PointID, PointNo, PointName, StdCode, PosX, PosY, Method1, Method2, Tool1, Tool2, ImageUrl, StartMonth
             FROM dbo.Stock_PlugSheetPoints WHERE SheetID = @id ORDER BY PointNo`),
         pool.request().input('id', sql.Int, s.SheetID).query(`
             SELECT r.SheetPointID, r.MonthIdx, r.Result, r.Note, r.PhotoUrl, r.CheckedBy, r.CheckedAt
@@ -373,7 +389,7 @@ export const createSheet = wrap('createSheet', async (req, res) => {
     const area = areaRes.recordset[0];
 
     const pts = await pool.request().input('a', sql.Int, areaId).query(`
-        SELECT PointID, PointNo, PointName, StdCode, PosX, PosY, Method1, Method2, Tool1, Tool2
+        SELECT PointID, PointNo, PointName, StdCode, PosX, PosY, Method1, Method2, Tool1, Tool2, ImageUrl
         FROM dbo.Stock_PlugPoints WHERE AreaID = @a AND IsActive = 1 ORDER BY PointNo`);
     if (!pts.recordset.length) {
         return res.status(400).json({ success: false, error: 'พื้นที่นี้ยังไม่มีจุดตรวจ (เพิ่มได้ที่ Management > Plug Master)' });
@@ -420,9 +436,10 @@ export const createSheet = wrap('createSheet', async (req, res) => {
                 .input('Method2', sql.NVarChar(150), p.Method2)
                 .input('Tool1', sql.NVarChar(100), p.Tool1)
                 .input('Tool2', sql.NVarChar(100), p.Tool2)
+                .input('ImageUrl', sql.NVarChar(500), p.ImageUrl)
                 .query(`INSERT INTO dbo.Stock_PlugSheetPoints
-                        (SheetID, PointID, PointNo, PointName, StdCode, PosX, PosY, Method1, Method2, Tool1, Tool2)
-                        VALUES (@SheetID, @PointID, @PointNo, @PointName, @StdCode, @PosX, @PosY, @Method1, @Method2, @Tool1, @Tool2)`);
+                        (SheetID, PointID, PointNo, PointName, StdCode, PosX, PosY, Method1, Method2, Tool1, Tool2, ImageUrl)
+                        VALUES (@SheetID, @PointID, @PointNo, @PointName, @StdCode, @PosX, @PosY, @Method1, @Method2, @Tool1, @Tool2, @ImageUrl)`);
         }
         await tx.commit();
         await logAction(pool, sheetId, null, 'CREATE_SHEET', `FY${fiscalYear} area ${areaId}`, req.user?.name);
@@ -450,8 +467,8 @@ export const syncSheet = wrap('syncSheet', async (req, res) => {
         .input('AreaID', sql.Int, sheet.AreaID)
         .input('StartMonth', sql.Int, startMonth)
         .query(`
-            INSERT INTO dbo.Stock_PlugSheetPoints (SheetID, PointID, PointNo, PointName, StdCode, PosX, PosY, Method1, Method2, Tool1, Tool2, StartMonth)
-            SELECT @SheetID, p.PointID, p.PointNo, p.PointName, p.StdCode, p.PosX, p.PosY, p.Method1, p.Method2, p.Tool1, p.Tool2, @StartMonth
+            INSERT INTO dbo.Stock_PlugSheetPoints (SheetID, PointID, PointNo, PointName, StdCode, PosX, PosY, Method1, Method2, Tool1, Tool2, ImageUrl, StartMonth)
+            SELECT @SheetID, p.PointID, p.PointNo, p.PointName, p.StdCode, p.PosX, p.PosY, p.Method1, p.Method2, p.Tool1, p.Tool2, p.ImageUrl, @StartMonth
             FROM dbo.Stock_PlugPoints p
             WHERE p.AreaID = @AreaID AND p.IsActive = 1
               AND NOT EXISTS (SELECT 1 FROM dbo.Stock_PlugSheetPoints sp WHERE sp.SheetID = @SheetID AND sp.PointID = p.PointID);

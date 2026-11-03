@@ -26,7 +26,15 @@ const ShapeIcon = ({ shape, color = '#2b64b8', className = 'w-7 h-7' }) => {
 
 const imgSrc = (url) => (url ? `${API_URL}${url}` : '');
 
-const inputCls = 'w-full bg-white border border-slate-200 px-3 py-2 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100';
+// Quick-pick names for check points: ปลั๊กไฟ 2..12 เต้ารับ
+const POINT_NAME_PRESETS = Array.from({ length: 11 }, (_, i) => `ปลั๊กไฟ ${i + 2} เต้ารับ`);
+const CUSTOM_NAME = '__custom__';
+// "แบบ A — Panasonic WCHG-28352" (first line of the standard's name)
+const stdLabel = (s) => {
+    const first = String(s.Name || '').split('\n')[0].trim();
+    return first ? `แบบ ${s.Code} — ${first}` : `แบบ ${s.Code}`;
+};
+const inputCls ='w-full bg-white border border-slate-200 px-3 py-2 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100';
 const btnPri = 'flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all';
 const btnGhost = 'flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors';
 
@@ -283,6 +291,16 @@ const PlugMasterTab = () => {
         const ok = m.mode === 'edit'
             ? await request(`/plug/points/${m.pointId}`, { method: 'PUT', json })
             : await request(`/plug/areas/${areaId}/points`, { method: 'POST', json });
+        if (ok) {
+            const pointId = m.mode === 'edit' ? m.pointId : ok.PointID;
+            if (pointId && m.imageFile) {
+                const form = new FormData();
+                form.append('image', m.imageFile);
+                await request(`/plug/points/${pointId}/image`, { method: 'POST', form });
+            } else if (pointId && m.removeImage) {
+                await request(`/plug/points/${pointId}/image`, { method: 'DELETE' });
+            }
+        }
         setBusy(false);
         if (ok) { setPointModal(null); loadPoints(areaId); }
     };
@@ -290,7 +308,8 @@ const PlugMasterTab = () => {
     const editPoint = (p) => setPointModal({
         mode: 'edit', pointId: p.PointID, pointName: p.PointName, stdCode: p.StdCode || '',
         posX: p.PosX, posY: p.PosY, method1: p.Method1 || '', method2: p.Method2 || '',
-        tool1: p.Tool1 || '', tool2: p.Tool2 || ''
+        tool1: p.Tool1 || '', tool2: p.Tool2 || '',
+        imageUrl: p.ImageUrl || '', imageFile: null, imagePreview: '', removeImage: false
     });
 
     const removePoint = (p) => confirmAction(`ลบจุดตรวจที่ ${p.PointNo} "${p.PointName}" ? (ใบตรวจเก่ายังคงข้อมูลเดิม)`, async () => {
@@ -497,7 +516,7 @@ const PlugMasterTab = () => {
                                     <MapPin size={14} /> {placing ? 'กำลังวางปลั๊ก (คลิกบนผัง)' : 'วางปลั๊ก'}
                                 </button>
                                 <select className={`${inputCls} max-w-[200px]`} value={placeStd} onChange={(e) => setPlaceStd(e.target.value)}>
-                                    {standards.map(s => <option key={s.Code} value={s.Code}>แบบ {s.Code}</option>)}
+                                    {standards.map(s => <option key={s.Code} value={s.Code}>{stdLabel(s)}</option>)}
                                 </select>
                                 <span className="text-[11px] text-slate-400">ลากหมุดเพื่อย้าย · ดับเบิลคลิกเพื่อแก้ไข</span>
                             </div>
@@ -524,6 +543,7 @@ const PlugMasterTab = () => {
                                             onPointerUp={(e) => onPinPointerUp(e, p)}
                                             onDoubleClick={() => editPoint(p)}
                                         >
+                                            {(p.ImageUrl || std?.ImageUrl) && <img src={imgSrc(p.ImageUrl || std.ImageUrl)} alt="" draggable={false} className="absolute right-full mr-0.5 top-1/2 -translate-y-1/2 max-h-11 max-w-10 object-contain pointer-events-none" />}
                                             <ShapeIcon shape={std?.Shape || 'circle'} className="absolute inset-0 w-full h-full" />
                                             <span className="relative text-white text-[11px] font-bold">{p.PointNo}</span>
                                         </div>
@@ -622,12 +642,21 @@ const PlugMasterTab = () => {
             {pointModal && (
                 <ModalShell title={pointModal.mode === 'edit' ? 'แก้ไขจุดตรวจ' : 'เพิ่มจุดตรวจ'} onClose={() => setPointModal(null)}>
                     <Field label="ชื่อจุดตรวจ">
-                        <input autoFocus className={inputCls} value={pointModal.pointName} onChange={(e) => setPointModal({ ...pointModal, pointName: e.target.value })} />
+                        <select className={inputCls}
+                            value={POINT_NAME_PRESETS.includes(pointModal.pointName) ? pointModal.pointName : CUSTOM_NAME}
+                            onChange={(e) => setPointModal({ ...pointModal, pointName: e.target.value === CUSTOM_NAME ? '' : e.target.value })}>
+                            {POINT_NAME_PRESETS.map(n => <option key={n} value={n}>{n}</option>)}
+                            <option value={CUSTOM_NAME}>อื่นๆ (พิมพ์เอง)</option>
+                        </select>
+                        {!POINT_NAME_PRESETS.includes(pointModal.pointName) && (
+                            <input autoFocus className={`${inputCls} mt-2`} placeholder="พิมพ์ชื่อจุดตรวจ" value={pointModal.pointName}
+                                onChange={(e) => setPointModal({ ...pointModal, pointName: e.target.value })} />
+                        )}
                     </Field>
                     <Field label="มาตรฐานเต้ารับ">
                         <select className={inputCls} value={pointModal.stdCode || ''} onChange={(e) => setPointModal({ ...pointModal, stdCode: e.target.value })}>
                             <option value="">— ไม่ระบุ —</option>
-                            {standards.map(s => <option key={s.Code} value={s.Code}>แบบ {s.Code}</option>)}
+                            {standards.map(s => <option key={s.Code} value={s.Code}>{stdLabel(s)}</option>)}
                         </select>
                     </Field>
                     <div className="grid grid-cols-2 gap-3">
@@ -636,6 +665,33 @@ const PlugMasterTab = () => {
                         <Field label="วิธีการ 2"><input className={inputCls} value={pointModal.method2} onChange={(e) => setPointModal({ ...pointModal, method2: e.target.value })} /></Field>
                         <Field label="เครื่องมือ 2"><input className={inputCls} value={pointModal.tool2} onChange={(e) => setPointModal({ ...pointModal, tool2: e.target.value })} /></Field>
                     </div>
+                    <Field label="รูปปลั๊กของจุดนี้ (ไม่บังคับ — ถ้าไม่ใส่จะใช้รูปของมาตรฐาน)">
+                        {(() => {
+                            const stdImg = standards.find(x => x.Code === pointModal.stdCode)?.ImageUrl;
+                            const shown = pointModal.imagePreview || (!pointModal.removeImage && pointModal.imageUrl ? imgSrc(pointModal.imageUrl) : '');
+                            const fallback = !shown && stdImg ? imgSrc(stdImg) : '';
+                            return (
+                                <div className="flex items-center gap-3">
+                                    <div className="w-16 h-16 border border-dashed border-slate-300 rounded-lg flex items-center justify-center overflow-hidden bg-slate-50">
+                                        {(shown || fallback)
+                                            ? <img src={shown || fallback} alt="" className={`max-w-full max-h-full object-contain ${shown ? '' : 'opacity-50'}`} />
+                                            : <span className="text-[10px] text-slate-400">ไม่มีรูป</span>}
+                                    </div>
+                                    <label className={`${btnGhost} cursor-pointer`}>
+                                        เลือกรูป
+                                        <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                                            const f = e.target.files?.[0];
+                                            if (f) setPointModal({ ...pointModal, imageFile: f, imagePreview: URL.createObjectURL(f), removeImage: false });
+                                            e.target.value = '';
+                                        }} />
+                                    </label>
+                                    {(shown) && (
+                                        <button type="button" className={btnGhost} onClick={() => setPointModal({ ...pointModal, imageFile: null, imagePreview: '', removeImage: true })}>ลบรูป</button>
+                                    )}
+                                </div>
+                            );
+                        })()}
+                    </Field>
                     <div className="flex justify-end gap-2 mt-2">
                         <button className={btnGhost} onClick={() => setPointModal(null)}>ยกเลิก</button>
                         <button className={btnPri} disabled={busy} onClick={savePoint}><Check size={16} /> บันทึก</button>
