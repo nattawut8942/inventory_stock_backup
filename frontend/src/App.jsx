@@ -10,7 +10,6 @@ import ProtectedRoute from './components/ProtectedRoute';
 
 // Pages
 import LoginPage from './pages/LoginPage';
-import PlugCheckPage from './pages/PlugCheckPage';
 import DashboardPage from './pages/DashboardPage';
 import InventoryPage from './pages/InventoryPage';
 import ManualImportPage from './pages/ManualImportPage';
@@ -67,7 +66,6 @@ const AppRoutes = () => {
                 <Route path="history" element={<HistoryPage />} />
                 <Route path="reports" element={<ReportPage />} />
                 <Route path="ma-license" element={<MALicensePage />} />
-                <Route path="plug-check" element={<PlugCheckPage />} />
                 <Route path="pc-inventory" element={<PCInventoryPage />} />
                 <Route path="ad-explorer" element={<ADExplorer />} />
                 <Route path="ad-explorer/user/:username" element={<ADUserDetail />} />

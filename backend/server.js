@@ -49,7 +49,6 @@ import kbRoutes from './src/routes/kbRoutes.js';
 import activityRoutes from './src/routes/activityRoutes.js';
 import fileUpload from 'express-fileupload';
 import printerRoutes from './src/routes/printerRoutes.js';
-import plugCheckRoutes from './src/routes/plugCheckRoutes.js';
 import { startPrinterScanCron, runPrinterScan } from './src/services/printerScanService.js';
 import cctvCaptureRoutes from './src/cctv/cctvCaptureRoutes.js';
 import { startCaptureCron } from './src/cctv/cctvCaptureCron.js';
@@ -73,7 +72,6 @@ const folders = [
     'uploads/factory-layouts',
     'uploads/pc-images',
     'uploads/cctv-icons',
-    'uploads/plug-check',
     'public',
     'public/kb-pdfs',
 ];
@@ -179,7 +177,6 @@ const startServer = async () => {
         app.use('/ITinventory/api/knowledge-base', kbRoutes);
         app.use('/ITinventory/api', activityRoutes); 
         app.use('/ITinventory/api', printerRoutes);
-        app.use('/ITinventory/api', plugCheckRoutes);
 
         // ── Cron: Printer toner/error scan (08:00, 13:00, 18:00) ─────────
         startPrinterScanCron();

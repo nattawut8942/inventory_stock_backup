@@ -26,8 +26,6 @@ const runMigrations = async () => {
             { file: '007_add_location_to_ma_items.sql', label: 'Migration 007: Add factory layout position to MA_Items' },
             { file: '008_add_soft_delete_to_ma_items.sql', label: 'Migration 008: Add soft delete to MA_Items' },
             { file: '009_add_location_to_printers.sql', label: 'Migration 009: Add factory layout position to Printers' },
-            { file: '010_create_plug_check_tables.sql', label: 'Migration 010: Create Plug Check tables' },
-            { file: '011_add_image_to_plug_points.sql', label: 'Migration 011: Add image to Plug Check points' },
         ];
 
         for (const { file, label } of migrations) {
@@ -42,12 +40,9 @@ const runMigrations = async () => {
             const sql = fs.readFileSync(migrationPath, 'utf8');
             console.log(`📝 Running ${label}...`);
 
-            // Execute as one batch (don't split by semicolon); only split on standalone GO lines
+            // Execute the entire SQL as one batch (don't split by semicolon)
             try {
-                const batches = sql.split(/^\s*GO\s*$/im).filter(b => b.trim());
-                for (const batch of batches) {
-                    await pool.request().query(batch);
-                }
+                await pool.request().query(sql);
                 console.log(`✅ ${label} completed successfully\n`);
             } catch (err) {
                 console.warn(`⚠️  ${label}: ${err.message.substring(0, 150)}`);
