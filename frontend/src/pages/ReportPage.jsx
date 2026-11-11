@@ -232,7 +232,8 @@ const ReportPage = () => {
     const transactionCount = (transactions || []).filter(isCountedMovement).length;
 
     // MA Stats
-    const activeMACount = maItems.filter(i => i.Status === 'Active').length;
+    // Active = ยังไม่ยกเลิก/Pending และยังไม่หมดอายุ (Expiring/Expired คำนวณจาก EndDate)
+    const activeMACount = maItems.filter(i => i.Status !== 'Cancelled' && i.Status !== 'Pending' && (!i.EndDate || new Date(i.EndDate) >= new Date(new Date().toDateString()))).length;
     const maAlerts = useMemo(() => {
         return maItems
             .filter(ma => {

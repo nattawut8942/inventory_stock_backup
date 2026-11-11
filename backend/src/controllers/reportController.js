@@ -334,7 +334,8 @@ export const exportReport = async (req, res) => {
 
                         let maQuery = `
                         SELECT m.Category, m.ItemName, m.SubType, m.Brand, m.SerialNumber, 
-                               m.PONumber, v.VendorName, m.ServiceNumber, m.StartDate, m.EndDate, m.Price, m.Status
+                               m.PONumber, v.VendorName, m.ServiceNumber, m.StartDate, m.EndDate, m.Price, m.Status,
+                               m.RenewalStatus, m.PRNumber, m.NewPONumber, m.RenewalUpdatedBy, m.RenewalUpdatedAt, m.LastRenewedBy, m.LastRenewedAt
                         FROM dbo.MA_Items m
                         LEFT JOIN dbo.Stock_Vendors v ON m.VendorID = v.VendorID
                         WHERE 1=1
@@ -355,10 +356,25 @@ export const exportReport = async (req, res) => {
                             'ผู้รับเหมา (Vendor)': row.VendorName || '-',
                             'วันเริ่มสัญญา': row.StartDate ? new Date(row.StartDate).toLocaleDateString('th-TH') : '-',
                             'วันสิ้นสุดสัญญา': row.EndDate ? new Date(row.EndDate).toLocaleDateString('th-TH') : '-',
-                            'สถานะ': row.Status === 'Active' ? '✅ ใช้งานอยู่' :
-                                row.Status === 'Expiring' ? '⚠️ ใกล้หมดอายุ' :
-                                    row.Status === 'Expired' ? '❌ หมดอายุแล้ว' :
-                                        row.Status === 'Cancelled' ? '⛔ ยกเลิก' : row.Status,
+                            // Expiring / Expired คำนวณจาก EndDate (เหมือนหน้า MA/License)
+                            'สถานะ': (() => {
+                                if (row.Status === 'Cancelled') return '⛔ ยกเลิก';
+                                if (row.Status === 'Pending') return '⏳ Pending';
+                                if (!row.EndDate) return '✅ ใช้งานอยู่';
+                                const today = new Date(); today.setHours(0, 0, 0, 0);
+                                const end = new Date(row.EndDate); end.setHours(0, 0, 0, 0);
+                                const days = Math.ceil((end - today) / 86400000);
+                                if (days <= 0) return '❌ หมดอายุแล้ว';
+                                if (days <= 60) return '⚠️ ใกล้หมดอายุ';
+                                return '✅ ใช้งานอยู่';
+                            })(),
+                            'สถานะต่ออายุ': ({ QUOTATION: 'ขอใบเสนอราคา', PR_CREATED: 'เปิด PR แล้ว', WAITING_PO: 'รอ PO ออก', PO_ISSUED: 'ออก PO แล้ว' })[row.RenewalStatus] || '-',
+                            'เลขที่ PR': row.PRNumber || '-',
+                            'เลขที่ PO ใหม่': row.NewPONumber || '-',
+                            'ผู้เปลี่ยนสถานะต่ออายุ': row.RenewalUpdatedBy || '-',
+                            'ต่ออายุล่าสุดโดย': row.LastRenewedBy || '-',
+                            'วันที่ต่ออายุล่าสุด': row.LastRenewedAt ? new Date(row.LastRenewedAt).toLocaleDateString('th-TH') : '-',
+                            'วันที่เปลี่ยนสถานะต่ออายุ': row.RenewalUpdatedAt ? new Date(row.RenewalUpdatedAt).toLocaleDateString('th-TH') : '-',
                             'มูลค่า (฿)': row.Price || 0
                         }));
                         break;
@@ -456,7 +472,7 @@ export const exportReport = async (req, res) => {
                                DATEDIFF(day, GETDATE(), m.EndDate) as DaysLeft
                         FROM dbo.MA_Items m
                         LEFT JOIN dbo.Stock_Vendors v ON m.VendorID = v.VendorID
-                        WHERE m.EndDate >= @startDate AND m.EndDate <= @endDate AND m.Status = 'Active' AND m.IsDeleted = 0
+                        WHERE m.EndDate >= @startDate AND m.EndDate <= @endDate AND ISNULL(m.Status, 'Active') NOT IN ('Cancelled', 'Pending') AND m.IsDeleted = 0
                         ORDER BY m.EndDate ASC
                     `;
 

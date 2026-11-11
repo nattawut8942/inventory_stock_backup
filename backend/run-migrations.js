@@ -26,6 +26,7 @@ const runMigrations = async () => {
             { file: '007_add_location_to_ma_items.sql', label: 'Migration 007: Add factory layout position to MA_Items' },
             { file: '008_add_soft_delete_to_ma_items.sql', label: 'Migration 008: Add soft delete to MA_Items' },
             { file: '009_add_location_to_printers.sql', label: 'Migration 009: Add factory layout position to Printers' },
+            { file: '010_add_renewal_status_to_ma_items.sql', label: 'Migration 010: Add renewal/procurement status to MA_Items' },
         ];
 
         for (const { file, label } of migrations) {
