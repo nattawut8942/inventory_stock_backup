@@ -1,13 +1,22 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, AlertTriangle, User, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, EXPIRED_FLAG } from '../context/AuthContext';
 import logodaikin from '../../public/DAIKIN_logo.svg.png';
 import { API_BASE, API_URL } from '../config/api';
 
 const LoginPage = () => {
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
+    // ถ้าออกจากระบบเพราะเซสชันหมดอายุ ให้แจ้งเตือนครั้งเดียว
+    const [error, setError] = useState(() => {
+        try {
+            if (sessionStorage.getItem(EXPIRED_FLAG)) {
+                sessionStorage.removeItem(EXPIRED_FLAG);
+                return 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่';
+            }
+        } catch { /* storage ไม่พร้อม */ }
+        return '';
+    });
     const [showPassword, setShowPassword] = useState(false); // เพิ่ม State สำหรับเปิด-ปิดตารหัสผ่าน (ไม่กระทบ Logic เดิม)
     const { login } = useAuth();
     const navigate = useNavigate();

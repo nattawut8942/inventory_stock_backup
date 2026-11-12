@@ -393,14 +393,12 @@ export async function mergeScanResults(pool, rows) {
         req.input(`ip${j}`, sql.VarChar(45),  r.ip);
         req.input(`st${j}`, sql.VarChar(20),  r.status);
         req.input(`hn${j}`, sql.VarChar(253), r.hostname);
-        req.input(`mc${j}`, sql.VarChar(17),  r.mac || null);
-        return `(@ip${j}, @st${j}, @hn${j}, GETDATE(), @mc${j})`;
+        return `(@ip${j}, @st${j}, @hn${j}, GETDATE())`;
       }).join(', ');
 
-      // mac: เติมให้เฉพาะตอนที่ DB ยังว่าง — ไม่เขียนทับค่าที่กรอกเองหรือค่าที่เคยได้จากการสแกน
       await req.query(`
         MERGE dbo.ip_management AS target
-        USING (VALUES ${values}) AS source (ip_address, status, hostname, ts, mac)
+        USING (VALUES ${values}) AS source (ip_address, status, hostname, ts)
         ON target.ip_address = source.ip_address
         WHEN MATCHED THEN
           UPDATE SET
@@ -408,16 +406,13 @@ export async function mergeScanResults(pool, rows) {
             last_scan        = source.ts,
             scan_result      = CASE WHEN source.status = 'Active' THEN 'Found' ELSE 'Not Found' END,
             status           = CASE WHEN target.reservation_status = 'reserved' THEN target.status ELSE source.status END,
-            last_seen_active = CASE WHEN source.status = 'Active' THEN source.ts ELSE target.last_seen_active END,
-            mac_address      = CASE WHEN (target.mac_address IS NULL OR target.mac_address = '') AND source.mac IS NOT NULL
-                                    THEN source.mac ELSE target.mac_address END
+            last_seen_active = CASE WHEN source.status = 'Active' THEN source.ts ELSE target.last_seen_active END
         WHEN NOT MATCHED THEN
-          INSERT (ip_address, status, hostname, last_scan, scan_result, reservation_status, last_seen_active, mac_address)
+          INSERT (ip_address, status, hostname, last_scan, scan_result, reservation_status, last_seen_active)
           VALUES (source.ip_address, source.status, source.hostname, source.ts,
                   CASE WHEN source.status = 'Active' THEN 'Found' ELSE 'Not Found' END,
                   'available',
-                  CASE WHEN source.status = 'Active' THEN source.ts ELSE NULL END,
-                  source.mac);
+                  CASE WHEN source.status = 'Active' THEN source.ts ELSE NULL END);
       `);
     }
 
@@ -444,7 +439,6 @@ export const postScanResult = async (req, res) => {
     !r || !isValidIP(r.ip)
     || !['Active', 'Available'].includes(r.status)
     || typeof r.hostname !== 'string' || !HOSTNAME_RE.test(r.hostname)
-    || (r.mac != null && r.mac !== '' && !MAC_RE.test(r.mac))
   );
   if (bad !== -1)
     return res.status(400).json({ error: `ข้อมูลแถวที่ ${bad} ไม่ถูกต้อง` });

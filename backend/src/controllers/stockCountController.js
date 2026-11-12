@@ -383,7 +383,7 @@ export const applyStockAdjustment = async (req, res) => {
                         .input('TransType', sql.VarChar, transType)
                         .input('Qty', sql.Int, qty)
                         .input('RefInfo', sql.NVarChar, `Stock Count Adjust: ${sessionCode}`)
-                        .input('UserID', sql.NVarChar, AdjustedBy)
+                        .input('UserID', sql.NVarChar, AdjustedBy ? String(AdjustedBy).trim().toUpperCase() : AdjustedBy)
                         .input('TransDate', sql.DateTime, now)
                         .query(`
                             INSERT INTO dbo.Stock_Transactions (ProductID, TransType, Qty, RefInfo, UserID, TransDate)

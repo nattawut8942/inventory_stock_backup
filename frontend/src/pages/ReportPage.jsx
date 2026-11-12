@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { FileSpreadsheet, Calendar, Download, CheckSquare, Square, Package, TrendingUp, TrendingDown, BarChart3, PieChart, FileText, Receipt, DollarSign, Clock, User, AlertCircle, Shield, SlidersHorizontal, X, Filter, Monitor } from 'lucide-react';
+import { FileSpreadsheet, Calendar, Download, CheckSquare, Square, Package, TrendingUp, TrendingDown, BarChart3, PieChart, FileText, Receipt, DollarSign, Clock, User, AlertCircle, Shield, SlidersHorizontal, X, Filter, Monitor, Search } from 'lucide-react';
 import { BarChart, Bar, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, LabelList } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSearchParams } from 'react-router-dom';
@@ -91,6 +91,49 @@ const fmtDateKey = (key) => new Date(`${key}T00:00:00`).toLocaleDateString('th-T
 
 // % เปลี่ยนแปลง (null ถ้าไม่มีฐานเทียบ)
 const pctChange = (cur, prev) => (prev > 0 ? ((cur - prev) / prev) * 100 : null);
+
+// ─── CSV export (ฝั่ง client) ─────────────────────────────────────────────────
+const downloadCsv = (filename, rows) => {
+    if (!rows || rows.length === 0) return;
+    const headers = Object.keys(rows[0]);
+    const esc = (v) => {
+        const s = v === null || v === undefined ? '' : String(v);
+        return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = '﻿' + [headers.join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(','))].join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+};
+
+const CsvBtn = ({ onClick }) => (
+    <button type="button" onClick={onClick} className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-indigo-300 hover:text-indigo-600 text-slate-600 font-semibold whitespace-nowrap">
+        <Download className="w-3.5 h-3.5" /> CSV
+    </button>
+);
+
+// ค้นหา + เรียงลำดับ + ส่งออก CSV สำหรับรายการในแท็บ
+const ListControls = ({ query, onQuery, sort, onSort, sortOptions, onCsv }) => (
+    <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="relative flex-1 min-w-[160px]">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+                type="search"
+                value={query}
+                onChange={e => onQuery(e.target.value)}
+                placeholder="ค้นหา..."
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:border-indigo-400"
+            />
+        </div>
+        <select value={sort} onChange={e => onSort(e.target.value)} className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700">
+            {sortOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+        {onCsv && <CsvBtn onClick={onCsv} />}
+    </div>
+);
 
 // ปุ่ม "ดูทั้งหมด" / "แสดงน้อยลง" — ไม่แสดงถ้ารายการไม่เกินจำนวนที่กำหนด
 const ToggleAllButton = ({ total, limit, expanded, onToggle }) => {
@@ -223,6 +266,11 @@ const ReportPage = () => {
         return next;
     }, { replace: true });
 
+    // ─── Drill-down / ค้นหา-เรียง / IT summary ─────────────────────────────────
+    const [drill, setDrill] = useState(null);
+    const openDrill = (d) => { setDrill(d); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    const [listQuery, setListQuery] = useState({});
+    const [listSort, setListSort] = useState({});
     // ค้นหาสินค้าจาก ProductID แบบ O(1) แทนการ .find() ซ้ำในทุกรอบ render
     const productById = useMemo(
         () => Object.fromEntries((products || []).map(p => [p.ProductID, p])),
@@ -796,6 +844,229 @@ const ReportPage = () => {
             .sort((a, b) => b.totalQty - a.totalQty);
     }, [filteredTransactions, products]);
 
+    // ─── ประวัติ drill-down (50 รายการล่าสุด ไม่ขึ้นกับตัวกรอง) ───────────────
+    const drillRows = useMemo(() => {
+        if (!drill) return [];
+        return (transactions || [])
+            .filter(t => drill.type === 'product'
+                ? String(t.ProductID) === String(drill.key)
+                : (t.UserID || 'Unknown') === drill.key)
+            .sort((a, b) => new Date(b.TransDate) - new Date(a.TransDate))
+            .slice(0, 50);
+    }, [drill, transactions]);
+
+    // ─── มุมมองรายการที่ค้นหา/เรียงได้ ──────────────────────────────────────────
+    const consumersView = useMemo(() => {
+        const q = (listQuery.consumers || '').trim().toLowerCase();
+        const key = listSort.consumers || 'value';
+        return topConsumers
+            .filter(u => !q || String(u.userId).toLowerCase().includes(q))
+            .sort((a, b) => key === 'count' ? b.transactionCount - a.transactionCount
+                : key === 'qty' ? b.totalQty - a.totalQty
+                : b.totalValue - a.totalValue);
+    }, [topConsumers, listQuery, listSort]);
+
+    const withdrawnView = useMemo(() => {
+        const q = (listQuery.withdrawn || '').trim().toLowerCase();
+        const key = listSort.withdrawn || 'qty';
+        return topWithdrawnItems
+            .filter(i => !q || String(i.productName).toLowerCase().includes(q) || String(i.deviceType).toLowerCase().includes(q))
+            .sort((a, b) => key === 'value' ? b.totalValue - a.totalValue
+                : key === 'name' ? String(a.productName).localeCompare(String(b.productName), 'th')
+                : b.totalQty - a.totalQty);
+    }, [topWithdrawnItems, listQuery, listSort]);
+
+    const slowMovingView = useMemo(() => {
+        const q = (listQuery.slowMoving || '').trim().toLowerCase();
+        const key = listSort.slowMoving || 'value';
+        const value = (p) => (p.CurrentStock || 0) * (p.LastPrice || 0);
+        return slowMovingItems
+            .filter(p => !q || String(p.ProductName || '').toLowerCase().includes(q) || String(p.DeviceType || '').toLowerCase().includes(q))
+            .sort((a, b) => key === 'stock' ? b.CurrentStock - a.CurrentStock
+                : key === 'name' ? String(a.ProductName || '').localeCompare(String(b.ProductName || ''), 'th')
+                : value(b) - value(a));
+    }, [slowMovingItems, listQuery, listSort]);
+
+    // ─── Stock: สินค้าต้องสั่ง / สต็อกผิดปกติ / ราคาไม่มี / มูลค่าตามสถานที่ / Turnover / แนวโน้ม ───
+    const reorderList = useMemo(() => (products || [])
+        .filter(p => p.IsActive !== false && Number(p.MinStock) > 0 && Number(p.CurrentStock || 0) <= Number(p.MinStock))
+        .map(p => {
+            const cur = Number(p.CurrentStock || 0);
+            const target = Number(p.MaxStock) > 0 ? Number(p.MaxStock) : Number(p.MinStock);
+            const suggestQty = Math.max(0, target - cur);
+            return {
+                ProductID: p.ProductID,
+                ProductName: p.ProductName,
+                DeviceType: typeLabel[p.DeviceType] || p.DeviceType || '-',
+                CurrentStock: cur,
+                MinStock: Number(p.MinStock),
+                suggestQty,
+                estCost: suggestQty * (Number(p.LastPrice) || 0),
+            };
+        })
+        .sort((a, b) => b.estCost - a.estCost), [products, typeLabel]);
+
+    const stockAnomalies = useMemo(() => (products || [])
+        .filter(p => p.IsActive !== false)
+        .map(p => {
+            const cur = Number(p.CurrentStock || 0);
+            const max = Number(p.MaxStock) || 0;
+            if (cur < 0) return { ProductName: p.ProductName, CurrentStock: cur, MaxStock: max, issue: 'สต็อกติดลบ' };
+            if (max > 0 && cur > max) return { ProductName: p.ProductName, CurrentStock: cur, MaxStock: max, issue: 'เกิน MaxStock' };
+            return null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.CurrentStock - b.CurrentStock), [products]);
+
+    const noPriceCount = useMemo(() => (products || []).filter(p => p.IsActive !== false && !(Number(p.LastPrice) > 0)).length, [products]);
+
+    const locationValue = useMemo(() => {
+        const map = {};
+        (products || []).filter(p => p.IsActive !== false).forEach(p => {
+            const loc = String(p.Location || '').trim() || 'ไม่ระบุ';
+            const qty = Number(p.CurrentStock) || 0;
+            if (!map[loc]) map[loc] = { location: loc, items: 0, qty: 0, value: 0 };
+            map[loc].items += 1;
+            map[loc].qty += qty;
+            map[loc].value += qty * (Number(p.LastPrice) || 0);
+        });
+        return Object.values(map).sort((a, b) => b.value - a.value);
+    }, [products]);
+
+    // Turnover: มูลค่าเบิก 12 เดือนล่าสุด ÷ มูลค่าสต็อกปัจจุบัน (ประมาณการ เพราะไม่มีประวัติมูลค่าสต็อกรายวัน)
+    const turnoverByType = useMemo(() => {
+        const since = new Date();
+        since.setFullYear(since.getFullYear() - 1);
+        const map = {};
+        (products || []).filter(p => p.IsActive !== false).forEach(p => {
+            const t = p.DeviceType || 'ไม่ระบุ';
+            if (!map[t]) map[t] = { type: t, stockValue: 0, outValue12m: 0 };
+            map[t].stockValue += (Number(p.CurrentStock) || 0) * (Number(p.LastPrice) || 0);
+        });
+        (transactions || []).forEach(tx => {
+            if ((tx.TransType || '').toUpperCase().trim() !== 'OUT') return;
+            if (!isCountedMovement(tx) || new Date(tx.TransDate) < since) return;
+            const p = productById[tx.ProductID];
+            if (!p) return;
+            const t = p.DeviceType || 'ไม่ระบุ';
+            if (!map[t]) map[t] = { type: t, stockValue: 0, outValue12m: 0 };
+            map[t].outValue12m += Math.abs(Number(tx.Qty) || 0) * (Number(p.LastPrice) || 0);
+        });
+        return Object.values(map)
+            .map(r => ({
+                ...r,
+                label: typeLabel[r.type] || r.type,
+                turnover: r.stockValue > 0 ? r.outValue12m / r.stockValue : null,
+                daysOfStock: r.outValue12m > 0 ? Math.round((r.stockValue / r.outValue12m) * 365) : null,
+            }))
+            .sort((a, b) => b.outValue12m - a.outValue12m);
+    }, [products, transactions, productById, typeLabel]);
+
+    // แนวโน้มมูลค่าสต็อกสิ้นเดือน (ย้อนจากมูลค่าปัจจุบันโดยใช้ LastPrice เป็นราคาประมาณ)
+    const stockValueTrend = useMemo(() => {
+        const curValue = (products || []).filter(p => p.IsActive !== false)
+            .reduce((s, p) => s + (Number(p.CurrentStock) || 0) * (Number(p.LastPrice) || 0), 0);
+        const txs = (transactions || []).map(tx => {
+            const q = Math.abs(Number(tx.Qty) || 0);
+            const signed = (tx.TransType || '').toUpperCase().trim() === 'IN' ? q : -q;
+            return { t: new Date(tx.TransDate).getTime(), delta: signed * (Number(productById[tx.ProductID]?.LastPrice) || 0) };
+        });
+        const now = new Date();
+        const rows = [];
+        for (let i = 11; i >= 0; i--) {
+            const end = i === 0 ? now : new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59, 999);
+            const endT = end.getTime();
+            const after = txs.reduce((s, x) => (x.t > endT ? s + x.delta : s), 0);
+            const key = monthKeyOf(end);
+            rows.push({ label: `${monthLabelOf(key)} ${String((end.getFullYear() + 543) % 100).padStart(2, '0')}`, value: Math.round(curValue - after) });
+        }
+        return rows;
+    }, [products, transactions, productById]);
+
+    // ─── คุณภาพข้อมูล: รายการที่ควรแก้ที่ต้นทาง ─────────────────────────────────
+    const dataQuality = useMemo(() => {
+        const groups = {};
+        (products || []).forEach(p => {
+            const k = String(p.ProductName || '').trim().toLowerCase();
+            if (!k) return;
+            (groups[k] = groups[k] || []).push(p);
+        });
+        const dupGroups = Object.values(groups).filter(g => g.length > 1);
+
+        const userCase = {};
+        (transactions || []).forEach(t => {
+            if (!t.UserID) return;
+            const k = String(t.UserID).trim().toLowerCase();
+            (userCase[k] = userCase[k] || new Set()).add(t.UserID);
+        });
+        const mixedUsers = Object.values(userCase).filter(s => s.size > 1).length;
+
+        const noBudgetPO = (purchaseOrders || []).filter(po => !String(po.BudgetNo || '').trim()).length;
+        const noEndMA = (maItems || []).filter(m => m.Status !== 'Cancelled' && !m.EndDate).length;
+        const noDeviceType = (products || []).filter(p => !p.DeviceType).length;
+        const orphanTx = (transactions || []).filter(t => t.ProductID != null && !productById[t.ProductID]).length;
+
+        return [
+            { key: 'dup', label: 'สินค้าชื่อซ้ำ (ไม่สนตัวพิมพ์)', count: dupGroups.length, hint: `${dupGroups.reduce((s, g) => s + g.length, 0)} รายการที่เกี่ยวข้อง`, tab: 'stock' },
+            { key: 'user', label: 'ชื่อผู้ใช้ตัวพิมพ์ไม่ตรงกัน', count: mixedUsers, hint: 'ควรเก็บเป็นรูปแบบเดียว', tab: 'usage' },
+            { key: 'budget', label: 'PO ไม่มีเลขงบประมาณ', count: noBudgetPO, hint: `จาก ${(purchaseOrders || []).length} PO`, tab: 'procurement' },
+            { key: 'ma', label: 'สัญญา MA ไม่มีวันหมดอายุ', count: noEndMA, hint: 'ไม่นับในการแจ้งเตือนและพยากรณ์', tab: 'procurement' },
+            { key: 'type', label: 'สินค้าไม่มีประเภท', count: noDeviceType, hint: 'กระทบการกรองตามหมวดหมู่', tab: 'stock' },
+            { key: 'noprice', label: 'สินค้าที่ไม่มีราคา (LastPrice)', count: noPriceCount, hint: 'มูลค่าสต็อกและการเบิกถูกนับเป็น 0', tab: 'stock' },
+            { key: 'anomaly', label: 'สต็อกติดลบหรือเกิน MaxStock', count: stockAnomalies.length, hint: 'ตรวจสอบการปรับยอดสต็อก', tab: 'stock' },
+            { key: 'orphan', label: 'Transaction ที่หาสินค้าไม่พบ', count: orphanTx, hint: 'ProductID ไม่มีในตารางสินค้า', tab: 'overview' },
+        ].filter(i => i.count > 0);
+    }, [products, transactions, purchaseOrders, maItems, productById]);
+
+    // ─── การนับสต็อก (Stock Count Adjust) ───────────────────────────────────────
+    const stockCountStats = useMemo(() => {
+        const rows = (transactions || []).filter(t =>
+            (t.RefInfo || '').includes('Stock Count Adjust') &&
+            isInDateRange(t.TransDate, filterDateRange, filterCustomStart, filterCustomEnd));
+        let gainQty = 0, lossQty = 0, gainValue = 0, lossValue = 0;
+        const byProduct = {};
+        rows.forEach(t => {
+            const qty = Math.abs(Number(t.Qty) || 0);
+            const isIn = (t.TransType || '').toUpperCase().trim() === 'IN';
+            const price = productById[t.ProductID]?.LastPrice || 0;
+            const signed = isIn ? qty : -qty;
+            if (isIn) { gainQty += qty; gainValue += qty * price; }
+            else { lossQty += qty; lossValue += qty * price; }
+            const k = t.ProductID;
+            if (!byProduct[k]) {
+                byProduct[k] = { productId: k, productName: productById[k]?.ProductName || `ID: ${k}`, adjustments: 0, net: 0, value: 0 };
+            }
+            byProduct[k].adjustments += 1;
+            byProduct[k].net += signed;
+            byProduct[k].value += signed * price;
+        });
+        const list = Object.values(byProduct).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+        return { count: rows.length, gainQty, lossQty, gainValue, lossValue, netValue: gainValue - lossValue, list };
+    }, [transactions, productById, filterDateRange, filterCustomStart, filterCustomEnd]);
+
+    // ─── การเบิกตามศูนย์ต้นทุน ────────────────────────────────────────────────
+    const costCenterUsage = useMemo(() => {
+        const map = {};
+        filteredTransactions.forEach(t => {
+            if ((t.TransType || '').toUpperCase().trim() !== 'OUT') return;
+            const cc = String(t.CostCenter || '').trim() || 'ไม่ระบุ';
+            const price = productById[t.ProductID]?.LastPrice || 0;
+            const qty = Math.abs(Number(t.Qty) || 0);
+            if (!map[cc]) map[cc] = { costCenter: cc, count: 0, qty: 0, value: 0 };
+            map[cc].count += 1;
+            map[cc].qty += qty;
+            map[cc].value += qty * price;
+        });
+        return Object.values(map).sort((a, b) => b.value - a.value);
+    }, [filteredTransactions, productById]);
+
+    // ─── ความครบถ้วนของเลขงบประมาณใน PO ──────────────────────────────────────
+    const budgetCoverage = useMemo(() => {
+        const pos = (purchaseOrders || []).filter(po => isInDateRange(po.RequestDate, filterDateRange, filterCustomStart, filterCustomEnd));
+        const withBudget = pos.filter(po => String(po.BudgetNo || '').trim() !== '').length;
+        return { total: pos.length, withBudget, pct: pos.length ? Math.round((withBudget / pos.length) * 100) : 0 };
+    }, [purchaseOrders, filterDateRange, filterCustomStart, filterCustomEnd]);
+
     // NEW: Withdrawals By Category
     const withdrawalsByCategory = useMemo(() => {
         const catMap = {};
@@ -1076,6 +1347,65 @@ const ReportPage = () => {
                     );
                 })}
             </div>
+            {drill && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-5 shadow-lg border border-indigo-200">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="min-w-0">
+                            <h3 className="font-bold text-slate-800 text-sm truncate">
+                                {drill.type === 'product' ? '📦 ประวัติสินค้า' : '👤 ประวัติผู้ใช้'}: {drill.label}
+                            </h3>
+                            <p className="text-[10px] text-slate-400">แสดง 50 รายการล่าสุด ไม่ขึ้นกับตัวกรองด้านบน</p>
+                        </div>
+                        <button type="button" onClick={() => setDrill(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="ปิด">
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                    <div className="overflow-x-auto max-h-[320px] overflow-y-auto">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="border-b border-slate-200 text-slate-500">
+                                    <th className="text-left py-2 px-2 font-medium">วันที่</th>
+                                    <th className="text-left py-2 px-2 font-medium">ประเภท</th>
+                                    <th className="text-right py-2 px-2 font-medium">จำนวน</th>
+                                    <th className="text-left py-2 px-2 font-medium">อ้างอิง</th>
+                                    <th className="text-left py-2 px-2 font-medium">ผู้ทำรายการ</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {drillRows.length > 0 ? drillRows.map(t => (
+                                    <tr key={t.TransID} className="border-b border-slate-100">
+                                        <td className="py-2 px-2 font-mono text-slate-500 whitespace-nowrap">{formatThaiDateShort(t.TransDate)}</td>
+                                        <td className="py-2 px-2">{t.TransType}</td>
+                                        <td className="py-2 px-2 text-right font-mono">{Math.abs(t.Qty)}</td>
+                                        <td className="py-2 px-2 text-slate-500 max-w-[280px] truncate">{t.RefInfo}</td>
+                                        <td className="py-2 px-2 text-slate-700">{t.UserID}</td>
+                                    </tr>
+                                )) : (
+                                    <tr><td colSpan={5} className="py-6 text-center text-slate-400">ไม่มีรายการ</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </motion.div>
+            )}
+
+            {dataQuality.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                        <h3 className="font-bold text-amber-800 text-sm">ข้อมูลที่ควรแก้ที่ต้นทาง ({dataQuality.length} หัวข้อ)</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                        {dataQuality.map(i => (
+                            <button key={i.key} type="button" onClick={() => setActiveTab(i.tab)} className="text-left bg-white rounded-xl border border-amber-100 px-3 py-2 hover:border-amber-300">
+                                <p className="text-xs font-bold text-slate-700">{i.label} <span className="font-mono text-amber-600">{i.count}</span></p>
+                                <p className="text-[10px] text-slate-400">{i.hint} • กดเพื่อไปดูแท็บ</p>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {activeTab === 'overview' && (<>
             {/* ═══ เทียบกับช่วงก่อนหน้า ═══ */}
             <motion.div
@@ -1355,6 +1685,23 @@ const ReportPage = () => {
             </div>
             </>)}
             {activeTab === 'procurement' && (<>
+            {/* ═══ ความครบถ้วนของเลขงบประมาณ ═══ */}
+            <div className="bg-white rounded-2xl p-5 shadow-lg border border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h3 className="font-bold text-slate-800 text-sm">🧾 ความครบถ้วนของเลขงบประมาณ (BudgetNo)</h3>
+                        <p className="text-[10px] text-slate-400">PO ที่มี BudgetNo {budgetCoverage.withBudget} จาก {budgetCoverage.total} รายการในช่วงวันที่ที่เลือก</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <span className={`text-lg font-black ${budgetCoverage.pct >= 90 ? 'text-emerald-600' : budgetCoverage.pct >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{budgetCoverage.pct}%</span>
+                        <CsvBtn onClick={() => downloadCsv('budget-breakdown.csv', procurementAnalytics.budgetRows)} />
+                    </div>
+                </div>
+                <div className="h-2 bg-slate-100 rounded-full mt-3 overflow-hidden">
+                    <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${budgetCoverage.pct}%` }} />
+                </div>
+            </div>
+
             {/* ═══ Procurement Analytics (กรองตามวันที่ขอซื้อ) ═══ */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard icon={FileText} title="PO ในช่วงนี้" value={procurementAnalytics.totalPOs.toLocaleString()} subtitle={`ค้างอยู่ ${procurementAnalytics.openCount} ใบ`} color="from-blue-500 to-blue-600" />
@@ -1929,6 +2276,14 @@ const ReportPage = () => {
                             <p className="text-lg font-bold text-red-500">฿{deadStockValue.toLocaleString()}</p>
                         </div>
                     </div>
+                    <ListControls
+                        query={listQuery.slowMoving || ''}
+                        onQuery={(v) => setListQuery(prev => ({ ...prev, slowMoving: v }))}
+                        sort={listSort.slowMoving || 'value'}
+                        onSort={(v) => setListSort(prev => ({ ...prev, slowMoving: v }))}
+                        sortOptions={[{ id: 'value', label: 'เรียงตามมูลค่า' }, { id: 'stock', label: 'เรียงตามจำนวนคงเหลือ' }, { id: 'name', label: 'เรียงตามชื่อ' }]}
+                        onCsv={() => downloadCsv('dead-stock.csv', slowMovingView.map(p => ({ อุปกรณ์: p.ProductName, ประเภท: p.DeviceType, คงเหลือ: p.CurrentStock, มูลค่า: Math.round((p.CurrentStock || 0) * (p.LastPrice || 0)) })))}
+                    />
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
@@ -1940,9 +2295,11 @@ const ReportPage = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {slowMovingItems.length > 0 ? (expandedLists.slowMoving ? slowMovingItems : slowMovingItems.slice(0, 10)).map((item, idx) => (
+                                {slowMovingView.length > 0 ? (expandedLists.slowMoving ? slowMovingView : slowMovingView.slice(0, 10)).map((item, idx) => (
                                     <motion.tr
                                         key={item.ProductID}
+                                        onClick={() => openDrill({ type: 'product', key: item.ProductID, label: item.ProductName })}
+                                        className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
                                         transition={{ delay: idx * 0.05 }}
@@ -1970,7 +2327,7 @@ const ReportPage = () => {
                             </tbody>
                         </table>
                     </div>
-                    <ToggleAllButton total={slowMovingItems.length} limit={10} expanded={!!expandedLists.slowMoving} onToggle={() => toggleList('slowMoving')} />
+                    <ToggleAllButton total={slowMovingView.length} limit={10} expanded={!!expandedLists.slowMoving} onToggle={() => toggleList('slowMoving')} />
                 </motion.div>
                 )}
 
@@ -1991,10 +2348,19 @@ const ReportPage = () => {
                             <p className="text-xs text-slate-500">จัดอันดับตามมูลค่า</p>
                         </div>
                     </div>
+                    <ListControls
+                        query={listQuery.consumers || ''}
+                        onQuery={(v) => setListQuery(prev => ({ ...prev, consumers: v }))}
+                        sort={listSort.consumers || 'value'}
+                        onSort={(v) => setListSort(prev => ({ ...prev, consumers: v }))}
+                        sortOptions={[{ id: 'value', label: 'เรียงตามมูลค่า' }, { id: 'count', label: 'เรียงตามจำนวนครั้ง' }, { id: 'qty', label: 'เรียงตามชิ้น' }]}
+                        onCsv={() => downloadCsv('top-consumers.csv', consumersView.map(u => ({ ผู้ใช้: u.userId, จำนวนครั้ง: u.transactionCount, จำนวนชิ้น: u.totalQty, มูลค่า: Math.round(u.totalValue) })))}
+                    />
                     <div className="space-y-3">
-                        {topConsumers.length > 0 ? (expandedLists.consumers ? topConsumers : topConsumers.slice(0, 5)).map((user, idx) => (
+                        {consumersView.length > 0 ? (expandedLists.consumers ? consumersView : consumersView.slice(0, 5)).map((user, idx) => (
                             <motion.div
                                 key={user.userId}
+                                onClick={() => openDrill({ type: 'user', key: user.userId, label: user.userId })}
                                 initial={{ opacity: 0, x: -10 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 transition={{ delay: idx * 0.05 }}
@@ -2018,7 +2384,7 @@ const ReportPage = () => {
                             </div>
                         )}
                     </div>
-                    <ToggleAllButton total={topConsumers.length} limit={5} expanded={!!expandedLists.consumers} onToggle={() => toggleList('consumers')} />
+                    <ToggleAllButton total={consumersView.length} limit={5} expanded={!!expandedLists.consumers} onToggle={() => toggleList('consumers')} />
                 </motion.div>
                 )}
             </div>
@@ -2171,6 +2537,235 @@ const ReportPage = () => {
                 </div>
             )}
             {activeTab === 'stock' && (<>
+            {/* ═══ สินค้าที่ต้องสั่งซื้อ ═══ */}
+            <div className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <div>
+                        <h3 className="font-bold text-slate-800">🛒 สินค้าที่ต้องสั่งซื้อ (ต่ำกว่า Min Stock)</h3>
+                        <p className="text-xs text-slate-500">{reorderList.length} รายการ • มูลค่าประมาณการ ฿{Math.round(reorderList.reduce((s, r) => s + r.estCost, 0)).toLocaleString()} • สั่งเพิ่ม = MaxStock − คงเหลือ (ไม่มี MaxStock ใช้ MinStock)</p>
+                    </div>
+                    <CsvBtn onClick={() => downloadCsv('reorder-list.csv', reorderList.map(r => ({ อุปกรณ์: r.ProductName, ประเภท: r.DeviceType, คงเหลือ: r.CurrentStock, Min: r.MinStock, สั่งเพิ่ม: r.suggestQty, มูลค่าประมาณการ: Math.round(r.estCost) })))} />
+                </div>
+                {reorderList.length > 0 ? (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="border-b border-slate-200 text-slate-500">
+                                    <th className="text-left py-2 px-2 font-medium">อุปกรณ์</th>
+                                    <th className="text-left py-2 px-2 font-medium">ประเภท</th>
+                                    <th className="text-right py-2 px-2 font-medium">คงเหลือ / Min</th>
+                                    <th className="text-right py-2 px-2 font-medium">สั่งเพิ่ม</th>
+                                    <th className="text-right py-2 px-2 font-medium">มูลค่าประมาณการ</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(expandedLists.reorder ? reorderList : reorderList.slice(0, 10)).map(r => (
+                                    <tr key={r.ProductID} onClick={() => openDrill({ type: 'product', key: r.ProductID, label: r.ProductName })} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer">
+                                        <td className="py-2 px-2 font-medium text-slate-800 max-w-[240px] truncate">{r.ProductName}</td>
+                                        <td className="py-2 px-2 text-slate-600">{r.DeviceType}</td>
+                                        <td className="py-2 px-2 text-right font-mono">{r.CurrentStock} / {r.MinStock}</td>
+                                        <td className="py-2 px-2 text-right font-mono font-bold text-indigo-600">{r.suggestQty}</td>
+                                        <td className="py-2 px-2 text-right font-mono">฿{Math.round(r.estCost).toLocaleString()}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <p className="text-sm text-slate-400 text-center py-6">ไม่มีสินค้าต่ำกว่า Min Stock 👍</p>
+                )}
+                <ToggleAllButton total={reorderList.length} limit={10} expanded={!!expandedLists.reorder} onToggle={() => toggleList('reorder')} />
+            </div>
+
+            {/* ═══ สต็อกผิดปกติ ═══ */}
+            <div className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <div>
+                        <h3 className="font-bold text-slate-800">⚠️ สต็อกผิดปกติ</h3>
+                        <p className="text-xs text-slate-500">ติดลบหรือเกิน MaxStock {stockAnomalies.length} รายการ • สินค้าไม่มีราคา {noPriceCount} รายการ (มูลค่าจะนับเป็น 0)</p>
+                    </div>
+                    <CsvBtn onClick={() => downloadCsv('stock-anomalies.csv', stockAnomalies.map(a => ({ อุปกรณ์: a.ProductName, คงเหลือ: a.CurrentStock, MaxStock: a.MaxStock, ปัญหา: a.issue })))} />
+                </div>
+                {stockAnomalies.length > 0 ? (
+                    <div className="overflow-x-auto max-h-[260px] overflow-y-auto">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="border-b border-slate-200 text-slate-500">
+                                    <th className="text-left py-2 px-2 font-medium">อุปกรณ์</th>
+                                    <th className="text-right py-2 px-2 font-medium">คงเหลือ</th>
+                                    <th className="text-right py-2 px-2 font-medium">MaxStock</th>
+                                    <th className="text-left py-2 px-2 font-medium">ปัญหา</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {stockAnomalies.map((a, i) => (
+                                    <tr key={i} className="border-b border-slate-100">
+                                        <td className="py-2 px-2 font-medium text-slate-800 max-w-[260px] truncate">{a.ProductName}</td>
+                                        <td className="py-2 px-2 text-right font-mono text-rose-600 font-bold">{a.CurrentStock}</td>
+                                        <td className="py-2 px-2 text-right font-mono">{a.MaxStock || '-'}</td>
+                                        <td className="py-2 px-2 text-slate-600">{a.issue}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <p className="text-sm text-slate-400 text-center py-6">ไม่พบสต็อกผิดปกติ 👍</p>
+                )}
+            </div>
+            </>)}
+
+            {activeTab === 'stock' && (<>
+            {/* ═══ มูลค่าตามสถานที่ + Turnover ═══ */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                        <div>
+                            <h3 className="font-bold text-slate-800">📍 มูลค่าสต็อกตามสถานที่</h3>
+                            <p className="text-xs text-slate-500">คงเหลือ × LastPrice ของสินค้าที่ยัง active</p>
+                        </div>
+                        <CsvBtn onClick={() => downloadCsv('stock-value-by-location.csv', locationValue.map(r => ({ สถานที่: r.location, รายการ: r.items, จำนวนชิ้น: r.qty, มูลค่า: Math.round(r.value) })))} />
+                    </div>
+                    {locationValue.length > 0 ? (() => {
+                        const max = Math.max(...locationValue.map(r => r.value), 1);
+                        return (
+                            <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                                {locationValue.map(r => (
+                                    <div key={r.location} className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-slate-800 truncate">{r.location}</p>
+                                            <div className="h-1.5 bg-slate-200 rounded-full mt-1.5 overflow-hidden">
+                                                <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(r.value / max) * 100}%` }} />
+                                            </div>
+                                            <p className="text-[10px] text-slate-500 mt-1">{r.items} รายการ • {r.qty.toLocaleString()} ชิ้น</p>
+                                        </div>
+                                        <span className="text-sm font-bold text-emerald-600 font-mono">฿{Math.round(r.value).toLocaleString('th-TH')}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    })() : (
+                        <p className="text-sm text-slate-400 text-center py-8">ไม่มีข้อมูลสต็อก</p>
+                    )}
+                </div>
+
+                <div className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                        <div>
+                            <h3 className="font-bold text-slate-800">🔄 Turnover ตามประเภท (12 เดือน)</h3>
+                            <p className="text-xs text-slate-500">มูลค่าเบิก 12 เดือน ÷ มูลค่าสต็อกปัจจุบัน (ประมาณการ) • วันที่สต็อกจะหมดถ้าเบิกในอัตราเดิม</p>
+                        </div>
+                        <CsvBtn onClick={() => downloadCsv('turnover-by-type.csv', turnoverByType.map(r => ({ ประเภท: r.label, มูลค่าสต็อก: Math.round(r.stockValue), มูลค่าเบิก_12ด: Math.round(r.outValue12m), Turnover_เท่า: r.turnover === null ? '' : r.turnover.toFixed(2), วันที่สต็อกจะหมด: r.daysOfStock ?? '' })))} />
+                    </div>
+                    {turnoverByType.length > 0 ? (
+                        <div className="overflow-x-auto max-h-[320px] overflow-y-auto">
+                            <table className="w-full text-xs">
+                                <thead>
+                                    <tr className="border-b border-slate-200 text-slate-500">
+                                        <th className="text-left py-2 px-2 font-medium">ประเภท</th>
+                                        <th className="text-right py-2 px-2 font-medium">มูลค่าสต็อก</th>
+                                        <th className="text-right py-2 px-2 font-medium">เบิก 12 ด.</th>
+                                        <th className="text-right py-2 px-2 font-medium">Turnover</th>
+                                        <th className="text-right py-2 px-2 font-medium">วันที่จะหมด</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {turnoverByType.map(r => (
+                                        <tr key={r.type} className="border-b border-slate-100">
+                                            <td className="py-2 px-2 font-medium text-slate-800">{r.label}</td>
+                                            <td className="py-2 px-2 text-right font-mono">฿{Math.round(r.stockValue).toLocaleString()}</td>
+                                            <td className="py-2 px-2 text-right font-mono">฿{Math.round(r.outValue12m).toLocaleString()}</td>
+                                            <td className="py-2 px-2 text-right font-mono font-bold text-indigo-600">{r.turnover === null ? '-' : `${r.turnover.toFixed(2)}x`}</td>
+                                            <td className="py-2 px-2 text-right font-mono">{r.daysOfStock === null ? '-' : `${r.daysOfStock} วัน`}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-slate-400 text-center py-8">ไม่มีข้อมูล</p>
+                    )}
+                </div>
+            </div>
+
+            {/* ═══ แนวโน้มมูลค่าสต็อกรายเดือน ═══ */}
+            <div className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <div>
+                        <h3 className="font-bold text-slate-800">📈 แนวโน้มมูลค่าสต็อก (สิ้นเดือน 12 เดือนล่าสุด)</h3>
+                        <p className="text-xs text-slate-500">ย้อนจากมูลค่าปัจจุบันตาม transaction ที่บันทึก ใช้ LastPrice เป็นราคาประมาณ จึงเป็นค่าประมาณการ</p>
+                    </div>
+                    <CsvBtn onClick={() => downloadCsv('stock-value-trend.csv', stockValueTrend.map(r => ({ เดือน: r.label, มูลค่าสต็อก: r.value })))} />
+                </div>
+                <ResponsiveContainer width="100%" height={260}>
+                    <LineChart data={stockValueTrend} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `฿${Math.round(v / 1000)}k`} />
+                        <Tooltip formatter={v => `฿${Number(v).toLocaleString()}`} />
+                        <Line type="monotone" dataKey="value" name="มูลค่าสต็อก" stroke="#4f46e5" strokeWidth={2} dot={{ r: 3 }} />
+                    </LineChart>
+                </ResponsiveContainer>
+            </div>
+            </>)}
+
+            {activeTab === 'stock' && (<>
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <div>
+                        <h3 className="font-bold text-slate-800">🧮 ผลการนับสต็อก (Stock Count Adjust)</h3>
+                        <p className="text-xs text-slate-500">ตามช่วงวันที่ในตัวกรอง • ปรับเพิ่ม/ลดจากการนับจริง</p>
+                    </div>
+                    <CsvBtn onClick={() => downloadCsv('stock-count-adjust.csv', stockCountStats.list.map(r => ({ อุปกรณ์: r.productName, จำนวนครั้งที่ปรับ: r.adjustments, ปรับสุทธิ_ชิ้น: r.net, มูลค่าสุทธิ: Math.round(r.value) })))} />
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="rounded-xl p-3 border bg-slate-50 border-slate-200">
+                        <p className="text-[10px] font-bold text-slate-500">รายการปรับ</p>
+                        <p className="text-xl font-black text-slate-800">{stockCountStats.count}</p>
+                    </div>
+                    <div className="rounded-xl p-3 border bg-emerald-50 border-emerald-100">
+                        <p className="text-[10px] font-bold text-emerald-700">ปรับเพิ่ม</p>
+                        <p className="text-xl font-black text-emerald-600">+{stockCountStats.gainQty.toLocaleString()} <span className="text-xs font-semibold">ชิ้น</span></p>
+                        <p className="text-[10px] font-mono text-slate-500">฿{Math.round(stockCountStats.gainValue).toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-xl p-3 border bg-rose-50 border-rose-100">
+                        <p className="text-[10px] font-bold text-rose-700">ปรับลด</p>
+                        <p className="text-xl font-black text-rose-600">-{stockCountStats.lossQty.toLocaleString()} <span className="text-xs font-semibold">ชิ้น</span></p>
+                        <p className="text-[10px] font-mono text-slate-500">฿{Math.round(stockCountStats.lossValue).toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-xl p-3 border bg-indigo-50 border-indigo-100">
+                        <p className="text-[10px] font-bold text-indigo-700">มูลค่าสุทธิ</p>
+                        <p className={`text-xl font-black ${stockCountStats.netValue >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>฿{Math.round(stockCountStats.netValue).toLocaleString()}</p>
+                    </div>
+                </div>
+                {stockCountStats.list.length > 0 ? (
+                    <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="border-b border-slate-200 text-slate-500">
+                                    <th className="text-left py-2 px-2 font-medium">อุปกรณ์</th>
+                                    <th className="text-right py-2 px-2 font-medium">ครั้งที่ปรับ</th>
+                                    <th className="text-right py-2 px-2 font-medium">ปรับสุทธิ (ชิ้น)</th>
+                                    <th className="text-right py-2 px-2 font-medium">มูลค่าสุทธิ</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {stockCountStats.list.slice(0, 15).map(r => (
+                                    <tr key={r.productId} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => openDrill({ type: 'product', key: r.productId, label: r.productName })}>
+                                        <td className="py-2 px-2 font-medium text-slate-800 max-w-[260px] truncate">{r.productName}</td>
+                                        <td className="py-2 px-2 text-right font-mono">{r.adjustments}</td>
+                                        <td className={`py-2 px-2 text-right font-mono font-bold ${r.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{r.net > 0 ? '+' : ''}{r.net}</td>
+                                        <td className={`py-2 px-2 text-right font-mono ${r.value >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>฿{Math.round(r.value).toLocaleString()}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <p className="text-sm text-slate-400 text-center py-8">ไม่มีการปรับยอดจากการนับสต็อกในช่วงนี้</p>
+                )}
+            </motion.div>
+
             {/* Category Distribution — Click to Filter */}
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -2288,6 +2883,38 @@ const ReportPage = () => {
             </>)}
 
             {activeTab === 'usage' && (<>
+            {/* ═══ การเบิกตามศูนย์ต้นทุน ═══ */}
+            <div className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                    <div>
+                        <h3 className="font-bold text-slate-800">🏢 การเบิกตามศูนย์ต้นทุน (CostCenter)</h3>
+                        <p className="text-xs text-slate-500">ยอดเบิกออก (OUT) ตามช่วงวันที่ในตัวกรอง • ไม่ระบุค่าจะรวมเป็น "ไม่ระบุ"</p>
+                    </div>
+                    <CsvBtn onClick={() => downloadCsv('cost-center-usage.csv', costCenterUsage.map(r => ({ ศูนย์ต้นทุน: r.costCenter, จำนวนครั้ง: r.count, จำนวนชิ้น: r.qty, มูลค่า: Math.round(r.value) })))} />
+                </div>
+                {costCenterUsage.length > 0 ? (() => {
+                    const max = Math.max(...costCenterUsage.map(r => r.value), 1);
+                    return (
+                        <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                            {costCenterUsage.map(r => (
+                                <div key={r.costCenter} className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-slate-800 truncate">{r.costCenter}</p>
+                                        <div className="h-1.5 bg-slate-200 rounded-full mt-1.5 overflow-hidden">
+                                            <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${(r.value / max) * 100}%` }} />
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 mt-1">{r.count} ครั้ง • {r.qty} ชิ้น</p>
+                                    </div>
+                                    <span className="text-sm font-bold text-indigo-600 font-mono">฿{Math.round(r.value).toLocaleString('th-TH')}</span>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })() : (
+                    <p className="text-sm text-slate-400 text-center py-8">ยังไม่มีข้อมูลการเบิกในช่วงนี้</p>
+                )}
+            </div>
+
             {/* NEW: Top Withdrawn Items & Withdrawals By Category */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Top Withdrawn Items */}
@@ -2305,6 +2932,14 @@ const ReportPage = () => {
                             <p className="text-xs text-slate-500">Top 5 รายการที่ถูกเบิกมากที่สุด</p>
                         </div>
                     </div>
+                    <ListControls
+                        query={listQuery.withdrawn || ''}
+                        onQuery={(v) => setListQuery(prev => ({ ...prev, withdrawn: v }))}
+                        sort={listSort.withdrawn || 'qty'}
+                        onSort={(v) => setListSort(prev => ({ ...prev, withdrawn: v }))}
+                        sortOptions={[{ id: 'qty', label: 'เรียงตามจำนวน' }, { id: 'value', label: 'เรียงตามมูลค่า' }, { id: 'name', label: 'เรียงตามชื่อ' }]}
+                        onCsv={() => downloadCsv('top-withdrawn.csv', withdrawnView.map(i => ({ อุปกรณ์: i.productName, ประเภท: i.deviceType, จำนวน: i.totalQty, มูลค่า: Math.round(i.totalValue) })))}
+                    />
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
@@ -2317,8 +2952,8 @@ const ReportPage = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {topWithdrawnItems.length > 0 ? (expandedLists.withdrawn ? topWithdrawnItems : topWithdrawnItems.slice(0, 5)).map((item, idx) => (
-                                    <tr key={item.productId} className="border-b border-slate-100 hover:bg-slate-50">
+                                {withdrawnView.length > 0 ? (expandedLists.withdrawn ? withdrawnView : withdrawnView.slice(0, 5)).map((item, idx) => (
+                                    <tr key={item.productId} onClick={() => openDrill({ type: 'product', key: item.productId, label: item.productName })} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer">
                                         <td className="py-2 px-2">
                                             <span className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold
                                                     ${idx === 0 ? 'bg-rose-500' : idx === 1 ? 'bg-rose-400' : idx === 2 ? 'bg-rose-300' : 'bg-slate-300'}`}>
@@ -2342,7 +2977,7 @@ const ReportPage = () => {
                             </tbody>
                         </table>
                     </div>
-                    <ToggleAllButton total={topWithdrawnItems.length} limit={5} expanded={!!expandedLists.withdrawn} onToggle={() => toggleList('withdrawn')} />
+                    <ToggleAllButton total={withdrawnView.length} limit={5} expanded={!!expandedLists.withdrawn} onToggle={() => toggleList('withdrawn')} />
                 </motion.div>
 
                 <motion.div

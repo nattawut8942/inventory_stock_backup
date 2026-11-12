@@ -60,37 +60,14 @@ export async function getHostname(ip) {
   return null;
 }
 
-// ─── MAC จาก ARP table (Windows เท่านั้น) ─────────────────────────────────────
-// ต้อง ping ก่อนเพื่อให้ ARP cache มีรายการ ผลคืนเป็น "XX:XX:XX:XX:XX:XX" หรือ null
-// IP ที่อยู่คนละ subnet จะไม่มีรายการใน ARP ของเครื่องนี้ จึงไม่ได้ MAC ผิดของ router
-export function getMacFromArp(ip) {
-  return new Promise((resolve) => {
-    if (!isValidIP(ip) || process.platform !== 'win32') return resolve(null);
-    execFile('arp', ['-a', ip], { timeout: 3000 }, (err, stdout) => {
-      if (err || !stdout) return resolve(null);
-      for (const line of stdout.split(/\r?\n/)) {
-        // ตัวอย่าง: "  10.49.24.3    08-9d-f4-3f-68-17     dynamic"
-        const m = line.trim().match(/^(\S+)\s+([0-9a-f]{2}(?:-[0-9a-f]{2}){5})\s+(dynamic|static)/i);
-        if (m && m[1] === ip) {
-          const mac = m[2].toUpperCase().replace(/-/g, ':');
-          return resolve(mac === 'FF:FF:FF:FF:FF:FF' ? null : mac);
-        }
-      }
-      resolve(null);
-    });
-  });
-}
-
 // ─── Scan single IP ───────────────────────────────────────────────────────────
 export async function scanIP(ip) {
   const alive    = await pingIP(ip);
   const hostname = alive ? (await getHostname(ip) || 'Unknown') : '-';
-  const mac      = alive ? await getMacFromArp(ip) : null;
   return {
     ip,
     status:   alive ? 'Active' : 'Available',
     hostname,
-    mac,
     last_scan: null, // ไม่ส่งเวลา — ใช้ GETDATE() ใน SQL แทน
   };
 }

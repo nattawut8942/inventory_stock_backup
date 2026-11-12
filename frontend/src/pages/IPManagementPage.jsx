@@ -499,14 +499,24 @@ const IPCell = ({ data, idx, showTip, hideTip, onActivate, hidden, selected, hig
     const status = getDisplayStatus(data);
     const inactive = isInactive(data);
     const last = data.ip_address.split('.').pop();
+    // แสดงเฉพาะฟิลด์ที่มีค่า — ครอบคลุมทุกช่องที่กรอกได้ใน drawer
+    const hostOk = data.hostname && data.hostname !== '-';
     const tipText = [
         data.ip_address,
-        data.hostname && data.hostname !== '-' ? `Hostname: ${data.hostname}` : null,
+        `Status: ${STATUS_META[status]?.label || status}${inactive ? ` · ไม่ออนไลน์ ${data.inactive_days} วัน` : ''}`,
+        hostOk ? `ชื่อเครื่อง: ${data.hostname}` : null,
         data.owner_name ? `Owner: ${data.owner_name}` : null,
-        data.remark ? `Remark: ${data.remark}` : null,
-        `Status: ${STATUS_META[status]?.label || status}`,
+        data.contact ? `ผู้รับผิดชอบ: ${data.contact}` : null,
         data.reserveby ? `ผู้จอง: ${data.reserveby}` : null,
-        inactive ? `ไม่ออนไลน์ ${data.inactive_days} วัน` : null,
+        data.device ? `Device: ${data.device}` : null,
+        data.asset_tag ? `Asset: ${data.asset_tag}` : null,
+        data.serial_number ? `Serial: ${data.serial_number}` : null,
+        data.mac_address ? `MAC: ${data.mac_address}` : null,
+        data.location ? `สถานที่: ${data.location}` : null,
+        data.purpose ? `วัตถุประสงค์: ${data.purpose}` : null,
+        data.ip_type ? `ประเภท IP: ${data.ip_type}` : null,
+        data.remark ? `Remark: ${data.remark}` : null,
+        data.last_seen_active ? `ออนไลน์ล่าสุด: ${fmtDT(data.last_seen_active)}` : null,
         data.last_scan ? `สแกนล่าสุด: ${fmtDT(data.last_scan)}` : null,
     ].filter(Boolean).join('\n');
 

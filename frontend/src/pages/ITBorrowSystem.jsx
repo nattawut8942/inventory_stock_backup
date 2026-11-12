@@ -1,17 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, ArrowLeftRight, Search, Laptop, X, Loader2, AlertTriangle, PackageOpen, Minus, CheckCircle2, Info, Edit2, CalendarPlus, Clock } from 'lucide-react';
 import { useData } from '../context/DataContext';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, getAuthToken } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config/api';
 
-// ✅ JWT จาก login — backend ของ Borrowing ใช้ verifyToken ทุก endpoint จึงต้องแนบทุกครั้ง
+// ✅ JWT จาก AuthContext — backend ของ Borrowing ใช้ verifyToken ทุก endpoint จึงต้องแนบทุกครั้ง
 const authHeaders = (extra = {}) => {
   const headers = { ...extra };
-  try {
-    const t = localStorage.getItem('it_stock_token');
-    if (t) headers.Authorization = `Bearer ${t}`;
-  } catch { /* storage ไม่พร้อม */ }
+  const t = getAuthToken();
+  if (t) headers.Authorization = `Bearer ${t}`;
   return headers;
 };
 
@@ -141,7 +139,7 @@ const ITBorrowSystem = () => {
     navigate('/login', { replace: true });
     return true;
   };
-  const isAdmin = user?.role === 'Staff'; // ✅ [validation #7] จำกัดสิทธิ์แก้ไข/เปลี่ยนสถานะเฉพาะ staff เหมือน InventoryPage
+  const isAdmin = (user?.role === 'Staff' || user?.role === 'Admin'); // ✅ [validation #7] จำกัดสิทธิ์แก้ไข/เปลี่ยนสถานะเฉพาะ staff เหมือน InventoryPage
 
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);

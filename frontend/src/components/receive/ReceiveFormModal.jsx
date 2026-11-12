@@ -229,7 +229,7 @@ const ReceiveFormModal = ({ po, products, invoices, isSubmitting, onRequestClose
     };
 
     return (
-        <BaseModal onClose={requestClose} label={`บันทึกรับของ ${po.PO_ID}`} maxWidth="max-w-xl" closeOnEscape={closeOnEscape}>
+        <BaseModal onClose={requestClose} label={`บันทึกรับของ ${po.PO_ID}`} maxWidth="max-w-3xl" closeOnEscape={closeOnEscape}>
             <ModalHeader
                 icon={Package}
                 eyebrow="บันทึกรับของ"

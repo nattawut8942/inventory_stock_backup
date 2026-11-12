@@ -53,13 +53,16 @@ export const getTransactions = async (req, res) => {
             request.input('TransType', sql.VarChar, filter);
             query += ` AND t.TransType = @TransType`;
         }
-        if (startDate) {
-            request.input('startDate', sql.DateTime, new Date(startDate));
-            query += ' AND t.TransDate >= @startDate';
+        // startDate / endDate เป็นวันที่แบบ YYYY-MM-DD (รวมทั้งสองวัน)
+        const isDateOnly = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+        if (isDateOnly(startDate)) {
+            request.input('startDate', sql.VarChar, startDate);
+            query += ' AND t.TransDate >= CAST(@startDate AS DATE)';
         }
-        if (endDate) {
-            request.input('endDate', sql.DateTime, new Date(endDate));
-            query += ' AND t.TransDate <= @endDate';
+        if (isDateOnly(endDate)) {
+            request.input('endDate', sql.VarChar, endDate);
+            // รวมรายการทั้งวันของ endDate โดยใช้ช่วงเปิดด้านขวา (< วันถัดไป)
+            query += ' AND t.TransDate < DATEADD(day, 1, CAST(@endDate AS DATE))';
         }
 
         query += ' ORDER BY t.TransDate DESC';
@@ -231,7 +234,7 @@ export const receiveGoods = async (req, res) => {
                     .input('TransType', sql.VarChar, 'IN')
                     .input('Qty', sql.Int, qty)
                     .input('RefInfo', sql.NVarChar, `Invoice: ${InvoiceNo} (PO: ${PO_ID})`)
-                    .input('UserID', sql.NVarChar, UserID)
+                    .input('UserID', sql.NVarChar, UserID ? String(UserID).trim().toUpperCase() : UserID)
                     .input('TransDate', sql.DateTime, now)
                     .input('BG_No', sql.NVarChar, bgNo)
                     .query(`
@@ -339,7 +342,7 @@ export const cancelInvoice = async (req, res) => {
                 .input('TransType', sql.VarChar, 'OUT')
                 .input('Qty', sql.Int, -qty)
                 .input('RefInfo', sql.NVarChar, `ยกเลิก Invoice: ${InvoiceNo} (PO: ${PO_ID})`)
-                .input('UserID', sql.NVarChar, UserID || 'system')
+                .input('UserID', sql.NVarChar, (UserID || 'system').toString().trim().toUpperCase())
                 .input('TransDate', sql.DateTime, now)
                 .input('BG_No', sql.NVarChar, tx.BG_No || null)
                 .query(`

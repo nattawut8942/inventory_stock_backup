@@ -5,6 +5,7 @@ import { Package, TrendingUp, TrendingDown, AlertTriangle, Monitor, HardDrive, T
 import { motion } from 'motion/react';
 import { useData } from '../context/DataContext';
 import { API_BASE } from '../config/api';
+import { getAuthToken } from '../context/AuthContext';
 import { formatThaiDate } from '../utils/formatDate';
 import StatCard from '../components/StatCard';
 import LoadingState from '../components/LoadingState';
@@ -69,7 +70,9 @@ const DashboardPage = () => {
 
     const loadBorrowings = useCallback(async () => {
         try {
-            const res = await fetch(`${API_BASE}/borrowings`);
+            // /borrowings ต้องมี token (verifyToken) — ไม่แนบจะได้ 403 แล้วรายการเลยกำหนดว่างเงียบ ๆ
+            const t = getAuthToken();
+            const res = await fetch(`${API_BASE}/borrowings`, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
             if (res.ok) setBorrowings(await res.json());
         } catch (err) { }
     }, []);

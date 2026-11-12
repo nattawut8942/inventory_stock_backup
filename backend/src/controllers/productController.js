@@ -202,7 +202,7 @@ export const manualImport = async (req, res) => {
                 .input('TransType', sql.VarChar, 'IN')
                 .input('Qty', sql.Int, qty)
                 .input('RefInfo', sql.NVarChar, Remark || 'Manual Import')
-                .input('UserID', sql.NVarChar, UserID)
+                .input('UserID', sql.NVarChar, UserID ? String(UserID).trim().toUpperCase() : UserID)
                 .input('TransDate', sql.DateTime, now)
                 .query(`
                     INSERT INTO dbo.Stock_Transactions (ProductID, TransType, Qty, RefInfo, UserID, TransDate)
@@ -316,7 +316,7 @@ const { CurrentStock: currentStock, DeviceType } = checkStock.recordset[0];
                 .input('TransType', sql.VarChar, 'OUT')
                 .input('Qty', sql.Int, Qty)
                 .input('RefInfo', sql.NVarChar, RefInfo || 'Internal Withdrawal')
-                .input('UserID', sql.NVarChar, UserID)
+                .input('UserID', sql.NVarChar, UserID ? String(UserID).trim().toUpperCase() : UserID)
                 .input('TransDate', sql.DateTime, now)
                 .input('EmployeeCode', sql.VarChar, EmployeeCode || null)    // ✅
                 .input('EmployeeName', sql.NVarChar, EmployeeName || null)  // ✅

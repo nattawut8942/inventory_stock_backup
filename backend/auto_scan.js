@@ -3,11 +3,16 @@
  * รัน: node auto_scan.js
  * หรือ import runAllSubnets() เข้า server.js แล้วใช้ cron
  *
- * npm install node-fetch   (ถ้า Node < 18)
+ * รันได้ตั้งแต่ Node 14 (ไม่ต้อง npm install — ใช้โมดูลในตัวของ Node เท่านั้น)
+ * ถ้าคัดลอกไปเครื่องอื่นให้คัดลอก package.json ที่มี "type": "module" ไปด้วย
  */
 
 import { execFile }    from 'child_process';
 import dns             from 'dns';
+import http            from 'http';
+import https           from 'https';
+import path            from 'path';
+import { fileURLToPath } from 'url';
 import { promisify }   from 'util';
 
 const dnsReverse = promisify(dns.reverse);
@@ -51,32 +56,12 @@ async function getHostname(ip) {
   } catch { return null; }
 }
 
-// ─── MAC จาก ARP table (Windows เท่านั้น) ──
-// ต้อง ping ก่อนเพื่อให้ ARP cache มีรายการ; IP คนละ subnet จะไม่มีรายการ จึงไม่ได้ MAC ของ router
-function getMacFromArp(ip) {
-  return new Promise(resolve => {
-    if (!IP_RE.test(ip) || process.platform !== 'win32') return resolve(null);
-    execFile('arp', ['-a', ip], { timeout: 3000 }, (err, stdout) => {
-      if (err || !stdout) return resolve(null);
-      for (const line of stdout.split(/\r?\n/)) {
-        const m = line.trim().match(/^(\S+)\s+([0-9a-f]{2}(?:-[0-9a-f]{2}){5})\s+(dynamic|static)/i);
-        if (m && m[1] === ip) {
-          const mac = m[2].toUpperCase().replace(/-/g, ':');
-          return resolve(mac === 'FF:FF:FF:FF:FF:FF' ? null : mac);
-        }
-      }
-      resolve(null);
-    });
-  });
-}
-
 // ─── Scan single IP ────────────────────────
 async function scanIP(ip) {
   const now      = nowBKK();
   const alive    = await pingIP(ip);
   const hostname = alive ? ((await getHostname(ip)) || 'Unknown') : '-';
-  const mac      = alive ? await getMacFromArp(ip) : null;
-  return { ip, status: alive ? 'Active' : 'Available', hostname, mac, last_scan: now };
+  return { ip, status: alive ? 'Active' : 'Available', hostname, last_scan: now };
 }
 
 // ─── Scan subnet ───────────────────────────
@@ -94,21 +79,59 @@ async function scanSubnet(subnet) {
   return results;
 }
 
+// ─── HTTP helper (ใช้ http/https ของ Node โดยตรง — รันได้ตั้งแต่ Node 14, ไม่ต้องใช้ global fetch) ───
+function httpRequest(method, urlStr, headers, body) {
+  return new Promise((resolve, reject) => {
+    const u    = new URL(urlStr);
+    const lib  = u.protocol === 'https:' ? https : http;
+    const data = body !== undefined ? Buffer.from(body, 'utf8') : null;
+    const h    = { ...headers };
+    if (data) h['Content-Length'] = data.length;
+    const req = lib.request({
+      method,
+      hostname: u.hostname,
+      port:     u.port || (u.protocol === 'https:' ? 443 : 80),
+      path:     u.pathname + u.search,
+      headers:  h,
+      timeout:  30000,
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let json = null;
+        try { json = JSON.parse(text); } catch { /* ไม่ใช่ JSON */ }
+        resolve({ status: res.statusCode, json });
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('request timeout')));
+    req.on('error', reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
 // ─── Post results to API ───────────────────
 async function postResults(results) {
-  const res = await fetch(`${API_BASE}/ip-scan/scan-result`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', 'x-scan-key': getScanKey() || '' },
-    body:    JSON.stringify(results),
-  });
-  return res.json();
+  const res = await httpRequest('POST', `${API_BASE}/ip-scan/scan-result`,
+    { 'Content-Type': 'application/json', 'x-scan-key': getScanKey() || '' },
+    JSON.stringify(results));
+  if (res.status !== 200) throw new Error(`scan-result HTTP ${res.status}: ${res.json?.error || ''}`);
+  return res.json;
 }
 
 // ─── Get subnet list from API ──────────────
 async function getSubnets() {
-  const res  = await fetch(`${API_BASE}/ip-scan/subnets`, { headers: { 'x-scan-key': getScanKey() || '' } });
-  const data = await res.json();
-  return data.map(s => s.subnet).filter(s => SUBNET_RE.test(s));
+  const res = await httpRequest('GET', `${API_BASE}/ip-scan/subnets`, { 'x-scan-key': getScanKey() || '' });
+  if (res.status !== 200 || !Array.isArray(res.json))
+    throw new Error(`subnets HTTP ${res.status}: ตรวจ IP_SCAN_API และ IP_SCAN_API_KEY`);
+  const data = res.json;
+  // IP_SCAN_SUBNETS (คั่นด้วยคอมมา) จำกัดให้สแกนเฉพาะ subnet ที่ต้องการ
+  // เช่น "10.194.40,10.194.41" — ไม่ตั้งค่า = สแกนทุก subnet ตามเดิม
+  const only = (process.env.IP_SCAN_SUBNETS || '').split(',').map(s => s.trim()).filter(Boolean);
+  return data.map(s => s.subnet)
+    .filter(s => SUBNET_RE.test(s))
+    .filter(s => only.length === 0 || only.includes(s));
 }
 
 // ─── Main: scan all subnets ────────────────
@@ -161,8 +184,9 @@ console.log('BKK time:', new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Ba
 console.log('Local time:', new Date().toLocaleString());
 
 // ─── Run directly ──────────────────────────
-// node auto_scan.js
-if (process.argv[1] === new URL(import.meta.url).pathname) {
+// node auto_scan.js   → สแกนครั้งเดียวแล้วจบ
+// (การตั้งเวลาอยู่ที่ server.js ของ scanner — ดู backend/site-scanner/server.js)
+// (ใช้ fileURLToPath — URL.pathname บน Windows ได้ "/D:/..." ซึ่งไม่ตรงกับ argv จึงไม่เคยรันเอง)
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   runAllSubnets().catch(console.error);
 }
-
