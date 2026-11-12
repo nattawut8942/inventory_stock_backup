@@ -8,6 +8,28 @@ import AlertModal from '../components/AlertModal';
 import { API_BASE, API_URL } from '../config/api';
 import { getBadgeStyle, getDeviceTypeColor, getChartColor } from '../utils/styleHelpers';
 
+// Employee photo: URL saved from AD at login, else the standard DCI picture path by EmpCode.
+// Falls back to initials if the image can't load (no photo / off network).
+const EMP_PIC_BASE = 'http://dcidmc.dci.daikin.co.jp/PICTURE';
+const UserAvatar = ({ pic, empCode, name, size = 36 }) => {
+    const src = pic || (empCode ? `${EMP_PIC_BASE}/${encodeURIComponent(empCode)}.jpg` : '');
+    const [failed, setFailed] = useState(false);
+    useEffect(() => setFailed(false), [src]);
+    const initials = String(name || empCode || '?').trim().slice(0, 2).toUpperCase();
+    const style = { width: size, height: size };
+    if (!src || failed) {
+        return (
+            <div style={style} className="shrink-0 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-[11px] font-black">
+                {initials}
+            </div>
+        );
+    }
+    return (
+        <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} style={style}
+            className="shrink-0 rounded-lg object-cover bg-slate-100 ring-1 ring-slate-200" />
+    );
+};
+
 const ManagementPage = () => {
     const { user, token } = useAuth();
     const { deviceTypes, vendors, refreshData } = useData();
@@ -823,8 +845,11 @@ const handleFileSelect = (e) => {
                                                     <tr key={u.ID} className="hover:bg-slate-50 transition-colors">
                                                         <td className="p-4 text-slate-600 font-mono text-sm">{u.EmpCode}</td>
                                                         <td className="p-4 font-bold text-slate-700">
-                                                            {u.Name || '-'}
-                                                            {isSelf && <span className="ml-2 text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">คุณ</span>}
+                                                            <div className="flex items-center gap-3">
+                                                                <UserAvatar pic={u.EmpPic} empCode={u.EmpCode} name={u.Name || u.Username} size={40} />
+                                                                <span>{u.Name || '-'}</span>
+                                                                {isSelf && <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">คุณ</span>}
+                                                            </div>
                                                         </td>
                                                         <td className="p-4 text-slate-600 text-sm">{u.Username || '-'}</td>
                                                         <td className="p-4 text-slate-600 text-sm">{u.Sect || '-'}</td>
@@ -933,7 +958,12 @@ const handleFileSelect = (e) => {
                                                     <td className="p-4"><span className={`px-2 py-1 rounded-lg text-xs font-bold ${statusStyle[l.Status] || 'bg-slate-100 text-slate-600'}`}>{l.Status}</span></td>
                                                     <td className="p-4 font-bold text-slate-700 text-sm">{l.Username || '-'}</td>
                                                     <td className="p-4 text-slate-600 text-sm font-mono">{l.EmpCode || '-'}</td>
-                                                    <td className="p-4 text-slate-600 text-sm">{l.Name || '-'}</td>
+                                                    <td className="p-4 text-slate-600 text-sm">
+                                                        <div className="flex items-center gap-2">
+                                                            {l.EmpCode ? <UserAvatar pic={l.EmpPic} empCode={l.EmpCode} name={l.Name || l.Username} size={28} /> : null}
+                                                            <span>{l.Name || '-'}</span>
+                                                        </div>
+                                                    </td>
                                                     <td className="p-4 text-slate-600 text-sm">{l.Role || '-'}</td>
                                                     <td className="p-4 text-slate-500 text-sm max-w-[240px] truncate" title={l.Reason || ''}>{l.Reason || '-'}</td>
                                                     <td className="p-4 text-slate-600 text-sm font-mono">{l.IpAddress || '-'}</td>

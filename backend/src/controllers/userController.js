@@ -7,7 +7,7 @@ const VALID_ROLES = ['Staff', 'Admin'];
 export const getStockUsers = async (req, res) => {
     try {
         const result = await getPool().request().query(`
-            SELECT ID, EmpCode, Username, Name, Sect, CostCenter, Role, FirstLoginAt, LastLoginAt
+            SELECT ID, EmpCode, Username, Name, Sect, CostCenter, EmpPic, Role, FirstLoginAt, LastLoginAt
             FROM dbo.Stock_Users
             ORDER BY CASE WHEN Role = 'Admin' THEN 0 ELSE 1 END, LastLoginAt DESC
         `);
@@ -80,7 +80,7 @@ export const getLoginLogs = async (req, res) => {
             where += ' AND (l.Username LIKE @q OR l.EmpCode LIKE @q OR u.Name LIKE @q OR l.IpAddress LIKE @q OR l.Reason LIKE @q)';
         }
         const result = await request.query(`
-            SELECT TOP (@limit) l.ID, l.Username, l.EmpCode, u.Name, l.Role, l.Status, l.Reason,
+            SELECT TOP (@limit) l.ID, l.Username, l.EmpCode, u.Name, u.EmpPic, l.Role, l.Status, l.Reason,
                    l.IpAddress, l.UserAgent, l.LoginAt
             FROM dbo.Stock_LoginLog l
             LEFT JOIN dbo.Stock_Users u ON u.EmpCode = l.EmpCode

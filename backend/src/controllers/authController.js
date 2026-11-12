@@ -101,16 +101,18 @@ export const login = async (req, res) => {
                 .input('name', sql.NVarChar, shortName || username)
                 .input('sect', sql.NVarChar, sect ? String(sect) : null)
                 .input('costCenter', sql.NVarChar, costCenter)
+                .input('empPic', sql.NVarChar, empPic ? String(empPic).slice(0, 255) : null)
                 .query(`
                     MERGE dbo.Stock_Users AS target
                     USING (SELECT @empCode AS EmpCode) AS src
                     ON target.EmpCode = src.EmpCode
                     WHEN MATCHED THEN
                         UPDATE SET Username = @username, Name = @name, Sect = @sect,
-                                   CostCenter = @costCenter, LastLoginAt = GETDATE()
+                                   CostCenter = @costCenter, EmpPic = COALESCE(@empPic, target.EmpPic),
+                                   LastLoginAt = GETDATE()
                     WHEN NOT MATCHED THEN
-                        INSERT (EmpCode, Username, Name, Sect, CostCenter, Role, FirstLoginAt, LastLoginAt)
-                        VALUES (@empCode, @username, @name, @sect, @costCenter, 'Staff', GETDATE(), GETDATE());
+                        INSERT (EmpCode, Username, Name, Sect, CostCenter, EmpPic, Role, FirstLoginAt, LastLoginAt)
+                        VALUES (@empCode, @username, @name, @sect, @costCenter, @empPic, 'Staff', GETDATE(), GETDATE());
                     SELECT Role FROM dbo.Stock_Users WHERE EmpCode = @empCode;
                 `);
 
