@@ -15,7 +15,11 @@ export const getStockHistory = async (req, res) => {
                     t.TransType,
                     t.RefInfo,
                     t.UserID,
-                    t.BG_No,
+                    ISNULL(t.EmployeeName, t.UserID) AS DisplayUser,
+                    t.EmployeeName,
+                    t.EmployeeCode,
+                    t.CostCenter,
+                    t.BG_No AS BudgetNo,
                     t.SerialNumber,
                     t.FixedAssetCode
                 FROM dbo.Stock_Transactions t
@@ -131,6 +135,20 @@ export const receiveGoods = async (req, res) => {
 
             let finalProductID = item.ProductID;
 
+            // 2-pre. ห้ามรับเกินจำนวนที่ค้างรับของบรรทัด PO (QtyOrdered - QtyReceived)
+            if (item.DetailID) {
+                const capRes = await new sql.Request(transaction)
+                    .input('DetailID', sql.Int, item.DetailID)
+                    .query('SELECT QtyOrdered, ISNULL(QtyReceived, 0) AS QtyReceived FROM dbo.Stock_PODetails WHERE DetailID = @DetailID');
+                const cap = capRes.recordset[0];
+                if (cap) {
+                    const remaining = Number(cap.QtyOrdered) - Number(cap.QtyReceived);
+                    if (qty > remaining) {
+                        throw new Error(`รับเกินจำนวนที่ค้างรับ: ${item.ItemName || 'รายการ #' + item.DetailID} รับได้ไม่เกิน ${Math.max(0, remaining)} (ขอรับ ${qty})`);
+                    }
+                }
+            }
+
             // 2a. Handle Manual Items (No ProductID initially)
             if (item.DetailID) {
                 const detRes = await new sql.Request(transaction)
@@ -183,6 +201,11 @@ export const receiveGoods = async (req, res) => {
                     .input('ProductID', sql.Int, finalProductID)
                     .input('Qty', sql.Int, qty)
                     .query('UPDATE dbo.Stock_Products SET CurrentStock = CurrentStock + @Qty WHERE ProductID = @ProductID');
+
+                // รับของเข้าคลังแล้ว: เปิดให้แสดงในหน้าคลัง/Master (รายการที่สร้างตอนสั่งซื้อจะถูกซ่อนไว้ก่อนหน้านี้)
+                await new sql.Request(transaction)
+                    .input('ProductID', sql.Int, finalProductID)
+                    .query('UPDATE dbo.Stock_Products SET IsActive = 1 WHERE ProductID = @ProductID AND IsActive = 0');
             } else {
                 console.warn(`Warning: Could not resolve ProductID for DetailID ${item.DetailID}. Stock not updated.`);
             }

@@ -31,30 +31,90 @@ function useDebounce(value, delay) {
   return debounced;
 }
 
+// ---------- Date helpers ----------
+const parseDate = (d) => {
+  if (!d) return null;
+  const m = String(d).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? null : dt;
+};
+
+const fmtDate = (d) => {  
+  const dt = parseDate(d);  
+  if (!dt) return d || '—';  
+  
+  return dt.toLocaleString('th-TH', {    
+    day: 'numeric', 
+    month: 'numeric', 
+    year: 'numeric',    
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: false
+  });
+};
+
+const fmtDateOnly = (d) => {
+  const dt = parseDate(d);
+  if (!dt) return d || '—';
+  const date = dt.toLocaleDateString('th-TH');
+  const time = dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  return `${date} ${time}`;
+};
+
+
+const timeAgo = (d) => {
+  const dt = parseDate(d);
+  if (!dt) return null;
+  const min = Math.floor((Date.now() - dt.getTime()) / 60000);
+  if (min < 0) return null;
+  if (min < 1) return 'เมื่อสักครู่';
+  if (min < 60) return `${min} นาทีที่แล้ว`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} ชม. ที่แล้ว`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day} วันที่แล้ว`;
+  return null;
+};
+
+const isInstalled = (v) => !!v && String(v).toLowerCase() !== 'not installed';
+
+// "Microsoft Windows 11 Pro" → "Win 11 Pro" (ใช้เฉพาะในตาราง ชื่อเต็มยังอยู่ใน tooltip)
+const shortOsName = (name = '') => name.replace(/^Microsoft\s+/i, '').replace(/^Windows\b/i, 'Win').trim();
+// ---------- Session helpers ----------
+const stripDomain = (name = '') => name.replace(/^.*\\/, '').trim();
+const normalizeUser = (name = '') => stripDomain(name).toLowerCase();
+const isSystemAccount = (name = '') => {
+  const n = stripDomain(name);
+  return !n || /\$$/.test(n) || /^(UMFD|DWM|SYSTEM|LOCAL SERVICE|NETWORK SERVICE|ANONYMOUS)/i.test(n);
+};
+
 // ─── Shared key→hostname resolver ────────────────────────────────────────────
 function resolveFilterKey(key, sumData) {
   if (!sumData) return [];
-const direct = {
-  noCrowdstrike: sumData.noCrowdstrike,
-  noTanium: sumData.noTanium,
-  noUems: sumData.noUems,
-  notActivated: sumData.notActivated,
-  noFixAsset: sumData.noFixAsset,
-  adminUsers: sumData.adminUsers,
-  notUpdated: sumData.notUpdated,
-  oldFixAssets: sumData.oldFixAssets,
-  notDomainJoined: sumData.notDomainJoined,
-  noLocation: sumData.noLocation,
-  longUptime: sumData.longUptime,
-  inactive: sumData.inactive,   // ✅ เพิ่ม
-  possiblyRenamed: sumData.possiblyRenamed,   // ✅ เพิ่ม
-};
+  const direct = {
+    noCrowdstrike: sumData.noCrowdstrike,
+    noTanium: sumData.noTanium,
+    noUems: sumData.noUems,
+    notActivated: sumData.notActivated,
+    noFixAsset: sumData.noFixAsset,
+    adminUsers: sumData.adminUsers,
+    notUpdated: sumData.notUpdated,
+    oldFixAssets: sumData.oldFixAssets,
+    notDomainJoined: sumData.notDomainJoined,
+    noLocation: sumData.noLocation,
+    longUptime: sumData.longUptime,
+    inactive: sumData.inactive,   // ✅ เพิ่ม
+    possiblyRenamed: sumData.possiblyRenamed,   // ✅ เพิ่ม
+  };
   if (key in direct) return direct[key] || [];
   const prefix = [
     ['cs:', sumData.crowdstrikeVerMap],
     ['tanium:', sumData.taniumVerMap],
     ['uems:', sumData.uemsVerMap],
     ['mfr:', sumData.manufacturerMap],
+    ['mfrmodel:', sumData.mfrModelMap],
+    ['location:', sumData.locationMap],
     ['model:', sumData.modelMap],
     ['osname:', sumData.osNameMap],
     ['osrel:', sumData.osReleaseMap],
@@ -69,6 +129,81 @@ const direct = {
   }
   return [];
 }
+
+// ─── Distribution donut card ──────────────────────────────────────────────────
+// วงแหวนแสดงสัดส่วน + legend 5 รายการแรก กด "ดูเพิ่มเติม" เพื่อดูทั้งหมด
+const toRankItems = (map = {}, prefix) => Object.keys(map)
+  .filter(k => (map[k] || []).length > 0)
+  .map(k => ({ id: `${prefix}${k}`, label: k, count: map[k].length, warn: k === 'Not Installed' }))
+  .sort((a, b) => b.count - a.count);
+
+const RankedCard = ({ title, countLabel, items, expanded, onToggle, bare, palette, text, hover, active, isActive, onItemClick }) => {
+  const total = items.reduce((s, it) => s + it.count, 0) || 1;
+  const shown = expanded ? items : items.slice(0, 5);
+  const R = 26;
+  const C = 2 * Math.PI * R;
+  let acc = 0;
+  const segments = items.map((it, i) => {
+    const len = (it.count / total) * C;
+    const seg = { ...it, len, off: acc, color: it.warn ? '#ef4444' : (palette[i] || '#e5e7eb') };
+    acc += len;
+    return seg;
+  });
+  return (
+    <div className={bare ? '' : 'bg-white border border-gray-200 rounded-xl p-3 px-3.5 shadow-sm'}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[12px] font-bold uppercase tracking-wider text-gray-400">{title} ({countLabel})</div>
+        {items.length > 5 && (
+          <button onClick={onToggle} className="text-[11px] font-semibold text-blue-600 hover:text-blue-800">
+            {expanded ? 'ย่อ' : `ดูเพิ่มเติม (${items.length})`}
+          </button>
+        )}
+      </div>
+      {items.length === 0 ? (
+        <div className="text-[12px] text-gray-400 py-2">ไม่มีข้อมูล</div>
+      ) : (
+        <div className="flex items-start gap-3">
+          <svg width="64" height="64" viewBox="0 0 64 64" className="shrink-0" role="img" aria-label={`${title} สัดส่วน`}>
+            <g transform="rotate(-90 32 32)">
+              <circle cx="32" cy="32" r={R} fill="none" stroke="#f3f4f6" strokeWidth="8" />
+              {segments.map(seg => (
+                <circle
+                  key={seg.id}
+                  cx="32" cy="32" r={R} fill="none"
+                  stroke={seg.color} strokeWidth="8"
+                  strokeDasharray={`${seg.len} ${C - seg.len}`}
+                  strokeDashoffset={-seg.off}
+                  opacity={isActive(seg.id) ? 1 : 0.85}
+                  className="cursor-pointer"
+                  onClick={() => onItemClick(seg.id, seg.label)}
+                >
+                  <title>{seg.label}: {seg.count}</title>
+                </circle>
+              ))}
+            </g>
+            <text x="32" y="30" textAnchor="middle" fontSize="11" fontWeight="600" fill="#374151">{total}</text>
+            <text x="32" y="41" textAnchor="middle" fontSize="7" fill="#9ca3af">รวม</text>
+          </svg>
+          <div className="flex-1 min-w-0 divide-y divide-gray-100">
+            {shown.map((it, i) => (
+              <div
+                key={it.id}
+                onClick={() => onItemClick(it.id, it.label)}
+                title={it.label}
+                className={`flex items-center gap-2 py-1 px-1.5 rounded-md cursor-pointer ${hover} transition-colors ${isActive(it.id) ? active : ''}`}
+              >
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: it.warn ? '#ef4444' : (palette[i] || '#e5e7eb') }} />
+                <span className={`flex-1 min-w-0 truncate text-[12px] ${it.warn ? 'text-red-600' : 'text-gray-700'}`}>{it.label}</span>
+                <span className={`text-[12px] font-semibold tabular-nums ${text}`}>{it.count}</span>
+                <span className="w-9 text-right text-[10px] text-gray-400 tabular-nums">{Math.round((it.count / total) * 100)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const MOInventoryPage = () => {
   const [view, setView] = useState('list');
@@ -92,7 +227,7 @@ const MOInventoryPage = () => {
   const [sortKey, setSortKey] = useState('updated_at');
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const [pageSize, setPageSize] = useState(20);
 
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailData, setDetailData] = useState({ inv: null, users: [], software: [] });
@@ -118,6 +253,9 @@ const MOInventoryPage = () => {
   const [shutdownData, setShutdownData] = useState([]);        // system_event
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showShutdownModal, setShowShutdownModal] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showAllSessions, setShowAllSessions] = useState(false);
+  const [expandedDist, setExpandedDist] = useState({});
 
   // ─── Session Management ───────────────────────────────────────────────────
   const [sessionLoaded, setSessionLoaded] = useState(false);
@@ -235,6 +373,8 @@ const MOInventoryPage = () => {
     // ✅ reset ก่อน fetch ป้องกัน stale data ค้างระหว่าง loading
     setHistoryData([]);
     setShutdownData([]);
+    setShowAllSessions(false);
+    setMenuOpen(false);
     setDetailData({ inv: null, users: [], software: [] });
     try {
       const safe = async (url) => {
@@ -337,17 +477,29 @@ const MOInventoryPage = () => {
     return r;
   }, [detailData.software, softwareSearch, softwareSortKey, softwareSortAsc]);
 
+  const sessionView = useMemo(() => {
+    const score = (x) => (x.logon_time ? 2 : 0) + (x.state?.toUpperCase() === 'ACTIVE' ? 1 : 0);
+    const map = new Map();
+    (detailData.users || []).forEach(u => {
+      if (isSystemAccount(u.username)) return;
+      const key = normalizeUser(u.username);
+      const prev = map.get(key);
+      if (!prev || score(u) > score(prev)) map.set(key, u);
+    });
+    return [...map.values()];
+  }, [detailData.users]);
+
   // ─── Actions ──────────────────────────────────────────────────────────────
-const showToast = (msg) => {
-  const isError = msg.startsWith('❌');
-  const cleanMsg = msg.replace(/^(✓|❌)\s*/, '');
-  setAlertModal({
-    isOpen: true,
-    type: isError ? 'error' : 'success',
-    title: isError ? 'เกิดข้อผิดพลาด' : 'สำเร็จ',
-    message: cleanMsg,
-  });
-};
+  const showToast = (msg) => {
+    const isError = msg.startsWith('❌');
+    const cleanMsg = msg.replace(/^(✓|❌)\s*/, '');
+    setAlertModal({
+      isOpen: true,
+      type: isError ? 'error' : 'success',
+      title: isError ? 'เกิดข้อผิดพลาด' : 'สำเร็จ',
+      message: cleanMsg,
+    });
+  };
 
   const clearSession = () => {
     sessionStorage.removeItem('mo-inventory-session');
@@ -377,7 +529,7 @@ const showToast = (msg) => {
     } catch (err) { showToast(`❌ ${err.message}`); }
   };
 
-const confirmDelete = async () => {
+  const confirmDelete = async () => {
     try {
       const res = await fetch(`${API_BASE}/mo-inventory/${encodeURIComponent(modalData.hostname)}`, { method: 'DELETE' });
       const data = await res.json();
@@ -388,6 +540,22 @@ const confirmDelete = async () => {
       showToast('✓ ลบข้อมูลเรียบร้อย');
     } catch (err) { showToast(`❌ ${err.message}`); }
   };
+
+  const togglePcStatus = async () => {
+    const newStatus = detailData.inv.pc_status === 'Inactive' ? 'Active' : 'Inactive';
+    try {
+      const res = await fetch(`${API_BASE}/mo-inventory/${encodeURIComponent(hostname)}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pc_status: newStatus }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      showToast(`✓ เปลี่ยนสถานะเป็น ${newStatus === 'Inactive' ? 'ไม่ได้ใช้งาน' : 'ใช้งานปกติ'}`);
+      fetchDetail(hostname);
+    } catch (err) { showToast(`❌ ${err.message}`); }
+  };
+
 
   const exportFilteredList = () => {
     try {
@@ -405,7 +573,7 @@ const confirmDelete = async () => {
         `${d.os_name || ''} ${d.os_release || ''}`.trim(), d.os_build || '',
         d.os_activation || '', d.crowdstrike_ver || '', d.tanium_ver || '',
         d.uems_ver || '', d.domain || '', d.manufacturer || '', d.model || '',
-        d.updated_at ? new Date(d.updated_at).toLocaleString('th-TH') : '',
+        d.updated_at ? fmtDate(d.updated_at) : '',
       ]);
       const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
       ws['!cols'] = headers.map((h, i) => ({
@@ -508,54 +676,34 @@ const confirmDelete = async () => {
     );
   };
 
-  const SumTag = ({ id, label, list, btnClass }) => {
-    const isOn = filterKeys.find(k => k.key === id);
-    const count = list?.length || 0;
-    if (count === 0 && !isOn) return null;
-    return (
-      <div onClick={() => toggleFilter(id, label)}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold
-          cursor-pointer transition-all border select-none hover:-translate-y-[1px] shadow-sm
-          ${btnClass} ${isOn ? 'ring-2 ring-offset-1 border-transparent shadow-md filter contrast-125' : ''}`}>
-        <span>{label}</span>
-        <span className="bg-black/10 rounded-md px-1.5 py-[1px] text-[10px] tabular-nums">{count}</span>
-      </div>
-    );
-  };
-
-  const fmtDate = (d) => {
-    if (!d) return '—';
-    try { const dt = new Date(d); return isNaN(dt.getTime()) ? d : dt.toLocaleString('th-TH'); }
-    catch { return d; }
-  };
+  // const fmtDate = (d) => {
+  //   if (!d) return '—';
+  //   try { const dt = new Date(d); return isNaN(dt.getTime()) ? d : dt.toLocaleString('th-TH'); }
+  //   catch { return d; }
+  // };
 
   const isRealAdmin = (val) => {
     const v = (val || '').toLowerCase().trim();
     return v.includes('admin') && v !== 'not admin';
   };
 
-  const distRows = sumData ? [
-    [
-      { key: 'cs', label: 'CrowdStrike', map: sumData.crowdstrikeVerMap, prefix: 'cs:', btnClass: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
-      { key: 'tan', label: 'Tanium', map: sumData.taniumVerMap, prefix: 'tanium:', btnClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    ],
-    [
-      { key: 'subnet', label: 'IP Subnet', map: sumData.subnetMap, prefix: 'subnet:', btnClass: 'bg-blue-50 text-blue-700 border-blue-200' },
-      { key: 'mfr', label: 'Manufacturer', map: sumData.manufacturerMap, prefix: 'mfr:', btnClass: 'bg-rose-50 text-rose-700 border-rose-200' },
-    ],
-    [
-      { key: 'model', label: 'Model', map: sumData.modelMap, prefix: 'model:', btnClass: 'bg-violet-50 text-violet-700 border-violet-200', limit: 6 },
-      { key: 'osbuild', label: 'OS Build', map: sumData.osBuildMap, prefix: 'osbuild:', btnClass: 'bg-orange-50 text-orange-700 border-orange-200', limit: 4 },
-    ],
-    [
-      { key: 'osrel', label: 'OS Release', map: sumData.osReleaseMap, prefix: 'osrel:', btnClass: 'bg-slate-100 text-slate-700 border-slate-300', limit: 4 },
-      { key: 'osname', label: 'OS Name', map: sumData.osNameMap, prefix: 'osname:', btnClass: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
-    ],
-    [
-      { key: 'adapter', label: 'Adapter Type', map: sumData.adapterMap, prefix: 'adapter:', btnClass: 'bg-amber-50 text-amber-800 border-amber-200' },
-      { key: 'wifi', label: 'WiFi SSID', map: sumData.wifiMap, prefix: 'wifi:', btnClass: 'bg-teal-50 text-teal-700 border-teal-200', limit: 5 },
-    ],
-  ] : [];
+  const distCards = sumData ? [
+    { key: 'cs', title: 'CrowdStrike', map: sumData.crowdstrikeVerMap, prefix: 'cs:', palette: ['#14b8a6', '#2dd4bf', '#5eead4', '#0d9488', '#0f766e'], text: 'text-teal-700', hover: 'hover:bg-teal-50', active: 'bg-teal-50 ring-1 ring-teal-300' },
+    { key: 'tan', title: 'Tanium', map: sumData.taniumVerMap, prefix: 'tanium:', palette: ['#10b981', '#34d399', '#6ee7b7', '#059669', '#047857'], text: 'text-emerald-700', hover: 'hover:bg-emerald-50', active: 'bg-emerald-50 ring-1 ring-emerald-300' },
+    { key: 'uems', title: 'UEMS', map: sumData.uemsVerMap, prefix: 'uems:', palette: ['#8b5cf6', '#a78bfa', '#c4b5fd', '#7c3aed', '#6d28d9'], text: 'text-violet-700', hover: 'hover:bg-violet-50', active: 'bg-violet-50 ring-1 ring-violet-300' },
+    { key: 'subnet', title: 'IP Subnet', map: sumData.subnetMap, prefix: 'subnet:', palette: ['#3b82f6', '#60a5fa', '#93c5fd', '#2563eb', '#1d4ed8'], text: 'text-blue-700', hover: 'hover:bg-blue-50', active: 'bg-blue-50 ring-1 ring-blue-300' },
+    { key: 'mfrmodel', title: 'Manufacturer / Model', map: sumData.mfrModelMap, prefix: 'mfrmodel:', palette: ['#f43f5e', '#fb7185', '#fda4af', '#e11d48', '#be123c'], text: 'text-rose-700', hover: 'hover:bg-rose-50', active: 'bg-rose-50 ring-1 ring-rose-300' },
+    { key: 'osname', title: 'OS Name', map: sumData.osNameMap, prefix: 'osname:', palette: ['#0ea5e9', '#38bdf8', '#7dd3fc', '#0284c7', '#0369a1'], text: 'text-sky-700', hover: 'hover:bg-sky-50', active: 'bg-sky-50 ring-1 ring-sky-300' },
+    { key: 'osrel', title: 'OS Release', map: sumData.osReleaseMap, prefix: 'osrel:', palette: ['#64748b', '#94a3b8', '#cbd5e1', '#475569', '#334155'], text: 'text-slate-700', hover: 'hover:bg-slate-50', active: 'bg-slate-100 ring-1 ring-slate-300' },
+    { key: 'osbuild', title: 'OS Build', map: sumData.osBuildMap, prefix: 'osbuild:', palette: ['#f97316', '#fb923c', '#fdba74', '#ea580c', '#c2410c'], text: 'text-orange-700', hover: 'hover:bg-orange-50', active: 'bg-orange-50 ring-1 ring-orange-300' },
+    { key: 'adapter', title: 'Adapter Type', map: sumData.adapterMap, prefix: 'adapter:', palette: ['#f59e0b', '#fbbf24', '#fcd34d', '#d97706', '#b45309'], text: 'text-amber-700', hover: 'hover:bg-amber-50', active: 'bg-amber-50 ring-1 ring-amber-300' },
+    { key: 'wifi', title: 'WiFi SSID', map: sumData.wifiMap, prefix: 'wifi:', palette: ['#14b8a6', '#2dd4bf', '#5eead4', '#0d9488', '#0f766e'], text: 'text-teal-700', hover: 'hover:bg-teal-50', active: 'bg-teal-50 ring-1 ring-teal-300' },
+    { key: 'location', title: 'Location', map: sumData.locationMap, prefix: 'location:', palette: ['#ec4899', '#f472b6', '#f9a8d4', '#db2777', '#be185d'], text: 'text-pink-700', hover: 'hover:bg-pink-50', active: 'bg-pink-50 ring-1 ring-pink-300' },
+  ].map(c => ({ ...c, items: toRankItems(c.map, c.prefix) })) : [];
+
+  // จับคู่การ์ดทีละ 2 ใบ (ตามลำดับใน distCards) ให้แสดงในกล่องเดียวกันแบ่งซ้าย-ขวา
+  const distPairs = [];
+  for (let i = 0; i < distCards.length; i += 2) distPairs.push(distCards.slice(i, i + 2));
 
   const currentSearchPlaceholder = SEARCH_FIELD_OPTIONS.find(o => o.value === searchFieldType)?.placeholder
     || SEARCH_FIELD_OPTIONS[0].placeholder;
@@ -607,34 +755,32 @@ const confirmDelete = async () => {
               <StatBox id="noLocation" label="No Location" list={sumData?.noLocation} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" />
               <StatBox id="longUptime" label="Uptime > 10 วัน" list={sumData?.longUptime} textClass="text-sky-600" bgClass="bg-sky-50" ringClass="ring-sky-500" />
               <StatBox id="inactive" label="ไม่ได้ใช้งาน" list={sumData?.inactive}
-  textClass="text-gray-500" bgClass="bg-gray-100" ringClass="ring-gray-400" />
+                textClass="text-gray-500" bgClass="bg-gray-100" ringClass="ring-gray-400" />
               <StatBox id="possiblyRenamed" label="อาจถูกลงใหม่/เปลี่ยนชื่อ" list={sumData?.possiblyRenamed} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" onSecondaryClick={() => setShowReincarnatedModal(true)} />
             </div>
 
             {/* Distribution cards */}
             {sumData && (
-              <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-4 overflow-hidden">
-                {distRows.map((row, rowIdx, rows) => (
-                  <div key={rowIdx} className={`grid grid-cols-2 ${rowIdx < rows.length - 1 ? 'border-b border-gray-100' : ''}`}>
-                    {row.map((col, colIdx) => {
-                      if (!col) return <div key="empty" />;
-                      const { key, label, map, prefix, btnClass, limit } = col;
-                      const entries = Object.keys(map || {})
-                        .filter(k => (map[k] || []).length > 0)
-                        .sort((a, b) => (map[b] || []).length - (map[a] || []).length)
-                        .slice(0, limit);
-                      if (entries.length === 0) return <div key={key} />;
-                      return (
-                        <div key={key} className={`px-4 py-2.5 ${colIdx === 0 ? 'border-r border-gray-100' : ''}`}>
-                          <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">{label}</div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {entries.map(k => (
-                              <SumTag key={`${prefix}${k}`} id={`${prefix}${k}`} label={k} list={map[k]} btnClass={btnClass} />
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 mb-4">
+                {distPairs.map((pair, pi) => (
+                  <div key={pi} className="bg-white border border-gray-200 rounded-xl p-3 px-3.5 shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+                    {pair.map(c => (
+                      <RankedCard
+                        key={c.key}
+                        bare
+                        title={c.title}
+                        countLabel={`${c.items.reduce((s, it) => s + it.count, 0)} เครื่อง`}
+                        items={c.items}
+                        expanded={!!expandedDist[c.key]}
+                        onToggle={() => setExpandedDist(p => ({ ...p, [c.key]: !p[c.key] }))}
+                        palette={c.palette}
+                        text={c.text}
+                        hover={c.hover}
+                        active={c.active}
+                        isActive={id => filterKeys.some(f => f.key === id)}
+                        onItemClick={(id, label) => toggleFilter(id, label)}
+                      />
+                    ))}
                   </div>
                 ))}
               </div>
@@ -662,15 +808,13 @@ const confirmDelete = async () => {
             {/* Search */}
             <div className="relative mb-3 flex w-full gap-2">
               {/* ✅ NEW: Search field dropdown — driven by SEARCH_FIELD_OPTIONS */}
-              <select
-                value={searchFieldType}
-                onChange={(e) => { setSearchFieldType(e.target.value); setPage(1); }}
-                className="bg-white border border-gray-200 rounded-xl py-2.5 px-3 text-[13px] font-medium text-gray-700 outline-none shadow-sm focus:border-blue-500 transition-colors shrink-0 cursor-pointer"
-              >
-                {SEARCH_FIELD_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+           <select
+  value={pageSize}
+  onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+  className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white"
+>
+  {[20, 50, 100].map(n => <option key={n} value={n}>{n} / หน้า</option>)}
+</select>
 
               <div className="relative flex-1">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Search size={15} /></div>
@@ -694,14 +838,15 @@ const confirmDelete = async () => {
             </div>
 
             {/* Table */}
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+            {/* <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse whitespace-nowrap">
                   <thead className="bg-[#f5f6f8] border-b border-gray-200 text-[#9ca3af] text-[10px] uppercase tracking-wider">
                     <tr>
                       {[['hostname', 'Hostname'], ['ip_address', 'IP Address'], ['active_usernames', 'User'],
-                        ['fix_asset', 'Fix Asset'], ['local_admin_users', 'Local Admin'], ['serial_number', 'Serial Number'],
-                        ['os_name', 'OS'], ['os_activation', 'Activation'], ['logon_time', 'Logon Time']].map(([k, lbl]) => (
+                      ['fix_asset', 'Fix Asset'], ['local_admin_users', 'Local Admin'], ['serial_number', 'Serial Number'],
+                      ['os_name', 'OS'], ['os_activation', 'Activation'], ['logon_time', 'Logon Time'],
+                      ['updated_at', 'Last Updated']].map(([k, lbl]) => (
                         <th key={k} className="py-2.5 px-3 font-semibold cursor-pointer select-none" onClick={() => toggleSort(k)}>
                           {lbl} {sortKey === k ? (sortAsc ? '▲' : '▼') : '↕'}
                         </th>
@@ -711,15 +856,15 @@ const confirmDelete = async () => {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {loading ? (
-                      <tr><td colSpan="10"><div className="text-center py-12 text-gray-500 flex items-center justify-center gap-2">
+                      <tr><td colSpan="11"><div className="text-center py-12 text-gray-500 flex items-center justify-center gap-2">
                         <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" /> กำลังโหลดข้อมูล...
                       </div></td></tr>
                     ) : currentList.length === 0 ? (
-                      <tr><td colSpan="10"><div className="text-center py-12 text-sm text-gray-400">🖥️ ไม่พบข้อมูล</div></td></tr>
+                      <tr><td colSpan="11"><div className="text-center py-12 text-sm text-gray-400">🖥️ ไม่พบข้อมูล</div></td></tr>
                     ) : currentList.map(d => (
-                       <tr key={d.hostname}
-    className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' ? 'opacity-50' : ''}`}
-    onClick={() => { setHostname(d.hostname); setView('detail'); }}>
+                      <tr key={d.hostname}
+                        className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' ? 'opacity-50' : ''}`}
+                        onClick={() => { setHostname(d.hostname); setView('detail'); }}>
                         <td className="py-2 px-3 text-[13px] font-medium text-gray-900">{d.hostname || '—'}</td>
                         <td className="py-2 px-3 text-[13px] font-mono font-medium">{d.ip_address || '—'}</td>
                         <td className="py-2 px-3 text-[13px] font-medium text-blue-600">{(d.active_usernames || '—').split(',')[0]}</td>
@@ -740,7 +885,8 @@ const confirmDelete = async () => {
                             {d.os_activation || '—'}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-[13px] text-gray-600">{fmtDate(d.logon_time)}</td>
+                        <td className="py-2 px-3 text-[13px] text-gray-600">{fmtDateOnly(d.logon_time)}</td>
+<td className="py-2 px-3 text-[13px] font-mono text-gray-500">{fmtDateOnly(d.updated_at)}</td>
                         <td className="py-2 px-3 text-right text-gray-400 font-bold group-hover:text-blue-500">›</td>
                       </tr>
                     ))}
@@ -756,7 +902,100 @@ const confirmDelete = async () => {
                     disabled={page >= totalPages} onClick={() => setPage(page + 1)}>ถัดไป →</button>
                 </div>
               </div>
-            </div>
+            </div> */}
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+  <div className="overflow-x-auto">
+    <table className="w-full text-left border-collapse whitespace-nowrap">
+      <thead className="bg-[#f5f6f8] border-b border-gray-200 text-[#9ca3af] text-[10px] uppercase tracking-wider">
+        <tr>
+          {[['hostname', 'Hostname'], ['active_usernames', 'User'], ['ip_address', 'IP Address'],
+            ['fix_asset', 'Fix Asset'], ['model', 'Model'], ['serial_number', 'Serial Number'], ['local_admin_users', 'Local Admin'],
+            ['os_name', 'OS'], ['crowdstrike_ver', 'Security'], ['updated_at', 'Last Updated']].map(([k, lbl]) => (
+            <th key={k} className="py-2.5 px-3 font-semibold cursor-pointer select-none" onClick={() => toggleSort(k)}>
+              {lbl} {sortKey === k ? (sortAsc ? '▲' : '▼') : '↕'}
+            </th>
+          ))}
+          <th className="py-2.5 px-3" />
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+        {loading ? (
+          <tr><td colSpan="11"><div className="text-center py-12 text-gray-500 flex items-center justify-center gap-2">
+            <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" /> กำลังโหลดข้อมูล...
+          </div></td></tr>
+        ) : currentList.length === 0 ? (
+          <tr><td colSpan="11"><div className="text-center py-12 text-sm text-gray-400">🖥️ ไม่พบข้อมูล</div></td></tr>
+        ) : currentList.map(d => (
+          <tr key={d.hostname}
+            className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' ? 'opacity-50' : ''}`}
+            onClick={() => { setHostname(d.hostname); setView('detail'); }}>
+            <td className="py-2 px-3 text-[13px] font-medium text-gray-900">{d.hostname || '—'}</td>
+            <td className="py-2 px-3 text-[13px] font-medium text-blue-600">
+              {(d.active_usernames || '')
+                .split(',')
+                .map(u => stripDomain(u))
+                .find(u => u && !isSystemAccount(u) && u.toLowerCase() !== (d.hostname || '').toLowerCase()) || '—'}
+            </td>
+            <td className="py-2 px-3 text-[13px] font-mono font-medium">
+  {d.ip_address || '—'}
+  {d.ip_address && (
+    <button
+      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(d.ip_address); }}
+      className="ml-1.5 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-blue-600 transition"
+      title="คัดลอก IP">⧉</button>
+  )}
+</td>
+            <td className="py-2 px-3 text-[13px] font-mono text-purple-600 font-medium">{d.fix_asset || '—'}</td>
+            <td className="py-2 px-3 text-[13px] text-gray-600">
+              {[d.manufacturer, d.model].filter(Boolean).join(' ') || '—'}
+            </td>
+            <td className="py-2 px-3 text-[13px] font-mono text-gray-600">{d.serial_number || '—'}</td>
+            <td className="py-2 px-3">
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold
+                ${isRealAdmin(d.local_admin_users) ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                <div className={`w-1.5 h-1.5 rounded-full mr-1 ${isRealAdmin(d.local_admin_users) ? 'bg-red-500' : 'bg-green-500'}`} />
+                {d.local_admin_users ? d.local_admin_users.charAt(0).toUpperCase() + d.local_admin_users.slice(1) : '—'}
+              </span>
+            </td>
+            <td
+              className="py-2 px-3 text-[13px] text-gray-600"
+              title={`${d.os_name || ''} ${d.os_release || ''}${d.os_build ? ` (Build ${d.os_build})` : ''}`.trim()}
+            >{shortOsName(d.os_name) || '—'} {d.os_release || ''}</td>
+            <td className="py-2 px-3">
+              <div className="flex gap-1">
+               {[['EDR', d.crowdstrike_ver, 'noCrowdstrike', 'No CrowdStrike'],
+  ['TANIUM', d.tanium_ver, 'noTanium', 'No Tanium'],
+  ['UEMS', d.uems_ver, 'noUems', 'No UEMS']].map(([lbl, v, fKey, fLabel]) => (
+  <span key={lbl}
+    onClick={(e) => { e.stopPropagation(); if (!isInstalled(v)) toggleFilter(fKey, fLabel); }}
+    title={`${lbl}: ${isInstalled(v) ? v : 'Not installed (คลิกเพื่อ filter)'}`}
+    className={`px-1.5 py-0.5 rounded text-[10px] font-bold
+      ${isInstalled(v) ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700 cursor-pointer hover:bg-red-200'}`}>
+    {lbl}
+  </span>
+))}
+              </div>
+            </td>
+            <td className="py-2 px-3 text-[13px] text-gray-500">
+  {fmtDateOnly(d.updated_at)}
+</td>
+            <td className="py-2 px-3 text-right text-gray-400 font-bold group-hover:text-blue-500">›</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+  <div className="flex items-center justify-between border-t border-gray-200 px-4 py-2.5 text-xs text-gray-500 bg-white">
+    <span>{(page - 1) * pageSize + (filteredData.length ? 1 : 0)}–{Math.min(page * pageSize, filteredData.length)} จาก {filteredData.length} รายการ</span>
+    <div className="flex gap-1.5">
+      <button className="bg-white border border-gray-200 text-gray-600 rounded-lg px-3 py-1.5 hover:border-blue-500 hover:text-blue-600 disabled:opacity-40 font-medium transition-colors"
+        disabled={page <= 1} onClick={() => setPage(page - 1)}>← ก่อน</button>
+      <button className="bg-white border border-gray-200 text-gray-600 rounded-lg px-3 py-1.5 hover:border-blue-500 hover:text-blue-600 disabled:opacity-40 font-medium transition-colors"
+        disabled={page >= totalPages} onClick={() => setPage(page + 1)}>ถัดไป →</button>
+    </div>
+  </div>
+</div>
+
           </motion.div>
         )}
 
@@ -786,7 +1025,7 @@ const confirmDelete = async () => {
                       {detailData.inv.manufacturer && <span className="bg-[#f5f6f8] border border-gray-200 rounded-md px-2.5 py-1">{detailData.inv.manufacturer}</span>}
                       <span className="bg-[#f5f6f8] border border-gray-200 rounded-md px-2.5 py-1">{detailData.inv.os_name || '—'}</span>
                       <span className="bg-[#f5f6f8] border border-gray-200 rounded-md px-2.5 py-1">{detailData.inv.os_arch || '—'}</span>
-                      <span className="bg-[#f5f6f8] border border-gray-200 rounded-md px-2.5 py-1">{detailData.users.length} Sessions</span>
+                      <span className="bg-[#f5f6f8] border border-gray-200 rounded-md px-2.5 py-1">{sessionView.length} Users</span>
                       {detailData.inv.os_activation === 'Activated'
                         ? <span className="bg-green-50 border border-green-200 text-green-700 rounded-md px-2.5 py-1">OS Activated</span>
                         : <span className="bg-amber-50 border border-amber-200 text-amber-700 rounded-md px-2.5 py-1">OS Not Activated</span>}
@@ -804,47 +1043,52 @@ const confirmDelete = async () => {
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-2 flex-wrap">
-                    <button onClick={() => { setModalData({ hostname, assetInput: detailData.inv.fix_asset }); setShowAssetModal(true); }}
-                      className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors">
-                      Edit Asset
-                    </button>
-                    <button className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                      onClick={() => setShowLocationModal(true)}>
-                      📍 Edit Location
-                    </button>
-                    <button onClick={exportMODetail}
-                      className="bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5">
-                      <Download size={14} /> Export
-                    </button>
-                    <button onClick={() => { setModalData({ hostname }); setShowDeleteModal(true); }}
-                      className="bg-red-50 text-red-600 border border-[#fca5a5] hover:bg-red-100 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors">
-                      Delete
-                    </button>
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
-onClick={async () => {
-    const newStatus = detailData.inv.pc_status === 'Inactive' ? 'Active' : 'Inactive';
-    try {
-      const res = await fetch(`${API_BASE}/mo-inventory/${encodeURIComponent(hostname)}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pc_status: newStatus }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      showToast(`✓ เปลี่ยนสถานะเป็น ${newStatus === 'Inactive' ? 'ไม่ได้ใช้งาน' : 'ใช้งานปกติ'}`);
-      fetchDetail(hostname);
-    } catch (err) { showToast(`❌ ${err.message}`); }
-  }}
-  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-    detailData.inv.pc_status === 'Inactive'
-      ? 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'
-      : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'
-  }`}>
-  {detailData.inv.pc_status === 'Inactive' ? '✓ Reactivate' : '⏸ Mark Inactive'}
-</button>
+                      className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors"
+                      onClick={() => { setModalData({ hostname, assetInput: detailData.inv.fix_asset }); setShowAssetModal(true); }}
+                    >Edit Asset</button>
+
+                    <button
+                      className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors"
+                      onClick={() => setShowLocationModal(true)}
+                    >📍 Edit Location</button>
+
+                    <button
+                      className="bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
+                      onClick={exportMODetail}
+                    ><Download size={14} /> Export</button>
+
+                    <div className="relative">
+                      <button
+                        onClick={() => setMenuOpen(o => !o)}
+                        aria-label="เมนูเพิ่มเติม"
+                        className="w-9 h-9 rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-800 flex items-center justify-center text-lg leading-none transition-colors"
+                      >⋯</button>
+
+                      {menuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                          <div className="absolute right-0 mt-1.5 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 text-[13px] font-medium animate-in fade-in zoom-in-95 duration-150">
+                            <button
+                              className="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50"
+                              onClick={() => { setMenuOpen(false); togglePcStatus(); }}
+                            >
+                              {detailData.inv.pc_status === 'Inactive' ? '✓ Reactivate' : '⏸ Mark Inactive'}
+                            </button>
+
+                            <div className="my-1 border-t border-gray-100" />
+
+                            <button
+                              className="w-full text-left px-3.5 py-2 text-red-600 hover:bg-red-50"
+                              onClick={() => { setMenuOpen(false); setModalData({ hostname }); setShowDeleteModal(true); }}
+                            >🗑 Delete</button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
+                </div>   {/* ← ปิดการ์ด Hero */}
 
                 {/* Sections */}
                 {(() => {
@@ -863,36 +1107,85 @@ onClick={async () => {
 
                       {/* Sessions */}
                       <div>
-                        <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Sessions ปัจจุบัน</div>
-                        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-                          <table className="w-full text-left text-[13px]">
-                            <thead className="bg-[#f5f6f8] border-b border-gray-200 text-[#9ca3af] text-[10px] uppercase tracking-wider">
-                              <tr>
-                                <th className="py-2 px-3">Username</th><th className="py-2 px-3">Session Name</th>
-                                <th className="py-2 px-3">Session ID</th><th className="py-2 px-3">State</th>
-                                <th className="py-2 px-3">Logon Time</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                              {detailData.users.length === 0
-                                ? <tr><td colSpan="5" className="text-center py-8 text-gray-400 text-xs">ไม่มี session</td></tr>
-                                : detailData.users.map(u => (
-                                  <tr key={u.id}>
-                                    <td className="py-2 px-3 font-medium text-blue-600">{u.username || '—'}</td>
-                                    <td className="py-2 px-3 text-gray-600">{u.session_name || '—'}</td>
-                                    <td className="py-2 px-3 font-mono text-[11px] text-gray-500">{u.session_id || '—'}</td>
-                                    <td className="py-2 px-3">
-                                      <span className={`inline-flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[11px] font-bold
-                                        ${u.state?.toUpperCase() === 'ACTIVE' ? 'bg-green-100 text-green-700' : u.state?.toUpperCase() === 'DISC' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                                        <div className="w-1.5 h-1.5 rounded-full bg-current" />{u.state}
-                                      </span>
-                                    </td>
-                                    <td className="py-2 px-3 text-gray-600">{fmtDate(u.logon_time)}</td>
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
+                        <div className="flex items-center justify-between mb-3 ml-1">
+                          <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400">
+                            ผู้ใช้ปัจจุบัน ({sessionView.length})
+                          </div>
+                          {detailData.users.length > 0 && (
+                            <button
+                              onClick={() => setShowAllSessions(s => !s)}
+                              className="text-[11px] font-semibold text-gray-400 hover:text-blue-600 transition-colors"
+                            >
+                              {showAllSessions ? 'ซ่อนข้อมูลดิบ' : `ดู session ทั้งหมด (${detailData.users.length})`}
+                            </button>
+                          )}
                         </div>
+
+                        {!showAllSessions ? (
+                          sessionView.length === 0 ? (
+                            <div className="bg-white border border-gray-200 rounded-xl py-8 text-center text-xs font-medium text-gray-400 shadow-sm">
+                              ไม่มีผู้ใช้ที่ login อยู่
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {sessionView.map(u => {
+                                const name = stripDomain(u.username);
+                                const state = (u.state || '').toUpperCase();
+                                const ago = timeAgo(u.logon_time);
+                                const badge =
+                                  state === 'ACTIVE' ? 'bg-green-100 text-green-700'
+                                    : state === 'DISC' ? 'bg-red-100 text-red-700'
+                                      : 'bg-amber-100 text-amber-700';
+                                return (
+                                  <div
+                                    key={u.id || normalizeUser(u.username)}
+                                    title={`Session: ${u.session_name || '—'} · ID: ${u.session_id ?? '—'}`}
+                                    className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex items-center gap-3 hover:border-blue-200 transition-colors"
+                                  >
+                                    <div className="w-10 h-10 rounded-full bg-[#eff4ff] border border-[#bfcfff] flex items-center justify-center text-[13px] font-bold text-[#2563eb] shrink-0">
+                                      {name.slice(0, 2).toUpperCase()}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="text-[14px] font-semibold text-gray-900 truncate">{name}</div>
+                                      <div className="text-[11.5px] text-gray-400 mt-0.5" title={u.logon_time ? fmtDate(u.logon_time) : ''}>
+                                        {u.logon_time ? `Login ${ago || fmtDate(u.logon_time)}` : 'ไม่ทราบเวลา login'}
+                                      </div>
+                                    </div>
+                                    <span className={`inline-flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[11px] font-bold shrink-0 ${badge}`}>
+                                      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                      {u.state || '—'}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )
+                        ) : (
+                          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-[13px]">
+                                <thead className="bg-[#f5f6f8] border-b border-gray-200 text-[#9ca3af] text-[10px] uppercase tracking-wider">
+                                  <tr><th className="py-2 px-3">Username</th><th className="py-2 px-3">Session Name</th><th className="py-2 px-3">Session ID</th><th className="py-2 px-3">State</th><th className="py-2 px-3">Logon Time</th></tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {detailData.users.map(u => (
+                                    <tr key={u.id}>
+                                      <td className="py-2 px-3 font-medium text-blue-600">{u.username || '—'}</td>
+                                      <td className="py-2 px-3 text-gray-600">{u.session_name || '—'}</td>
+                                      <td className="py-2 px-3 font-mono text-[11px] text-gray-500">{u.session_id || '—'}</td>
+                                      <td className="py-2 px-3">
+                                        <span className={`inline-flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[11px] font-bold ${u.state?.toUpperCase() === 'ACTIVE' ? 'bg-green-100 text-green-700' : u.state?.toUpperCase() === 'DISC' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                                          <div className="w-1.5 h-1.5 rounded-full bg-current"></div>{u.state}
+                                        </span>
+                                      </td>
+                                      <td className="py-2 px-3 text-gray-600">{fmtDate(u.logon_time)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Information */}
@@ -917,6 +1210,35 @@ onClick={async () => {
                           <InfoCell label="Last Patch Date" value={fmtDate(inv.last_patch_date)} fontCls="font-mono text-[12px] text-gray-500" />
                           <InfoCell label="Data Collected" value={fmtDate(inv.collected_at)} fontCls="font-mono text-[12px] text-gray-500" />
                           <InfoCell label="Last Updated" value={fmtDate(inv.updated_at)} fontCls="font-mono text-[12px] text-gray-500" />
+                        </div>
+                      </div>
+
+                      {/* ✅ [NEW] Hardware — field เหล่านี้มีอยู่แล้วใน schema/detailData.inv อยู่แล้ว แค่ยังไม่เคยโชว์ */}
+                      <div>
+                        <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Hardware</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-[1px] bg-gray-200 border border-gray-200 rounded-xl overflow-hidden">
+                          <InfoCell label="CPU" value={inv.cpu_name} />
+                          <InfoCell label="Cores / Threads" value={inv.cpu_cores ? `${inv.cpu_cores} cores / ${inv.cpu_threads} threads` : null} />
+                          <InfoCell label="RAM" value={inv.ram_info} textCol="text-green-600" />
+                          {(inv.ram_detail || '').split(' | ').filter(e => e).map((r, i) => (
+                            <InfoCell key={i} label={`RAM Slot ${i + 1}`} value={r} />
+                          ))}
+                          {(inv.disk_info || '').split(' | ').filter(e => e).map((d, i) => {
+                            const letter = String.fromCharCode(67 + i);
+                            const tm = d.match(/Total:([^\s]+)/), fm = d.match(/Free:([^\s]+)/);
+                            return (
+                              <InfoCell
+                                key={i}
+                                label={`Disk ${letter}`}
+                                value={`Total: ${tm ? tm[1] : ''}\nFree: ${fm ? fm[1] : ''}`}
+                                fontCls="whitespace-pre-wrap"
+                                textCol="text-green-600"
+                              />
+                            );
+                          })}
+                          <InfoCell label="GPU" value={inv.gpu} />
+                          <InfoCell label="Resolution" value={inv.resolution} />
+                          <InfoCell label="BIOS Version" value={inv.bios_version} fontCls="font-mono text-[12px] text-gray-500" />
                         </div>
                       </div>
 
@@ -1310,71 +1632,71 @@ onClick={async () => {
       {/* ✅ [NEW] REINCARNATED MACHINES MODAL — เครื่องที่น่าจะถูกลง Windows ใหม่ + เปลี่ยนชื่อ */}
       {showReincarnatedModal && (
         <Portal>
-        <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-[700px] shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col overflow-hidden border border-gray-200">
-            <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-gray-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-[10px] bg-orange-50 border border-orange-200 flex items-center justify-center text-[18px] shrink-0">🔄</div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[15px] font-bold text-gray-900">เครื่องที่น่าจะถูกลง Windows ใหม่</span>
-                    <span className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 rounded-full px-2.5 py-0.5 text-[11px] font-semibold">{(sumData?.reincarnatedPairs || []).length} คู่</span>
-                  </div>
-                  <div className="text-[12px] text-gray-400 mt-0.5">จับคู่จาก MAC/Serial ที่ตรงกันระหว่างเครื่องเก่ากับเครื่องใหม่</div>
-                </div>
-              </div>
-              <button onClick={() => setShowReincarnatedModal(false)} className="w-7 h-7 rounded-md border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
-                <X size={14} />
-              </button>
-            </div>
-            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-2.5">
-              {(sumData?.reincarnatedPairs || []).length === 0 ? (
-                <div className="text-center py-12 text-sm text-gray-400">ไม่พบเครื่องที่น่าจะถูกเปลี่ยนชื่อ</div>
-              ) : (sumData?.reincarnatedPairs || []).map((r, i) => (
-                <div key={i} className="bg-[#fafafa] border border-gray-200 rounded-xl p-3.5 flex items-center gap-3">
-                  <button
-                    onClick={() => { setShowReincarnatedModal(false); setHostname(r.old_hostname); setView('detail'); }}
-                    className="flex-1 text-left bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 rounded-lg px-3 py-2 transition-all group min-w-0"
-                  >
-                    <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5 flex items-center gap-1.5">
-                      เครื่องเก่า
-                      {r.old_pc_status === 'Inactive' && (
-                        <span className="text-[9px] font-bold text-gray-500 bg-gray-200 rounded-full px-1.5 py-0.5 normal-case">Inactive แล้ว</span>
-                      )}
+          <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-[700px] shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col overflow-hidden border border-gray-200">
+              <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-[10px] bg-orange-50 border border-orange-200 flex items-center justify-center text-[18px] shrink-0">🔄</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[15px] font-bold text-gray-900">เครื่องที่น่าจะถูกลง Windows ใหม่</span>
+                      <span className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 rounded-full px-2.5 py-0.5 text-[11px] font-semibold">{(sumData?.reincarnatedPairs || []).length} คู่</span>
                     </div>
-                    <div className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-orange-700">{r.old_hostname}</div>
-                    <div className="text-[10px] text-gray-400 font-mono mt-0.5">{fmtDate(r.old_last_seen)}</div>
-                  </button>
-                  <span className="text-gray-300 shrink-0">→</span>
-                  <button
-                    onClick={() => { setShowReincarnatedModal(false); setHostname(r.new_hostname); setView('detail'); }}
-                    className="flex-1 text-left bg-white border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 rounded-lg px-3 py-2 transition-all group min-w-0"
-                  >
-                    <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">เครื่องใหม่</div>
-                    <div className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-emerald-700">{r.new_hostname}</div>
-                    <div className="text-[10px] text-gray-400 font-mono mt-0.5">{fmtDate(r.new_last_seen)}</div>
-                  </button>
-                  <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-1 shrink-0 whitespace-nowrap">{r.match_reason}</span>
+                    <div className="text-[12px] text-gray-400 mt-0.5">จับคู่จาก MAC/Serial ที่ตรงกันระหว่างเครื่องเก่ากับเครื่องใหม่</div>
+                  </div>
                 </div>
-              ))}
-            </div>
-            <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
-              <button onClick={() => setShowReincarnatedModal(false)} className="px-4 py-2 rounded-lg border border-gray-200 text-[12px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors">ปิด</button>
+                <button onClick={() => setShowReincarnatedModal(false)} className="w-7 h-7 rounded-md border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="overflow-y-auto flex-1 px-6 py-4 space-y-2.5">
+                {(sumData?.reincarnatedPairs || []).length === 0 ? (
+                  <div className="text-center py-12 text-sm text-gray-400">ไม่พบเครื่องที่น่าจะถูกเปลี่ยนชื่อ</div>
+                ) : (sumData?.reincarnatedPairs || []).map((r, i) => (
+                  <div key={i} className="bg-[#fafafa] border border-gray-200 rounded-xl p-3.5 flex items-center gap-3">
+                    <button
+                      onClick={() => { setShowReincarnatedModal(false); setHostname(r.old_hostname); setView('detail'); }}
+                      className="flex-1 text-left bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 rounded-lg px-3 py-2 transition-all group min-w-0"
+                    >
+                      <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5 flex items-center gap-1.5">
+                        เครื่องเก่า
+                        {r.old_pc_status === 'Inactive' && (
+                          <span className="text-[9px] font-bold text-gray-500 bg-gray-200 rounded-full px-1.5 py-0.5 normal-case">Inactive แล้ว</span>
+                        )}
+                      </div>
+                      <div className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-orange-700">{r.old_hostname}</div>
+                      <div className="text-[10px] text-gray-400 font-mono mt-0.5">{fmtDate(r.old_last_seen)}</div>
+                    </button>
+                    <span className="text-gray-300 shrink-0">→</span>
+                    <button
+                      onClick={() => { setShowReincarnatedModal(false); setHostname(r.new_hostname); setView('detail'); }}
+                      className="flex-1 text-left bg-white border border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 rounded-lg px-3 py-2 transition-all group min-w-0"
+                    >
+                      <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">เครื่องใหม่</div>
+                      <div className="text-[13px] font-semibold text-gray-800 truncate group-hover:text-emerald-700">{r.new_hostname}</div>
+                      <div className="text-[10px] text-gray-400 font-mono mt-0.5">{fmtDate(r.new_last_seen)}</div>
+                    </button>
+                    <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-1 shrink-0 whitespace-nowrap">{r.match_reason}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+                <button onClick={() => setShowReincarnatedModal(false)} className="px-4 py-2 rounded-lg border border-gray-200 text-[12px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors">ปิด</button>
+              </div>
             </div>
           </div>
-        </div>
         </Portal>
       )}
 
       {/* Toast */}
-<AlertModal
-  isOpen={alertModal.isOpen}
-  type={alertModal.type}
-  title={alertModal.title}
-  message={alertModal.message}
-  onConfirm={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
-  confirmText="ตกลง"
-/>
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        type={alertModal.type}
+        title={alertModal.title}
+        message={alertModal.message}
+        onConfirm={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+        confirmText="ตกลง"
+      />
     </div>
   );
 };

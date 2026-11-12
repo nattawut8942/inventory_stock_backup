@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { FileSpreadsheet, Calendar, Download, CheckSquare, Square, Package, TrendingUp, TrendingDown, BarChart3, PieChart, FileText, Receipt, DollarSign, Clock, User, AlertCircle, Shield, SlidersHorizontal, X, Filter, Monitor } from 'lucide-react';
 import { BarChart, Bar, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, LabelList } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
+import { useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import AlertModal from '../components/AlertModal';
 import { getChartColor, getBadgeStyle } from '../utils/styleHelpers';
@@ -9,44 +10,72 @@ import { formatThaiDateShort } from '../utils/formatDate';
 import { API_BASE, API_URL } from '../config/api';
 
 // ─── Helper: check if date falls in range ────────────────────────────────────
+const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+// หมวดหมู่ของหน้า Report — ภาพรวมเคลื่อนไหวเท่านั้น สถานะปัจจุบัน (Stock หมด / MA ใกล้หมดอายุ) อยู่ที่ Dashboard
+const REPORT_TABS = [
+    { id: 'overview', label: 'ภาพรวมการเคลื่อนไหว', icon: BarChart3 },
+    { id: 'stock', label: 'Stock & มูลค่า', icon: Package },
+    { id: 'usage', label: 'การเบิก', icon: User },
+    { id: 'procurement', label: 'จัดซื้อ', icon: Receipt },
+];
+
+// key รูปแบบ "YYYY-MM" ใช้แยกเดือนเดียวกันของคนละปีออกจากกัน
+const monthKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+const monthLabelOf = (key) => MONTHS_TH[Number(key.slice(5)) - 1];
+
+// 6 เดือนล่าสุด (เก่า → ใหม่)
+const recentMonthKeys = (count = 6) => {
+    const now = new Date();
+    return Array.from({ length: count }, (_, i) =>
+        monthKeyOf(new Date(now.getFullYear(), now.getMonth() - (count - 1 - i), 1))
+    );
+};
+
+// กฎการนับความเคลื่อนไหว: ไม่รวม Invoice ที่ยกเลิกและรายการปรับยอดนับสต็อก
+const isCountedMovement = (t) => {
+    const ref = t.RefInfo || '';
+    return !ref.includes('ยกเลิก Invoice') && !ref.includes('Stock Count Adjust');
+};
+
+// วันที่แบบ YYYY-MM-DD ตาม timezone เครื่อง
+const toDateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// แปลง preset ของตัวกรองเป็นช่วงวันที่ (ตรงกับ isInDateRange)
+const presetRange = (preset, customStart, customEnd) => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    switch (preset) {
+        case 'thisMonth':
+            return { start: toDateKey(new Date(y, m, 1)), end: toDateKey(new Date(y, m + 1, 0)) };
+        case 'last3months': {
+            const start = new Date(now);
+            start.setMonth(start.getMonth() - 3);
+            return { start: toDateKey(start), end: toDateKey(now) };
+        }
+        case 'thisQuarter': {
+            const q = Math.floor(m / 3) * 3;
+            return { start: toDateKey(new Date(y, q, 1)), end: toDateKey(new Date(y, q + 3, 0)) };
+        }
+        case 'thisYear': {
+            const startYear = m < 3 ? y - 1 : y;
+            return { start: `${startYear}-04-01`, end: `${startYear + 1}-03-31` };
+        }
+        case 'custom':
+            return { start: customStart || '', end: customEnd || '' };
+        default:
+            return { start: '', end: '' };
+    }
+};
+
+// ใช้ presetRange เป็นแหล่งเดียวของกฎช่วงวันที่ (หน้าจอและ Export ใช้กฎเดียวกัน)
 const isInDateRange = (dateStr, preset, customStart, customEnd) => {
     if (!dateStr) return true;
-    const d = new Date(dateStr);
-    const now = new Date();
-
-    // กำหนดวันเริ่มต้นปีงบประมาณ (1 เมษายน)
-    const getFiscalYearRange = () => {
-        const currentYear = now.getFullYear();
-        const isBeforeApril = now.getMonth() < 3;
-        const startYear = isBeforeApril ? currentYear - 1 : currentYear;
-        const startDate = new Date(startYear, 3, 1); // 1 เมษายน
-        const endDate = new Date(startYear + 1, 2, 31, 23, 59, 59); // 31 มีนาคม ปีถัดไป
-        return { startDate, endDate };
-    };
-
-    if (preset === 'thisMonth') {
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    }
-    if (preset === 'last3months') {
-        const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 3);
-        return d >= cutoff;
-    }
-    if (preset === 'thisQuarter') {
-        // ไตรมาสแบ่งเป็น: ม.ค.-มี.ค. (Q4), เม.ย.-มิ.ย. (Q1), ก.ค.-ก.ย. (Q2), ต.ค.-ธ.ค. (Q3)
-        // ซึ่ง boundaries ของวันจะตรงกับ standard quarter (ทุกๆ 3 เดือน)
-        const q = Math.floor(now.getMonth() / 3);
-        const qStart = new Date(now.getFullYear(), q * 3, 1);
-        const qEnd = new Date(now.getFullYear(), q * 3 + 3, 0, 23, 59, 59);
-        return d >= qStart && d <= qEnd;
-    }
-    if (preset === 'thisYear') {
-        const { startDate, endDate } = getFiscalYearRange();
-        return d >= startDate && d <= endDate;
-    }
-    if (preset === 'custom' && customStart && customEnd) {
-        return d >= new Date(customStart) && d <= new Date(customEnd + 'T23:59:59');
-    }
-    return true; // 'all'
+    const { start, end } = presetRange(preset, customStart, customEnd);
+    if (!start && !end) return true; // 'all' หรือ custom ที่ยังไม่กรอก
+    const key = toDateKey(new Date(dateStr));
+    return (!start || key >= start) && (!end || key <= end);
 };
 
 // StatCard Component
@@ -71,6 +100,10 @@ const StatCard = ({ icon: Icon, title, value, subtitle, color }) => (
 
 const ReportPage = () => {
     const { products, deviceTypes, purchaseOrders, transactions } = useData();
+    const typeLabel = useMemo(
+        () => Object.fromEntries((deviceTypes || []).map(t => [t.TypeId, t.Label])),
+        [deviceTypes]
+    );
     const [selectedTypes, setSelectedTypes] = useState(['products']);
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
@@ -99,7 +132,7 @@ const ReportPage = () => {
         { id: 'thisMonth', label: 'เดือนนี้' },
         { id: 'last3months', label: '3 เดือน' },
         { id: 'thisQuarter', label: 'ไตรมาสนี้' },
-        { id: 'thisYear', label: 'ปีนี้' },
+        { id: 'thisYear', label: 'ปีงบประมาณ' },
         { id: 'custom', label: 'กำหนดเอง' },
     ];
 
@@ -134,21 +167,37 @@ const ReportPage = () => {
         + filterCategories.length
         + (filterTransType !== 'all' ? 1 : 0);
 
+    const [maLoadError, setMaLoadError] = useState(false);
     useEffect(() => {
         fetch(`${API_BASE}/ma`)
-            .then(res => res.json())
-            .then(data => setMaItems(data))
-            .catch(err => console.error("Failed to load MA data in reports", err));
+            .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+            .then(data => { setMaItems(Array.isArray(data) ? data : []); setMaLoadError(false); })
+            .catch(err => { console.error('Failed to load MA data in reports', err); setMaLoadError(true); });
     }, []);
 
     const [forecastItems, setForecastItems] = useState([]);
-
+    const [forecastError, setForecastError] = useState(false);
     useEffect(() => {
         fetch(`${API_BASE}/forecast`)
-            .then(res => res.json())
-            .then(data => setForecastItems(data))
-            .catch(err => console.error('Failed to load forecast', err));
+            .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+            .then(data => { setForecastItems(Array.isArray(data) ? data : []); setForecastError(false); })
+            .catch(err => { console.error('Failed to load forecast', err); setForecastError(true); });
     }, []);
+
+    // ─── แท็บหมวดหมู่ (เก็บใน URL ?tab=...) ─────────────────────────────────
+    const [searchParams, setSearchParams] = useSearchParams();
+    const activeTab = REPORT_TABS.some(t => t.id === searchParams.get('tab')) ? searchParams.get('tab') : 'overview';
+    const setActiveTab = (id) => setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', id);
+        return next;
+    }, { replace: true });
+
+    // ค้นหาสินค้าจาก ProductID แบบ O(1) แทนการ .find() ซ้ำในทุกรอบ render
+    const productById = useMemo(
+        () => Object.fromEntries((products || []).map(p => [p.ProductID, p])),
+        [products]
+    );
     const usageMap = useMemo(() => {
         const map = {};
         const threeMonthsAgo = new Date();
@@ -174,10 +223,11 @@ const ReportPage = () => {
     const totalValue = products.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
     const lowStockCount = products.filter(p => p.CurrentStock <= p.MinStock && p.MinStock > 0).length;
     const pendingPOCount = (purchaseOrders || []).filter(po => po.Status !== 'Completed').length;
-    const transactionCount = (transactions || []).length;
+    const transactionCount = (transactions || []).filter(isCountedMovement).length;
 
     // MA Stats
-    const activeMACount = maItems.filter(i => i.Status === 'Active').length;
+    // Active = ยังไม่ยกเลิก/Pending และยังไม่หมดอายุ (Expiring/Expired คำนวณจาก EndDate)
+    const activeMACount = maItems.filter(i => i.Status !== 'Cancelled' && i.Status !== 'Pending' && (!i.EndDate || new Date(i.EndDate) >= new Date(new Date().toDateString()))).length;
     const maAlerts = useMemo(() => {
         return maItems
             .filter(ma => {
@@ -202,7 +252,7 @@ const ReportPage = () => {
                 if (type !== filterTransType) return false;
             }
             if (filterCategories.length > 0) {
-                const product = products.find(p => p.ProductID === t.ProductID);
+                const product = productById[t.ProductID];
                 if (!filterCategories.includes(product?.DeviceType)) return false;
             }
             // ✅ เพิ่มตรงนี้
@@ -211,7 +261,7 @@ const ReportPage = () => {
             if (refInfo.includes('Stock Count Adjust')) return false;
             return true;
         });
-    }, [transactions, products, filterDateRange, filterCustomStart, filterCustomEnd, filterTransType, filterCategories]);
+    }, [transactions, products, productById, filterDateRange, filterCustomStart, filterCustomEnd, filterTransType, filterCategories]);
 
     const filteredProducts = useMemo(() => {
         if (filterCategories.length === 0) return products;
@@ -229,32 +279,18 @@ const ReportPage = () => {
 
     // Calculate real stock movement from transactions (quantity-based)
     const stockMovementData = useMemo(() => {
-        const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
         const dataMap = {};
+        recentMonthKeys().forEach(key => {
+            dataMap[key] = { month: monthLabelOf(key), inbound: 0, outbound: 0 };
+        });
 
-        // Initialize last 6 months
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const key = months[d.getMonth()];
-            dataMap[key] = { month: key, inbound: 0, outbound: 0 };
-        }
-
-        // Sum transactions by month
         filteredTransactions.forEach(t => {
-            const date = new Date(t.TransDate);
-            const monthKey = months[date.getMonth()];
-            if (dataMap[monthKey]) {
-                const type = (t.TransType || '').toUpperCase().trim();
-                const qty = Math.abs(t.Qty);
-                const ref = t.RefInfo || '';
-                if (type === 'IN' && !ref.includes('ยกเลิก Invoice') && !ref.includes('Stock Count Adjust')) {
-                    dataMap[monthKey].inbound += qty;
-                }
-                if (type === 'OUT' && !ref.includes('ยกเลิก Invoice') && !ref.includes('Stock Count Adjust')) {
-                    dataMap[monthKey].outbound += qty;
-                }
-            }
+            const bucket = dataMap[monthKeyOf(new Date(t.TransDate))];
+            if (!bucket || !isCountedMovement(t)) return;
+            const type = (t.TransType || '').toUpperCase().trim();
+            const qty = Math.abs(t.Qty);
+            if (type === 'IN') bucket.inbound += qty;
+            if (type === 'OUT') bucket.outbound += qty;
         });
 
         return Object.values(dataMap);
@@ -262,16 +298,10 @@ const ReportPage = () => {
 
     // NEW: Cost & Usage Analysis (Money-based)
     const costAnalysisData = useMemo(() => {
-        const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
         const dataMap = {};
-
-        // Initialize last 6 months
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const key = months[d.getMonth()];
-            dataMap[key] = { month: key, spending: 0, consumption: 0 };
-        }
+        recentMonthKeys().forEach(key => {
+            dataMap[key] = { month: monthLabelOf(key), spending: 0, consumption: 0 };
+        });
 
         // Create product price lookup
         const priceMap = {};
@@ -281,24 +311,20 @@ const ReportPage = () => {
 
         // Sum transactions by month (value-based)
         filteredTransactions.forEach(t => {
-            const date = new Date(t.TransDate);
-            const monthKey = months[date.getMonth()];
-            if (dataMap[monthKey]) {
-                const type = (t.TransType || '').toUpperCase().trim();
-                const qty = Math.abs(t.Qty);
-                const price = priceMap[t.ProductID] || 0;
-                const value = qty * price;
-
-                if (type === 'IN' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].spending += value;
-                if (type === 'OUT' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].consumption += value;
-            }
+            const bucket = dataMap[monthKeyOf(new Date(t.TransDate))];
+            if (!bucket || !isCountedMovement(t)) return;
+            const type = (t.TransType || '').toUpperCase().trim();
+            const value = Math.abs(t.Qty) * (priceMap[t.ProductID] || 0);
+            if (type === 'IN') bucket.spending += value;
+            if (type === 'OUT') bucket.consumption += value;
         });
 
         return Object.values(dataMap);
     }, [filteredTransactions, products]);
 
     // NEW: Slow Moving Items (No OUT transactions in last 3 months)
-    const slowMovingItems = useMemo(() => {
+    // deadStockAll = ทุกรายการที่ค้าง (ใช้คำนวณมูลค่า), slowMovingItems = 10 อันดับแรก (ใช้แสดงผล)
+    const deadStockAll = useMemo(() => {
         const threeMonthsAgo = new Date();
         threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
@@ -306,26 +332,16 @@ const ReportPage = () => {
         (transactions || []).forEach(t => {
             const date = new Date(t.TransDate);
             const type = (t.TransType || '').toUpperCase().trim();
-            const refInfo = t.RefInfo || '';
-            if (type === 'OUT' &&
-                date >= threeMonthsAgo &&
-                !refInfo.includes('ยกเลิก Invoice') &&
-                !refInfo.includes('Stock Count Adjust')
-            ) {
+            if (type === 'OUT' && date >= threeMonthsAgo && isCountedMovement(t)) {
                 activeProductIds.add(t.ProductID);
             }
         });
 
         return filteredProducts
             .filter(p => !activeProductIds.has(p.ProductID) && p.CurrentStock > 0)
-            .sort((a, b) => (b.CurrentStock * (b.LastPrice || 0)) - (a.CurrentStock * (a.LastPrice || 0)))
-            .slice(0, 10);
+            .sort((a, b) => (b.CurrentStock * (b.LastPrice || 0)) - (a.CurrentStock * (a.LastPrice || 0)));
     }, [transactions, filteredProducts]);
-    const outOfStockItems = useMemo(() => {
-        return products
-            .filter(p => p.CurrentStock === 0 && p.IsActive !== 0)
-            .sort((a, b) => (a.business_priority || 3) - (b.business_priority || 3));
-    }, [products]);
+    const slowMovingItems = useMemo(() => deadStockAll.slice(0, 10), [deadStockAll]);
 
     // 2. สรุปมูลค่าเบิกใช้รายเดือน
     const monthlyConsumptionSummary = useMemo(() => {
@@ -391,6 +407,7 @@ const ReportPage = () => {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const m = d.getMonth();   // ← เพิ่ม
             const y = d.getFullYear(); // ← เพิ่ม
+            const key = monthKeyOf(d);
             let inQty = 0, outQty = 0, inValue = 0, outValue = 0;
 
             (transactions || []).forEach(t => {
@@ -406,13 +423,13 @@ const ReportPage = () => {
                 if (type === 'OUT') { outQty += qty; outValue += val; }
             });
 
-            result.push({ month: months[m], inQty, outQty, inValue, outValue });
+            result.push({ key, month: months[m], inQty, outQty, inValue, outValue });
         }
         return result;
     }, [transactions, products]);
 
     // Calculate total dead stock value
-    const deadStockValue = slowMovingItems.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
+    const deadStockValue = deadStockAll.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
 
     // NEW: Top Consumers (Users who withdraw the most)
     const topConsumers = useMemo(() => {
@@ -495,18 +512,18 @@ const ReportPage = () => {
         const catMap = {};
         filteredTransactions.forEach(t => {
             const type = (t.TransType || '').toUpperCase().trim();
-            if (type === 'OUT' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) {
-                const product = products.find(p => p.ProductID === t.ProductID);
+            if (type === 'OUT' && isCountedMovement(t)) {
+                const product = productById[t.ProductID];
                 const category = product?.DeviceType || 'ไม่ระบุ';
                 if (!catMap[category]) {
-                    catMap[category] = { name: category, value: 0, transactionCount: 0 };
+                    catMap[category] = { name: category, label: typeLabel[category] ?? category, value: 0, transactionCount: 0 };
                 }
                 catMap[category].value += Math.abs(t.Qty);
                 catMap[category].transactionCount += 1;
             }
         });
         return Object.values(catMap).sort((a, b) => b.value - a.value);
-    }, [filteredTransactions, products]);
+    }, [filteredTransactions, productById, typeLabel]);
 
     // NEW: Stock Value by Category (Bubble-style)
     const stockValueByCategory = useMemo(() => {
@@ -519,28 +536,23 @@ const ReportPage = () => {
             catMap[cat].items += 1;
         });
         return Object.values(catMap)
-            .map(c => ({ ...c, color: getChartColor(c.name) }))
+            .map(c => ({ ...c, label: typeLabel[c.name] ?? c.name, color: getChartColor(c.name) }))
             .sort((a, b) => b.value - a.value);
-    }, [filteredProducts]);
+    }, [filteredProducts, typeLabel]);
 
     // NEW: Net Movement Trend (IN minus OUT per month)
     const netMovementTrend = useMemo(() => {
-        const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
         const dataMap = {};
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date(); d.setMonth(d.getMonth() - i);
-            const key = months[d.getMonth()];
-            dataMap[key] = { month: key, inbound: 0, outbound: 0, net: 0 };
-        }
+        recentMonthKeys().forEach(key => {
+            dataMap[key] = { month: monthLabelOf(key), inbound: 0, outbound: 0, net: 0 };
+        });
         filteredTransactions.forEach(t => {
-            const date = new Date(t.TransDate);
-            const monthKey = months[date.getMonth()];
-            if (dataMap[monthKey]) {
-                const type = (t.TransType || '').toUpperCase().trim();
-                const qty = Math.abs(t.Qty);
-                if (type === 'IN' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].inbound += qty;
-                if (type === 'OUT' && !(t.RefInfo || '').includes('ยกเลิก Invoice')) dataMap[monthKey].outbound += qty;
-            }
+            const bucket = dataMap[monthKeyOf(new Date(t.TransDate))];
+            if (!bucket || !isCountedMovement(t)) return;
+            const type = (t.TransType || '').toUpperCase().trim();
+            const qty = Math.abs(t.Qty);
+            if (type === 'IN') bucket.inbound += qty;
+            if (type === 'OUT') bucket.outbound += qty;
         });
         Object.values(dataMap).forEach(m => { m.net = m.inbound - m.outbound; });
         return Object.values(dataMap);
@@ -560,7 +572,7 @@ const ReportPage = () => {
         { id: 'bycategory', label: '📂 เบิกตามประเภท', description: 'สรุปยอดเบิกแยกตามประเภทอุปกรณ์', icon: PieChart, color: 'from-emerald-500 to-emerald-600' },
         { id: 'pcinventory', label: '💻 PC Inventory ทั้งหมด', description: 'รายละเอียด PC/อุปกรณ์ IT ทั้งหมด', icon: Package, color: 'from-indigo-500 to-purple-600' },
         { id: 'moinventory', label: '🖥️ Monitor Inventory ทั้งหมด', description: 'รายละเอียด Monitor/อุปกรณ์ IT ทั้งหมด', icon: Monitor, color: 'from-teal-500 to-cyan-600' },
-        { id: 'expiringma', label: '⏰ สัญญาที่ใกล้หมดอายุ', description: 'MA & License ที่หมดอายุในอีก 30-90 วัน', icon: AlertCircle, color: 'from-red-500 to-orange-600' },
+        { id: 'expiringma', label: '⏰ สัญญาที่ใกล้หมดอายุ', description: 'MA & License ที่หมดอายุภายใน 90 วันข้างหน้า', icon: AlertCircle, color: 'from-red-500 to-orange-600' },
         { id: 'ma', label: '🛡️ สัญญาบริการ (MA & License) ทั้งหมด', description: 'ส่งออกข้อมูลสัญญา ค่าใช้จ่ายรายสัปดาห์/รายปี', icon: Shield, color: 'from-blue-600 to-indigo-600' }
     ];
 
@@ -577,14 +589,25 @@ const ReportPage = () => {
             setAlertModal({ isOpen: true, type: 'warning', title: 'กรุณาเลือกข้อมูล', message: 'กรุณาเลือกอย่างน้อย 1 ประเภทข้อมูลเพื่อ Export' });
             return;
         }
+        if (startDate && endDate && startDate > endDate) {
+            setAlertModal({ isOpen: true, type: 'warning', title: 'ช่วงวันที่ไม่ถูกต้อง', message: 'วันที่เริ่มต้องไม่มากกว่าวันที่สิ้นสุด' });
+            return;
+        }
 
         setIsExporting(true);
 
         try {
+            // ช่วงวันที่ในแผง Export มีความสำคัญกว่า preset ด้านบน ถ้าไม่กรอกจึงใช้ preset
+            const preset = presetRange(filterDateRange, filterCustomStart, filterCustomEnd);
+            const effectiveStart = startDate || preset.start;
+            const effectiveEnd = endDate || preset.end;
+
             const params = new URLSearchParams();
             params.append('types', selectedTypes.join(','));
-            if (startDate) params.append('startDate', startDate);
-            if (endDate) params.append('endDate', endDate);
+            if (effectiveStart) params.append('startDate', effectiveStart);
+            if (effectiveEnd) params.append('endDate', effectiveEnd);
+            if (filterCategories.length > 0) params.append('categories', filterCategories.join(','));
+            if (filterTransType !== 'all') params.append('transType', filterTransType);
 
             const response = await fetch(`${API_BASE}/report/export?${params.toString()}`);
 
@@ -593,7 +616,9 @@ const ReportPage = () => {
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `report_${new Date().toISOString().split('T')[0]}.xlsx`;
+                const now = new Date(); // ใช้วันที่ตาม timezone เครื่อง ไม่ใช้ toISOString (UTC)
+                const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                a.download = `report_${today}.xlsx`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -741,6 +766,28 @@ const ReportPage = () => {
                 </div>
             </motion.div>
 
+            {/* ═══ แท็บหมวดหมู่ ═══ */}
+            <div role="tablist" className="flex gap-2 overflow-x-auto pb-1 px-1">
+                {REPORT_TABS.map(tab => {
+                    const Icon = tab.icon;
+                    const isActive = activeTab === tab.id;
+                    return (
+                        <button
+                            key={tab.id}
+                            role="tab"
+                            aria-selected={isActive}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap border transition-all ${isActive
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                                : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'}`}
+                        >
+                            <Icon className="w-4 h-4" />
+                            {tab.label}
+                        </button>
+                    );
+                })}
+            </div>
+            {activeTab === 'overview' && (<>
             {/* Stats Grid */}
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -789,9 +836,9 @@ const ReportPage = () => {
                 <StatCard
                     icon={Shield}
                     title="สัญญาบริการ (MA)"
-                    value={activeMACount}
-                    subtitle={expiringMACount > 0 ? `ใกล้หมดอายุ ${expiringMACount} รายการ` : `ข้อมูลลิขสิทธิ์ทั้งหมด`}
-                    color={expiringMACount > 0 ? "from-rose-500 to-rose-600" : "from-blue-500 to-indigo-600"}
+                    value={maLoadError ? '—' : activeMACount}
+                    subtitle={maLoadError ? 'โหลดข้อมูลไม่สำเร็จ' : (expiringMACount > 0 ? `ใกล้หมดอายุ ${expiringMACount} รายการ` : `ข้อมูลลิขสิทธิ์ทั้งหมด`)}
+                    color={expiringMACount > 0 && !maLoadError ? "from-rose-500 to-rose-600" : "from-blue-500 to-indigo-600"}
                 />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -805,6 +852,7 @@ const ReportPage = () => {
                     <div className="flex items-center gap-2 mb-4">
                         <BarChart3 className="w-4 h-4 text-indigo-500" />
                         <h3 className="font-bold text-slate-800 text-sm">สรุปการเคลื่อนไหวรายเดือน</h3>
+                        <span className="text-[10px] text-slate-400">(แสดง 3 เดือนล่าสุดเสมอ ไม่รับผลจากตัวกรองด้านบน)</span>
                     </div>
 
                     {/* ตัวเลขเดือนนี้ vs เดือนก่อน */}
@@ -857,17 +905,13 @@ const ReportPage = () => {
                         </thead>
                         <tbody>
                             {momData.map((row, i) => {
-                                const isExpanded = expandedMonth === row.month;
+                                const isExpanded = expandedMonth === row.key;
                                 const isCurrentMonth = i === momData.length - 1;
 
-                                // หา transactions ของเดือนนี้
-                                const monthTransactions = (transactions || []).filter(t => {
-                                    const td = new Date(t.TransDate);
-                                    const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-                                    return months[td.getMonth()] === row.month &&
-                                        !(t.RefInfo || '').includes('ยกเลิก Invoice') &&
-                                        !(t.RefInfo || '').includes('Stock Count Adjust');
-                                });
+                                // หา transactions ของเดือนนี้ (ตรวจทั้งปีและเดือน)
+                                const monthTransactions = (transactions || []).filter(t =>
+                                    monthKeyOf(new Date(t.TransDate)) === row.key && isCountedMovement(t)
+                                );
 
                                 const inItems = monthTransactions
                                     .filter(t => (t.TransType || '').toUpperCase().trim() === 'IN')
@@ -883,7 +927,7 @@ const ReportPage = () => {
                                     <React.Fragment key={i}>
                                         <tr
                                             className={`cursor-pointer transition-colors ${isCurrentMonth ? 'font-bold bg-slate-50' : ''} ${isExpanded ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
-                                            onClick={() => setExpandedMonth(isExpanded ? null : row.month)}
+                                            onClick={() => setExpandedMonth(isExpanded ? null : row.key)}
                                         >
                                             <td className="py-1.5 text-slate-700">
                                                 <div className="flex items-center gap-1.5">
@@ -917,7 +961,7 @@ const ReportPage = () => {
                                                                 {inItems.length === 0 ? (
                                                                     <p className="text-[10px] text-slate-400">ไม่มีรายการ</p>
                                                                 ) : inItems.map((t, idx) => {
-                                                                    const product = products.find(p => p.ProductID === t.ProductID);
+                                                                    const product = productById[t.ProductID];
                                                                     const val = Math.abs(t.Qty) * (priceMap[t.ProductID] || 0);
                                                                     return (
                                                                         <div key={idx} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
@@ -940,7 +984,7 @@ const ReportPage = () => {
                                                                 {outItems.length === 0 ? (
                                                                     <p className="text-[10px] text-slate-400">ไม่มีรายการ</p>
                                                                 ) : outItems.map((t, idx) => {
-                                                                    const product = products.find(p => p.ProductID === t.ProductID);
+                                                                    const product = productById[t.ProductID];
                                                                     const val = Math.abs(t.Qty) * (priceMap[t.ProductID] || 0);
                                                                     return (
                                                                         <div key={idx} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
@@ -968,71 +1012,9 @@ const ReportPage = () => {
                     </table>
                 </motion.div>
 
-                {/* Stock = 0 */}
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-white rounded-2xl p-5 shadow-lg border border-red-100 overflow-hidden"
-                >
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg bg-red-500 flex items-center justify-center">
-                                <AlertCircle className="w-4 h-4 text-white" />
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-slate-800 text-sm">Stock หมดแล้ว</h3>
-                                <p className="text-[10px] text-slate-400">CurrentStock = 0</p>
-                            </div>
-                        </div>
-                        <span className="text-2xl font-black text-red-500">{outOfStockItems.length}</span>
-                    </div>
-
-                    {outOfStockItems.length === 0 ? (
-                        <div className="text-center py-6 text-slate-400">
-                            <Package className="w-8 h-8 mx-auto mb-1 opacity-30" />
-                            <p className="text-xs">ไม่มีรายการ 👍</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-1.5 max-h-[220px] overflow-y-auto">
-                            {outOfStockItems.map((item, idx) => {
-                                const priorityColor = {
-                                    1: 'bg-red-500', 2: 'bg-orange-500',
-                                    3: 'bg-yellow-500', 4: 'bg-green-500'
-                                }[item.business_priority] || 'bg-slate-400';
-                                const priorityLabel = {
-                                    1: 'CRITICAL', 2: 'HIGH', 3: 'MEDIUM', 4: 'LOW'
-                                }[item.business_priority] || 'MEDIUM';
-
-                                return (
-                                    <div key={item.ProductID}
-                                        className="flex items-center gap-2 p-2 rounded-lg bg-red-50 border border-red-100">
-
-                                        {/* ✅ รูปเพิ่มตรงนี้ */}
-                                        <div className="w-7 h-7 rounded-md overflow-hidden shrink-0 bg-gradient-to-br from-slate-300 to-slate-500 flex items-center justify-center">
-                                            {item.ImageURL ? (
-                                                <img
-                                                    src={`${API_URL}${item.ImageURL}`}
-                                                    alt=""
-                                                    className="w-full h-full object-cover"
-                                                />
-                                            ) : (
-                                                <Package size={11} className="text-white" />
-                                            )}
-                                        </div>
-
-                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityColor}`} />
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-[11px] font-bold text-slate-700 truncate">{item.ProductName}</p>
-                                            <p className="text-[9px] text-slate-400">{priorityLabel} • {item.DeviceType}</p>
-                                        </div>
-                                        <span className="text-[10px] font-black text-red-500 shrink-0">0</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </motion.div>
             </div>
+            </>)}
+            {activeTab === 'procurement' && (<>
             {/* ═══ Priority Order List ════════════════════════════════════════ */}
             {forecastItems.length > 0 && (
                 <motion.div
@@ -1165,7 +1147,7 @@ const ReportPage = () => {
                             </tbody>
                             <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                                 <tr>
-                                    <td colSpan={9} className="py-2 px-3 text-right font-bold text-slate-600 text-xs">
+                                    <td colSpan={10} className="py-2 px-3 text-right font-bold text-slate-600 text-xs">
                                         รวมทั้งหมด {forecastItems.length} รายการ
                                     </td>
                                     <td className="py-2 px-3 text-right font-black text-rose-600 text-sm">
@@ -1177,6 +1159,13 @@ const ReportPage = () => {
                     </div>
                 </motion.div>
             )}
+                {forecastItems.length === 0 && (
+                    <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center text-sm text-slate-400">
+                        {forecastError ? '⚠️ โหลดรายการที่ต้องสั่งซื้อไม่สำเร็จ' : 'ไม่มีรายการที่ต้องสั่งซื้อ 👍'}
+                    </div>
+                )}
+            </>)}
+            {activeTab === 'overview' && (<>
             {/* Charts Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Stock Movement Chart (Quantity) */}
@@ -1247,10 +1236,12 @@ const ReportPage = () => {
                     </div>
                 </motion.div>
             </div>
+            </>)}
 
             {/* NEW: Stock Value by Category + Net Movement Trend */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Stock Value by Category */}
+            {activeTab === 'stock' && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1290,7 +1281,7 @@ const ReportPage = () => {
                                         <div className="flex items-center justify-between mb-1.5">
                                             <span className="text-sm font-bold text-slate-700 flex items-center gap-2">
                                                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
-                                                {cat.name}
+                                                {cat.label}
                                             </span>
                                             <span className="text-sm font-bold text-slate-800 font-mono">฿{cat.value.toLocaleString()}</span>
                                         </div>
@@ -1315,8 +1306,10 @@ const ReportPage = () => {
                         <p className="text-center py-8 text-slate-400 text-sm">ไม่มีข้อมูล</p>
                     )}
                 </motion.div>
+            )}
 
                 {/* Net Movement Trend */}
+            {activeTab === 'overview' && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1353,11 +1346,13 @@ const ReportPage = () => {
                         )}
                     </div>
                 </motion.div>
+            )}
             </div>
 
             {/* NEW: Analytics Insights Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Slow Moving Items (Dead Stock) */}
+                {activeTab === 'stock' && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1421,8 +1416,10 @@ const ReportPage = () => {
                         </table>
                     </div>
                 </motion.div>
+                )}
 
                 {/* Top Consumers */}
+                {activeTab === 'usage' && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1466,8 +1463,10 @@ const ReportPage = () => {
                         )}
                     </div>
                 </motion.div>
+                )}
             </div>
 
+            {activeTab === 'stock' && (<>
             {/* Category Distribution — Click to Filter */}
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -1582,7 +1581,9 @@ const ReportPage = () => {
                     </div>
                 )}
             </motion.div>
+            </>)}
 
+            {activeTab === 'usage' && (<>
             {/* NEW: Top Withdrawn Items & Withdrawals By Category */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Top Withdrawn Items */}
@@ -1682,7 +1683,7 @@ const ReportPage = () => {
                                         <XAxis type="number" stroke="#64748b" />
                                         <YAxis
                                             type="category"
-                                            dataKey="name"
+                                            dataKey="label"
                                             width={100}
                                             stroke="#475569"
                                             tick={{ fontSize: 12 }}
@@ -1695,7 +1696,7 @@ const ReportPage = () => {
                                                 borderRadius: '8px',
                                                 boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
                                             }}
-                                            formatter={(value, name, props) => [`${value} ชิ้น — คลิกเพื่อ Filter`, props.payload.name]}
+                                            formatter={(value, name, props) => [`${value} ชิ้น — คลิกเพื่อ Filter`, props.payload.label]}
                                         />
                                         <Bar
                                             dataKey="value"
@@ -1724,72 +1725,8 @@ const ReportPage = () => {
                     )}
                 </motion.div>
             </div>
+            </>)}
 
-            {/* NEW: MA Expiry Alerts Full Width */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200 mt-6"
-            >
-                <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center">
-                        <Clock className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                        <h3 className="font-bold text-slate-800">สัญญาบริการ (MA & License) ที่ต้องดำเนินการ</h3>
-                        <p className="text-xs text-slate-500">หมดอายุแล้ว หรือ ใกล้หมดอายุภายใน 90 วัน</p>
-                    </div>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="border-b border-slate-200">
-                                <th className="text-left py-2 px-3 text-slate-500 font-medium">ระบบ/อุปกรณ์</th>
-                                <th className="text-left py-2 px-3 text-slate-500 font-medium">หมวดหมู่</th>
-                                <th className="text-left py-2 px-3 text-slate-500 font-medium">วันที่หมดอายุ</th>
-                                <th className="text-right py-2 px-3 text-slate-500 font-medium">สถานะ</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {maAlerts.length > 0 ? maAlerts.map((ma, idx) => {
-                                const isExpired = ma.daysRemaining <= 0;
-                                return (
-                                    <motion.tr
-                                        key={ma.ItemID}
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        transition={{ delay: idx * 0.05 }}
-                                        className="border-b border-slate-100 hover:bg-slate-50"
-                                    >
-                                        <td className="py-3 px-3">
-                                            <p className="font-medium text-slate-800">{ma.ItemName}</p>
-                                        </td>
-                                        <td className="py-3 px-3">
-                                            <span className="text-xs text-slate-500">{ma.Category}</span>
-                                        </td>
-                                        <td className="py-3 px-3">
-                                            <span className="text-sm font-mono text-slate-700">{formatThaiDateShort(ma.EndDate)}</span>
-                                        </td>
-                                        <td className="py-3 px-3 text-right">
-                                            <span className={`text-xs font-bold px-2.5 py-1 rounded-lg text-white ${isExpired ? 'bg-gradient-to-r from-red-500 to-red-600' : 'bg-gradient-to-r from-orange-400 to-amber-500'}`}>
-                                                {isExpired ? 'หมดอายุแล้ว' : `อีก ${ma.daysRemaining} วัน`}
-                                            </span>
-                                        </td>
-                                    </motion.tr>
-                                )
-                            }) : (
-                                <tr>
-                                    <td colSpan="4" className="py-8 text-center text-slate-400">
-                                        <Shield className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                                        ไม่มีสัญญาหมดอายุหรือใกล้หมดอายุ 👍
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </motion.div>
 
             {/* ═══ Compact Export Panel ════════════════════════════════════ */}
             <motion.div
@@ -1879,6 +1816,18 @@ const ReportPage = () => {
                                         })}
                                     </div>
                                 </div>
+
+                                {/* Export ใช้ตัวกรองด้านบนร่วมด้วย (ช่วงวันที่ ถ้าไม่กรอกช่วงด้านล่าง, ประเภทอุปกรณ์, IN/OUT ใช้กับชีต Transaction) */}
+                                <p className="text-[11px] text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+                                    🎯 ใช้ตัวกรองด้านบนร่วมด้วย:{' '}
+                                    {activeFilterCount === 0
+                                        ? 'ไม่มีตัวกรอง (Export ข้อมูลทั้งหมด)'
+                                        : [
+                                            filterDateRange !== 'all' && `ช่วงวันที่ ${datePresets.find(p => p.id === filterDateRange)?.label}`,
+                                            filterCategories.length > 0 && `ประเภท ${filterCategories.length} รายการ`,
+                                            filterTransType !== 'all' && `${filterTransType === 'IN' ? 'รับเข้า' : 'เบิกออก'} (ชีต Transaction)`
+                                        ].filter(Boolean).join(' • ')}
+                                </p>
 
                                 {/* Date Range + Export — Single Row */}
                                 <div className="flex flex-wrap items-end gap-3">

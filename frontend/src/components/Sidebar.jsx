@@ -183,7 +183,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                     {/* 💻 ASSET MANAGEMENT */}
                     <NavGroupHeader label="💻 Asset Management" collapsed={collapsed} />
                     <NavItem icon={Monitor} label="PC INVENTORY" to="/pc-inventory" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={LayoutGrid} label="PC LAYOUT" to="/pc-control" onClose={onClose} collapsed={collapsed} />
+                    <NavItem icon={LayoutGrid} label="DEVICES LAYOUT" to="/pc-control" onClose={onClose} collapsed={collapsed} />
                     <NavItem icon={Cctv} label="CCTV MANAGEMENT" to="/cctv-management" onClose={onClose} collapsed={collapsed} />
                     <NavItem icon={FileKey} label="MA / LICENSE" to="/ma-license" onClose={onClose} collapsed={collapsed} />
 

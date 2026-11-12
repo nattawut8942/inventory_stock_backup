@@ -10,7 +10,7 @@ export const sendMAReport = async () => {
             SELECT m.ItemID, m.Category, m.SubType, m.ItemName, m.SerialNumber, m.EndDate, m.Status, v.VendorName
             FROM dbo.MA_Items m
             LEFT JOIN dbo.Stock_Vendors v ON m.VendorID = v.VendorID
-            WHERE m.Status != 'Cancelled'
+            WHERE m.Status != 'Cancelled' AND m.IsDeleted = 0
               AND m.EndDate IS NOT NULL
               AND DATEDIFF(day, GETDATE(), m.EndDate) <= 90
             ORDER BY m.EndDate ASC

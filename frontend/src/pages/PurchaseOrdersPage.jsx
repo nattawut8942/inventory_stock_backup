@@ -625,21 +625,24 @@ const PurchaseOrdersPage = () => {
                     }
 
                     {/* DETAIL MODAL */}
+                    {/* DETAIL MODAL */}
                     <AnimatePresence>
                         {selectedPO && (
-                            <Portal>
+                            <Portal> {/* 👈 วาง Portal ไว้ข้างในเหมือนหน้าที่แล้ว */}
                                 <motion.div
+                                    key="modal-po-detail" // 👈 ใส่ key กันพลาด
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
                                     exit={{ opacity: 0 }}
                                     className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4"
+                                    onClick={() => setSelectedPO(null)} // 👈 กดพื้นหลังเพื่อปิด
                                 >
                                     <motion.div
-                                        initial={{ opacity: 0, scale: 0.95 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        exit={{ opacity: 0, scale: 0.95 }}
-                                        className="w-full max-w-2xl bg-white rounded-2xl shadow-xl overflow-hidden"
-
+                                        initial={{ opacity: 0, scale: 0.95, y: 15 }} // 👈 ใส่ y: 15 ให้โผล่ขึ้นมาสมูทๆ
+                                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                                        exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                                        className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden"
+                                        onClick={(e) => e.stopPropagation()} // 👈 กันไม่ให้กดข้างในแล้วเผลอปิด
                                     >
                                         {/* Header */}
                                         <div className="p-4 md:p-5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white">
@@ -737,18 +740,18 @@ const PurchaseOrdersPage = () => {
                                                                 return (
                                                                     <tr key={idx} className={`border-t ${isFullyReceived ? 'bg-emerald-100' : 'border-slate-200'}`}>
                                                                         <td className={`p-3 ${isFullyReceived ? 'text-emerald-700 ' : 'text-slate-700'}`}>
-                                                                                {item.ItemName || item.ProductName || `Item #${idx + 1}`}
-                                                                            </td>
-                                                                            <td className="p-3">
-                                                                                {item.BG_No ? (
-                                                                                    <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
-                                                                                        {item.BG_No}
-                                                                                    </span>
-                                                                                ) : (
-                                                                                    <span className="text-xs text-slate-300">—</span>
-                                                                                )}
-                                                                            </td>
-                                                                            <td className="p-3 text-center font-mono">
+                                                                            {item.ItemName || item.ProductName || `Item #${idx + 1}`}
+                                                                        </td>
+                                                                        <td className="p-3">
+                                                                            {item.BG_No ? (
+                                                                                <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                                                                                    {item.BG_No}
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="text-xs text-slate-300">—</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="p-3 text-center font-mono">
                                                                             <span className="text-slate-600 font-bold">{item.QtyReceived || 0}</span>
                                                                             <span className="text-slate-400"> / {item.QtyOrdered}</span>
                                                                         </td>

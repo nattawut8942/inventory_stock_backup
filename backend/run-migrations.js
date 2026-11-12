@@ -21,26 +21,34 @@ const runMigrations = async () => {
     try {
         console.log('🚀 Starting database migrations...\n');
         
-        // Read and execute migration 005
-        const migrationPath = path.join(__dirname, 'migrations', '005_add_network_columns_to_pc_inventory.sql');
-        
-        if (fs.existsSync(migrationPath)) {
+        const migrations = [
+            { file: '005_add_network_columns_to_pc_inventory.sql', label: 'Migration 005: Add network columns to PC Inventory' },
+            { file: '007_add_location_to_ma_items.sql', label: 'Migration 007: Add factory layout position to MA_Items' },
+            { file: '008_add_soft_delete_to_ma_items.sql', label: 'Migration 008: Add soft delete to MA_Items' },
+            { file: '009_add_location_to_printers.sql', label: 'Migration 009: Add factory layout position to Printers' },
+            { file: '010_add_renewal_status_to_ma_items.sql', label: 'Migration 010: Add renewal/procurement status to MA_Items' },
+        ];
+
+        for (const { file, label } of migrations) {
+            const migrationPath = path.join(__dirname, 'migrations', file);
+
+            if (!fs.existsSync(migrationPath)) {
+                console.error(`❌ Migration file not found: ${migrationPath}`);
+                await closeDB();
+                process.exit(1);
+            }
+
             const sql = fs.readFileSync(migrationPath, 'utf8');
-            
-            console.log('📝 Running Migration 005: Add network columns to PC Inventory...');
-            
+            console.log(`📝 Running ${label}...`);
+
             // Execute the entire SQL as one batch (don't split by semicolon)
             try {
                 await pool.request().query(sql);
-                console.log('✅ Migration 005 completed successfully\n');
+                console.log(`✅ ${label} completed successfully\n`);
             } catch (err) {
-                console.warn(`⚠️  Migration 005: ${err.message.substring(0, 150)}`);
+                console.warn(`⚠️  ${label}: ${err.message.substring(0, 150)}`);
                 console.log('ℹ️  This may be normal if columns already exist\n');
             }
-        } else {
-            console.error(`❌ Migration file not found: ${migrationPath}`);
-            await closeDB();
-            process.exit(1);
         }
         
         console.log('✨ All migrations processed!');
