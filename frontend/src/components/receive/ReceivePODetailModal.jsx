@@ -4,6 +4,13 @@ import BaseModal, { ModalHeader } from './BaseModal';
 import { formatThaiDate } from '../../utils/formatDate';
 import { money, linkifyPhones, getStatusColor, statusText, poProgress, getOverdue, todayKey, toDateKey, dayDiff } from './receiveUtils';
 
+// เปอร์เซ็นต์การรับของแต่ละบรรทัด (0-100)
+const linePct = (item) => {
+    const ordered = Number(item?.QtyOrdered || 0);
+    if (ordered <= 0) return 0;
+    return Math.min(100, Math.round((Number(item.QtyReceived || 0) / ordered) * 100));
+};
+
 /**
  * ReceivePODetailModal - รายละเอียด PO ในหน้า Receive (สรุปยอด ความคืบหน้า ตารางรายการ)
  */
@@ -137,6 +144,12 @@ const ReceivePODetailModal = ({ po, products, contact, invoices, isStaff, onClos
                                                     <span className="mx-1 opacity-50">/</span>
                                                     <span className="font-bold">{item.QtyOrdered}</span>
                                                 </div>
+                                                <div className="mt-1.5 h-1.5 w-20 mx-auto bg-slate-100 rounded-full overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={linePct(item)} aria-label={`ความคืบหน้า ${prodName}`}>
+                                                    <div className={`h-full rounded-full ${isFullyReceived ? 'bg-emerald-500' : 'bg-indigo-400'}`} style={{ width: `${linePct(item)}%` }} />
+                                                </div>
+                                                {!isFullyReceived && (
+                                                    <p className="mt-1 text-[10px] font-bold text-amber-600">ค้าง {Math.max(0, Number(item.QtyOrdered || 0) - Number(item.QtyReceived || 0))}</p>
+                                                )}
                                             </td>
                                             <td className="p-2 text-center">
                                                 {isFullyReceived ? (
@@ -155,6 +168,17 @@ const ReceivePODetailModal = ({ po, products, contact, invoices, isStaff, onClos
                                     );
                                 })}
                             </tbody>
+                            {items.length > 0 && (
+                                <tfoot className="bg-slate-50 border-t border-slate-200">
+                                    <tr>
+                                        <td className="p-3 font-bold text-slate-600" colSpan={2}>รวมทั้ง PO</td>
+                                        <td className="p-3 text-center font-mono font-bold text-slate-700">{prog.received}/{prog.ordered}</td>
+                                        <td className="p-3" />
+                                        <td className="p-3" />
+                                        <td className="p-3 text-right font-mono font-bold text-slate-800">{money(prog.value)}</td>
+                                    </tr>
+                                </tfoot>
+                            )}
                         </table>
                     </div>
                 </div>

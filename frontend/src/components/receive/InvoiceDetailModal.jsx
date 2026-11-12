@@ -1,5 +1,5 @@
-import React from 'react';
-import { Calendar, FileText, Package, Phone, Printer, RotateCcw } from 'lucide-react';
+import React, { useState } from 'react';
+import { Calendar, Check, Copy, FileText, Package, Phone, Printer, RotateCcw } from 'lucide-react';
 import BaseModal, { ModalHeader } from './BaseModal';
 import { formatThaiDate } from '../../utils/formatDate';
 import { money, linkifyPhones, printReceipt } from './receiveUtils';
@@ -10,6 +10,15 @@ import { money, linkifyPhones, printReceipt } from './receiveUtils';
  */
 const InvoiceDetailModal = ({ invoice, rows, totalQty, totalValue, vendor, contact, isStaff, onClose, onCancelRequest, onPrintBlocked, onViewPO }) => {
     const cancelled = invoice.Status === 'Cancelled';
+    const [copied, setCopied] = useState(false);
+
+    const copyInvoiceNo = async () => {
+        try {
+            await navigator.clipboard.writeText(invoice.InvoiceNo);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch { /* เบราว์เซอร์ไม่อนุญาตคัดลอก */ }
+    };
 
     const handlePrint = () => {
         const ok = printReceipt({ invoice, rows, totalQty, totalValue, vendor, contact });
@@ -25,6 +34,15 @@ const InvoiceDetailModal = ({ invoice, rows, totalQty, totalValue, vendor, conta
                 titleClass={cancelled ? 'line-through opacity-80' : ''}
                 onClose={onClose}
             >
+                <button
+                    type="button"
+                    onClick={copyInvoiceNo}
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold bg-white/15 hover:bg-white/25 border border-white/20 px-2.5 py-1 rounded-lg transition-colors"
+                    aria-label="คัดลอกเลข Invoice"
+                >
+                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                    {copied ? 'คัดลอกแล้ว' : 'คัดลอกเลข Invoice'}
+                </button>
                 <div className="flex flex-wrap gap-2 mt-2 text-indigo-100 text-xs font-medium">
                     {onViewPO ? (
                         <button type="button" onClick={onViewPO} className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded underline-offset-2 hover:underline transition-colors" title="ดูรายละเอียด PO">
