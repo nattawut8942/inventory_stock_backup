@@ -13,6 +13,12 @@ import { API_BASE, API_URL } from '../config/api';
 const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
 // หมวดหมู่ของหน้า Report — ภาพรวมเคลื่อนไหวเท่านั้น สถานะปัจจุบัน (Stock หมด / MA ใกล้หมดอายุ) อยู่ที่ Dashboard
+const ABC_STYLE = {
+    A: 'bg-emerald-50 border-emerald-200 text-emerald-700',
+    B: 'bg-amber-50 border-amber-200 text-amber-700',
+    C: 'bg-slate-50 border-slate-200 text-slate-600',
+};
+
 const REPORT_TABS = [
     { id: 'overview', label: 'ภาพรวมการเคลื่อนไหว', icon: BarChart3 },
     { id: 'stock', label: 'Stock & มูลค่า', icon: Package },
@@ -342,6 +348,82 @@ const ReportPage = () => {
             .sort((a, b) => (b.CurrentStock * (b.LastPrice || 0)) - (a.CurrentStock * (a.LastPrice || 0)));
     }, [transactions, filteredProducts]);
     const slowMovingItems = useMemo(() => deadStockAll.slice(0, 10), [deadStockAll]);
+
+    // ─── Stock Analytics (ไม่รับผลจากตัวกรองด้านบน: ใช้ประวัติทั้งหมดและกรอบเวลาคงที่) ───
+    const stockAnalytics = useMemo(() => {
+        const DAY = 86400000;
+        const now = Date.now();
+        const lastOut = {}; // ProductID -> เวลาเบิกล่าสุด
+        const out12m = {};  // ProductID -> จำนวนเบิก 12 เดือน
+        const out3m = {};   // ProductID -> จำนวนเบิก 3 เดือน
+
+        (transactions || []).forEach(t => {
+            if (!isCountedMovement(t) || (t.TransType || '').toUpperCase().trim() !== 'OUT') return;
+            const ts = new Date(t.TransDate).getTime();
+            if (Number.isNaN(ts)) return;
+            const qty = Math.abs(t.Qty) || 0;
+            if (!lastOut[t.ProductID] || ts > lastOut[t.ProductID]) lastOut[t.ProductID] = ts;
+            const ageDays = (now - ts) / DAY;
+            if (ageDays <= 365) out12m[t.ProductID] = (out12m[t.ProductID] || 0) + qty;
+            if (ageDays <= 90) out3m[t.ProductID] = (out3m[t.ProductID] || 0) + qty;
+        });
+
+        const active = products.filter(p => p.IsActive !== 0);
+        const price = p => p.LastPrice || 0;
+
+        // ABC: เรียงตามมูลค่าการเบิก 12 เดือน แบ่ง A (80%) / B (ถัดมา 15%) / C (ที่เหลือ 5%)
+        const abcBase = active
+            .filter(p => (out12m[p.ProductID] || 0) > 0)
+            .map(p => ({ ProductID: p.ProductID, ProductName: p.ProductName, DeviceType: p.DeviceType, value: out12m[p.ProductID] * price(p) }))
+            .sort((a, b) => b.value - a.value);
+        const abcTotal = abcBase.reduce((s, r) => s + r.value, 0);
+        let running = 0;
+        const abcRows = abcBase.map(r => {
+            const before = abcTotal > 0 ? running / abcTotal : 0;
+            running += r.value;
+            return { ...r, cls: before < 0.8 ? 'A' : before < 0.95 ? 'B' : 'C' };
+        });
+        const abcSummary = { A: { count: 0, value: 0 }, B: { count: 0, value: 0 }, C: { count: 0, value: 0 } };
+        abcRows.forEach(r => { abcSummary[r.cls].count += 1; abcSummary[r.cls].value += r.value; });
+        ['A', 'B', 'C'].forEach(c => { abcSummary[c].share = abcTotal > 0 ? Math.round((abcSummary[c].value / abcTotal) * 100) : 0; });
+
+        // Stock Aging: มูลค่าคงเหลือแยกตามเวลาตั้งแต่เบิกล่าสุด
+        const agingDefs = [
+            { key: '0-90', label: 'เบิกใน 90 วัน', test: d => d <= 90 },
+            { key: '91-180', label: '91–180 วัน', test: d => d > 90 && d <= 180 },
+            { key: '181-365', label: '181–365 วัน', test: d => d > 180 && d <= 365 },
+            { key: '365+', label: 'เกิน 1 ปี', test: d => d > 365 },
+            { key: 'never', label: 'ไม่เคยเบิก', test: d => d === null },
+        ];
+        const agingBuckets = agingDefs.map(def => ({ ...def, count: 0, value: 0 }));
+        active.filter(p => (p.CurrentStock || 0) > 0).forEach(p => {
+            const days = lastOut[p.ProductID] ? (now - lastOut[p.ProductID]) / DAY : null;
+            const bucket = agingBuckets.find(b => b.test(days));
+            if (!bucket) return;
+            bucket.count += 1;
+            bucket.value += p.CurrentStock * price(p);
+        });
+        const agingTotal = agingBuckets.reduce((s, b) => s + b.value, 0);
+
+        // Days of Stock: คงเหลือจะใช้หมดในกี่วัน (อิงอัตราเบิก 3 เดือน)
+        const daysOfStock = active
+            .filter(p => (out3m[p.ProductID] || 0) > 0)
+            .map(p => {
+                const daily = out3m[p.ProductID] / 90;
+                return { ProductID: p.ProductID, ProductName: p.ProductName, DeviceType: p.DeviceType, CurrentStock: p.CurrentStock || 0, daily, days: (p.CurrentStock || 0) / daily };
+            })
+            .sort((a, b) => a.days - b.days)
+            .slice(0, 10);
+
+        // Overstock: คงเหลือเกิน MaxStock
+        const overstockAll = active
+            .filter(p => (p.MaxStock || 0) > 0 && (p.CurrentStock || 0) > p.MaxStock)
+            .map(p => ({ ProductID: p.ProductID, ProductName: p.ProductName, DeviceType: p.DeviceType, CurrentStock: p.CurrentStock, MaxStock: p.MaxStock, excess: (p.CurrentStock - p.MaxStock) * price(p) }))
+            .sort((a, b) => b.excess - a.excess);
+        const overstockValue = overstockAll.reduce((s, r) => s + r.excess, 0);
+
+        return { abcRows: abcRows.slice(0, 15), abcSummary, abcTotal, agingBuckets, agingTotal, daysOfStock, overstockAll: overstockAll.slice(0, 10), overstockCount: overstockAll.length, overstockValue };
+    }, [transactions, products]);
 
     // 2. สรุปมูลค่าเบิกใช้รายเดือน
     const monthlyConsumptionSummary = useMemo(() => {
@@ -1466,6 +1548,146 @@ const ReportPage = () => {
                 )}
             </div>
 
+            {activeTab === 'stock' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* ABC Analysis */}
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                        <h3 className="font-bold text-slate-800">ABC Analysis (มูลค่าเบิก 12 เดือน)</h3>
+                        <p className="text-xs text-slate-500 mb-4">A = 80% แรกของมูลค่า • B = ถัดมา 15% • C = 5% สุดท้าย</p>
+                        {stockAnalytics.abcTotal > 0 ? (
+                            <>
+                                <div className="grid grid-cols-3 gap-3 mb-4">
+                                    {['A', 'B', 'C'].map(cls => {
+                                        const s = stockAnalytics.abcSummary[cls];
+                                        return (
+                                            <div key={cls} className={`rounded-xl p-3 border ${ABC_STYLE[cls]}`}>
+                                                <p className="text-xs font-bold">Class {cls}</p>
+                                                <p className="text-xl font-black">{s.count} <span className="text-xs font-semibold">รายการ</span></p>
+                                                <p className="text-[10px] text-slate-500 font-mono">฿{Math.round(s.value).toLocaleString()} ({s.share}%)</p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="max-h-[260px] overflow-y-auto">
+                                    <table className="w-full text-xs">
+                                        <thead className="sticky top-0 bg-white">
+                                            <tr className="border-b border-slate-200 text-slate-500">
+                                                <th className="text-left py-1.5 px-2 font-medium">อุปกรณ์</th>
+                                                <th className="text-center py-1.5 px-2 font-medium">Class</th>
+                                                <th className="text-right py-1.5 px-2 font-medium">มูลค่าเบิก</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {stockAnalytics.abcRows.map(r => (
+                                                <tr key={r.ProductID} className="border-b border-slate-100">
+                                                    <td className="py-1.5 px-2 text-slate-800 truncate max-w-[220px]">{r.ProductName}</td>
+                                                    <td className="py-1.5 px-2 text-center"><span className={`px-1.5 py-0.5 rounded font-bold border ${ABC_STYLE[r.cls]}`}>{r.cls}</span></td>
+                                                    <td className="py-1.5 px-2 text-right font-mono text-slate-700">฿{Math.round(r.value).toLocaleString()}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                        ) : (
+                            <p className="text-sm text-slate-400 py-8 text-center">ยังไม่มีข้อมูลการเบิกใน 12 เดือน</p>
+                        )}
+                    </motion.div>
+
+                    {/* Stock Aging */}
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                        <h3 className="font-bold text-slate-800">Stock Aging</h3>
+                        <p className="text-xs text-slate-500 mb-4">มูลค่าสต็อกคงเหลือ แยกตามเวลาตั้งแต่เบิกล่าสุด</p>
+                        <div className="space-y-3">
+                            {stockAnalytics.agingBuckets.map(b => {
+                                const pct = stockAnalytics.agingTotal > 0 ? (b.value / stockAnalytics.agingTotal) * 100 : 0;
+                                const tone = b.key === 'never' || b.key === '365+' ? 'bg-rose-500' : b.key === '181-365' ? 'bg-amber-500' : b.key === '91-180' ? 'bg-yellow-400' : 'bg-emerald-500';
+                                return (
+                                    <div key={b.key}>
+                                        <div className="flex justify-between text-xs mb-1">
+                                            <span className="font-bold text-slate-700">{b.label}</span>
+                                            <span className="font-mono text-slate-600">{b.count} รายการ • ฿{Math.round(b.value).toLocaleString()}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                            <div className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </motion.div>
+
+                    {/* Days of Stock */}
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                        <h3 className="font-bold text-slate-800">Days of Stock (ใช้หมดในกี่วัน)</h3>
+                        <p className="text-xs text-slate-500 mb-4">คงเหลือ ÷ อัตราเบิกเฉลี่ยต่อวัน (ย้อนหลัง 3 เดือน) • เรียงจากใกล้หมดที่สุด</p>
+                        {stockAnalytics.daysOfStock.length === 0 ? (
+                            <p className="text-sm text-slate-400 py-8 text-center">ไม่มีอุปกรณ์ที่มีการเบิกใน 3 เดือน</p>
+                        ) : (
+                            <table className="w-full text-xs">
+                                <thead>
+                                    <tr className="border-b border-slate-200 text-slate-500">
+                                        <th className="text-left py-1.5 px-2 font-medium">อุปกรณ์</th>
+                                        <th className="text-right py-1.5 px-2 font-medium">คงเหลือ</th>
+                                        <th className="text-right py-1.5 px-2 font-medium">เบิก/วัน</th>
+                                        <th className="text-right py-1.5 px-2 font-medium">ใช้หมดใน</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {stockAnalytics.daysOfStock.map(r => (
+                                        <tr key={r.ProductID} className="border-b border-slate-100">
+                                            <td className="py-1.5 px-2 text-slate-800 truncate max-w-[200px]">{r.ProductName}</td>
+                                            <td className="py-1.5 px-2 text-right font-mono">{r.CurrentStock}</td>
+                                            <td className="py-1.5 px-2 text-right font-mono text-slate-500">{r.daily.toFixed(2)}</td>
+                                            <td className="py-1.5 px-2 text-right">
+                                                <span className={`px-2 py-0.5 rounded-full font-bold ${r.days <= 14 ? 'bg-red-100 text-red-700' : r.days <= 30 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                    {Math.floor(r.days) === 0 ? '< 1' : Math.floor(r.days)} วัน
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </motion.div>
+
+                    {/* Overstock */}
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                        <div className="flex items-start justify-between mb-4">
+                            <div>
+                                <h3 className="font-bold text-slate-800">Overstock (เกิน Max Stock)</h3>
+                                <p className="text-xs text-slate-500">มูลค่าส่วนเกินเหนือ MaxStock</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-lg font-black text-amber-600">฿{Math.round(stockAnalytics.overstockValue).toLocaleString()}</p>
+                                <p className="text-[10px] text-slate-400">{stockAnalytics.overstockCount} รายการ</p>
+                            </div>
+                        </div>
+                        {stockAnalytics.overstockCount === 0 ? (
+                            <p className="text-sm text-slate-400 py-8 text-center">ไม่มีสต็อกเกินกำหนด 👍</p>
+                        ) : (
+                            <table className="w-full text-xs">
+                                <thead>
+                                    <tr className="border-b border-slate-200 text-slate-500">
+                                        <th className="text-left py-1.5 px-2 font-medium">อุปกรณ์</th>
+                                        <th className="text-right py-1.5 px-2 font-medium">คงเหลือ / Max</th>
+                                        <th className="text-right py-1.5 px-2 font-medium">ส่วนเกิน</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {stockAnalytics.overstockAll.map(r => (
+                                        <tr key={r.ProductID} className="border-b border-slate-100">
+                                            <td className="py-1.5 px-2 text-slate-800 truncate max-w-[220px]">{r.ProductName}</td>
+                                            <td className="py-1.5 px-2 text-right font-mono">{r.CurrentStock} / {r.MaxStock}</td>
+                                            <td className="py-1.5 px-2 text-right font-mono text-amber-600">฿{Math.round(r.excess).toLocaleString()}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </motion.div>
+                </div>
+            )}
             {activeTab === 'stock' && (<>
             {/* Category Distribution — Click to Filter */}
             <motion.div

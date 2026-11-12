@@ -101,10 +101,10 @@ export const getAssetDetail = async (req, res) => {
 export const getBorrowings = async (req, res) => {
     try {
         const pool = getPool();
-        // ✅ ดึงทุกสถานะ (ไม่กรองเฉพาะ 'borrowed' แล้ว) เพื่อให้รายการที่คืนแล้วยังโชว์ในตาราง
-        // และหน้า frontend คำนวณ stats (ทั้งหมด/กำลังยืม/คืนแล้ว) ได้ถูกต้อง
+        // ✅ ดึงทุกรายการ (ไม่จำกัด TOP 500 แล้ว) เพื่อให้ stats และ filter ฝั่ง frontend นับจากข้อมูลครบทั้งหมด
+        // ถ้าข้อมูลโตจนหนักเกินไป ค่อยย้าย pagination/stats ไปทำฝั่ง server
         const result = await pool.request().query(`
-            SELECT TOP 500 * FROM dbo.IT_Borrowings
+            SELECT * FROM dbo.IT_Borrowings
             ORDER BY brID DESC
         `);
         res.json(result.recordset);

@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
-
-const SECRET_KEY = process.env.JWT_SECRET || 'your-secret-key-change-this-in-env';
+import { getJwtSecret } from '../config/jwtSecret.js';
 
 export const verifyToken = (req, res, next) => {
     const token = req.headers['authorization'];
@@ -13,7 +12,7 @@ export const verifyToken = (req, res, next) => {
         // Prepare to handle "Bearer " prefix if present
         const tokenString = token.startsWith('Bearer ') ? token.slice(7, token.length) : token;
 
-        const decoded = jwt.verify(tokenString, SECRET_KEY);
+        const decoded = jwt.verify(tokenString, getJwtSecret());
         req.user = decoded;
         next();
     } catch (err) {

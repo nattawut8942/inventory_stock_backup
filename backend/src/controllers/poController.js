@@ -37,6 +37,37 @@ export const getPOs = async (req, res) => {
     }
 };
 
+// หา/สร้างอุปกรณ์ให้รายการที่ยังไม่มี ProductID
+// สร้างเป็น IsActive = 0 เพื่อให้ซ่อนจากหน้าคลัง/Master จนกว่าจะรับของเข้า (ตอนรับจะเปิด IsActive = 1)
+// ค้นด้วยชื่อแบบเดียวกับตอนรับของ เพื่อไม่ให้เกิดรายการซ้ำ
+const resolveProductIdForItem = async (transaction, item) => {
+    if (item.ProductID) return item.ProductID;
+    const name = String(item.ItemName || '').trim();
+    if (!name) return null;
+
+    const found = await new sql.Request(transaction)
+        .input('ProductName', sql.NVarChar, name)
+        .query('SELECT TOP 1 ProductID FROM dbo.Stock_Products WHERE ProductName = @ProductName');
+    if (found.recordset.length > 0) return found.recordset[0].ProductID;
+
+    await new sql.Request(transaction).query(`
+        IF NOT EXISTS (SELECT 1 FROM dbo.Stock_DeviceTypes WHERE TypeId = 'Consumable')
+        BEGIN
+            INSERT INTO dbo.Stock_DeviceTypes (TypeId, Label) VALUES ('Consumable', 'Consumable Stock')
+        END
+    `);
+
+    const created = await new sql.Request(transaction)
+        .input('ProductName', sql.NVarChar, name)
+        .input('UnitCost', sql.Decimal(18, 2), item.UnitCost || 0)
+        .query(`
+            INSERT INTO dbo.Stock_Products (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, IsActive)
+            VALUES (@ProductName, 'Consumable', 0, @UnitCost, 0, 0);
+            SELECT SCOPE_IDENTITY() AS NewID;
+        `);
+    return created.recordset[0].NewID;
+};
+
 // CREATE PO
 export const createPO = async (req, res) => {
     const { PO_ID, VendorName, DueDate, RequestedBy, Section, Remark, Items, BudgetNo, PR_No, DeliveryTo } = req.body;
@@ -67,10 +98,11 @@ export const createPO = async (req, res) => {
 
             // ✅ Insert PO Details พร้อม BG_No
             for (const item of Items) {
+                const productId = await resolveProductIdForItem(transaction, item);
                 await new sql.Request(transaction)
                     .input('PO_ID', sql.NVarChar, PO_ID)
                     .input('ItemName', sql.NVarChar, item.ItemName || '')
-                    .input('ProductID', sql.Int, item.ProductID || null)
+                    .input('ProductID', sql.Int, productId || null)
                     .input('QtyOrdered', sql.Int, item.QtyOrdered)
                     .input('UnitCost', sql.Decimal(18, 2), item.UnitCost || 0)
                     .input('BG_No', sql.NVarChar, item.BG_No || null)
@@ -156,10 +188,11 @@ export const updatePO = async (req, res) => {
 
             // ✅ Re-insert พร้อม BG_No
             for (const item of Items) {
+                const productId = await resolveProductIdForItem(transaction, item);
                 await new sql.Request(transaction)
                     .input('PO_ID', sql.NVarChar, id)
                     .input('ItemName', sql.NVarChar, item.ItemName || '')
-                    .input('ProductID', sql.Int, item.ProductID || null)
+                    .input('ProductID', sql.Int, productId || null)
                     .input('QtyOrdered', sql.Int, item.QtyOrdered)
                     .input('UnitCost', sql.Decimal(18, 2), item.UnitCost || 0)
                     .input('BG_No', sql.NVarChar, item.BG_No || null)

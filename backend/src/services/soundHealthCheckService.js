@@ -4,16 +4,19 @@
  * http  = node-fetch หรือ http module
  */
 
-import { exec }  from 'child_process';
+import { execFile } from 'child_process';
 import http      from 'http';
 import https     from 'https';
+import { isValidIP } from './ipScanService.js';
 
 // ── Ping (copy จาก ipScanService.js) ──────────────────────────
+// ใช้ execFile + validate IP เพื่อกัน command injection
 function pingIP(ip) {
   return new Promise((resolve) => {
+    if (!isValidIP(ip)) return resolve(false);
     const isWin = process.platform === 'win32';
-    const cmd   = isWin ? `ping -n 1 -w 2000 ${ip}` : `ping -c 1 -W 2 ${ip}`;
-    exec(cmd, { timeout: 5000 }, (error, stdout) => {
+    const args  = isWin ? ['-n', '1', '-w', '2000', ip] : ['-c', '1', '-W', '2', ip];
+    execFile('ping', args, { timeout: 5000 }, (error, stdout) => {
       resolve(!error && (
         stdout.includes('TTL=') || stdout.includes('ttl=') ||
         stdout.includes('1 received') || stdout.includes('1 packets received')

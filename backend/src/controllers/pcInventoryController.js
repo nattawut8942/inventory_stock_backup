@@ -448,6 +448,21 @@ export const getSummary = async (req, res) => {
             });
         }).map(r => r.hostname);
 
+        // ✅ นับเครื่องตามค่า Health ของดิสก์ (Healthy, Bad, Unknown ฯลฯ) — เครื่องที่ไม่มีข้อมูล SMART อยู่กลุ่ม "ไม่มีข้อมูล"
+        const diskHealthMap = {};
+        activeOnly.forEach(r => {
+            const values = new Set();
+            (r.disk_smart_info || '').split('||').forEach(disk => {
+                const m = disk.match(/Health:\s*([^|]+)/i);
+                if (m) values.add(m[1].trim() || 'ไม่ทราบ');
+            });
+            if (values.size === 0) values.add('ไม่มีข้อมูล');
+            values.forEach(v => {
+                if (!diskHealthMap[v]) diskHealthMap[v] = [];
+                diskHealthMap[v].push(r.hostname);
+            });
+        });
+
         const currentYear = new Date().getFullYear();
         const oldFixAssets = activeOnly.filter(r => {
             if (!r.fix_asset || r.fix_asset.trim() === '') return false;
@@ -524,7 +539,7 @@ export const getSummary = async (req, res) => {
             inactive,              // ✅ เพิ่มเข้ามา
             noEdr, noTanium, noUems, blDisabled, noAsset,
             noLocation, noBlKeyNotebook, inactivePC, lowBatteryHealth, lowDiskCSpace, oldFixAssets, longUptime,
-            noRecentPatch, localAdmin, diskSmartWarn,
+            noRecentPatch, localAdmin, diskSmartWarn, diskHealthMap,
             osVersionMap, osBuildMap, computerTypeMap, modelMap, modelByType, crowdstrikeVerMap, taniumVerMap, lastPatchKBMap,
             locationMap,
         });

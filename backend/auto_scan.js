@@ -6,7 +6,7 @@
  * npm install node-fetch   (ถ้า Node < 18)
  */
 
-import { exec }        from 'child_process';
+import { execFile }    from 'child_process';
 import dns             from 'dns';
 import { promisify }   from 'util';
 
@@ -17,6 +17,11 @@ const dnsReverse = promisify(dns.reverse);
 // =============================================
 const API_BASE   = process.env.IP_SCAN_API || 'http://localhost:3002/ITinventory/api';
 const CONCURRENCY = 50;   // ping พร้อมกันกี่ IP
+// อ่าน env ตอนเรียกใช้ (ไม่ใช่ตอน import) เพราะ server.js import ไฟล์นี้
+const getScanKey = () => process.env.IP_SCAN_API_KEY;   // ต้องตรงกับ server (header x-scan-key)
+const OCTET       = '(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
+const IP_RE       = new RegExp(`^${OCTET}\\.${OCTET}\\.${OCTET}\\.${OCTET}$`);
+const SUBNET_RE   = new RegExp(`^${OCTET}\\.${OCTET}\\.${OCTET}$`);
 
 // ─── Local datetime (Bangkok UTC+7) ───────────
 const nowBKK = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
@@ -25,9 +30,10 @@ const nowBKK = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Bangko
 // ─── Ping ──────────────────────────────────
 function pingIP(ip) {
   return new Promise(resolve => {
+    if (!IP_RE.test(ip)) return resolve(false);
     const isWin = process.platform === 'win32';
-    const cmd   = isWin ? `ping -n 1 -w 2000 ${ip}` : `ping -c 1 -W 2 ${ip}`;
-    exec(cmd, { timeout: 5000 }, (error, stdout) => {
+    const args  = isWin ? ['-n', '1', '-w', '2000', ip] : ['-c', '1', '-W', '2', ip];
+    execFile('ping', args, { timeout: 5000 }, (error, stdout) => {
       resolve(!error && (stdout.includes('TTL=') || stdout.includes('ttl=') || stdout.includes('1 received')));
     });
   });
@@ -67,7 +73,7 @@ async function scanSubnet(subnet) {
 async function postResults(results) {
   const res = await fetch(`${API_BASE}/ip-scan/scan-result`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-scan-key': getScanKey() || '' },
     body:    JSON.stringify(results),
   });
   return res.json();
@@ -75,13 +81,17 @@ async function postResults(results) {
 
 // ─── Get subnet list from API ──────────────
 async function getSubnets() {
-  const res  = await fetch(`${API_BASE}/ip-scan/subnets`);
+  const res  = await fetch(`${API_BASE}/ip-scan/subnets`, { headers: { 'x-scan-key': getScanKey() || '' } });
   const data = await res.json();
-  return data.map(s => s.subnet);
+  return data.map(s => s.subnet).filter(s => SUBNET_RE.test(s));
 }
 
 // ─── Main: scan all subnets ────────────────
 export async function runAllSubnets() {
+  if (!getScanKey()) {
+    console.error('[IPScan] IP_SCAN_API_KEY is not set — ข้ามการสแกน');
+    return;
+  }
   const start   = Date.now();
   const ts      = new Date().toLocaleString('th-TH');
   console.log(`\n${'='.repeat(52)}`);

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Search, Monitor, Network, Archive, Database, Package, List, LayoutGrid, Edit2, Trash2, X, TrendingUp, TrendingDown, AlertTriangle, DollarSign, HardDrive, Mouse, Droplet, Printer, ShoppingBag, ShoppingCart, Minus, Plus, FileEdit, ScanLine, Check, Truck, Settings, ClipboardList } from 'lucide-react';
 import Barcode from 'react-barcode';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, animate } from 'motion/react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import AlertModal from '../components/AlertModal';
@@ -18,6 +18,13 @@ const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
 // ✅ รูปแบบรหัสครุภัณฑ์บังคับ: CO + ตัวเลขล้วน เช่น CO24-001-05
 const FIXED_ASSET_CODE_REGEX = /^(CO|OF)\d{2}-\d{3}-\d{2}$/;
 const isValidFixedAssetCode = (code) => FIXED_ASSET_CODE_REGEX.test((code || '').trim());
+
+const escapeHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
 
 
 const extractPrefixAndDigits = (str) => {
@@ -61,16 +68,20 @@ const nextFixedAssetCode = (newRaw, prevFormatted) => {
 };
 
 // ─── StatCard ────────────────────────────────────────────────────────────────
-const StatCard = ({ icon: Icon, title, value, change, changeType, color }) => (
+const StatCard = ({ icon: Icon, title, value, change, changeType, color, onClick, format }) => (
   <motion.div
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
-    className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200 hover:shadow-xl transition-shadow"
+    onClick={onClick}
+    role={onClick ? 'button' : undefined}
+    tabIndex={onClick ? 0 : undefined}
+    onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+    className={`bg-white rounded-2xl p-6 shadow-lg border border-slate-200 hover:shadow-xl transition-shadow ${onClick ? 'cursor-pointer hover:border-indigo-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300' : ''}`}
   >
     <div className="flex items-start justify-between">
       <div>
         <p className="text-sm text-slate-600 mb-1">{title}</p>
-        <h3 className="text-3xl font-bold text-slate-900">{value}</h3>
+        <h3 className="text-3xl font-bold text-slate-900">{typeof value === 'number' ? <AnimatedNumber value={value} format={format} /> : value}</h3>
         {change !== undefined && (
           <div className="flex items-center gap-1 mt-2">
             {changeType === 'up' ? <TrendingUp className="w-4 h-4 text-green-500" /> : <TrendingDown className="w-4 h-4 text-red-500" />}
@@ -84,6 +95,46 @@ const StatCard = ({ icon: Icon, title, value, change, changeType, color }) => (
     </div>
   </motion.div>
 );
+
+// ─── Count-up: ตัวเลขนับขึ้นเมื่อค่าเปลี่ยน ───────────────────────────────
+const AnimatedNumber = ({ value, format = (n) => Math.round(n).toLocaleString() }) => {
+  const [display, setDisplay] = useState(value);
+  const fromRef = useRef(value);
+  useEffect(() => {
+    const controls = animate(fromRef.current, value, {
+      duration: 0.8,
+      ease: 'easeOut',
+      onUpdate: (v) => setDisplay(v),
+    });
+    fromRef.current = value;
+    return () => controls.stop();
+  }, [value]);
+  return <>{format(display)}</>;
+};
+
+// ดาวน์โหลดไฟล์ CSV (ใส่ BOM ให้ Excel อ่านภาษาไทยได้ถูกต้อง)
+const downloadCsv = (filename, headers, rows) => {
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = '﻿' + [headers, ...rows].map(r => r.map(esc).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+// สถานะสต็อกของการ์ด: ใช้ทั้งป้ายข้อความและแถบสีด้านซ้าย (ไม่ต้องใช้ MinStock ก็แสดงได้)
+const getStockState = (p) => {
+  if (!(p.MinStock > 0)) {
+    return { label: 'ไม่ได้ตั้งขั้นต่ำ', chip: 'bg-slate-100 text-slate-500 border-slate-200', edge: 'border-l-slate-300' };
+  }
+  if (p.CurrentStock <= p.MinStock) {
+    return { label: 'ต่ำกว่าขั้นต่ำ', chip: 'bg-red-50 text-red-600 border-red-200', edge: 'border-l-red-500' };
+  }
+  return { label: 'ปกติ', chip: 'bg-emerald-50 text-emerald-600 border-emerald-200', edge: 'border-l-emerald-500' };
+};
 
 // ─── Edit Modal helpers — ต้องอยู่นอก InventoryPage ────────────────────────
 const InlineRow = ({ label, children }) => (
@@ -142,6 +193,32 @@ const InventoryPage = () => {
   const [detailItem, setDetailItem] = useState(null);
   const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
   const [locations, setLocations] = useState([]);
+  const [toast, setToast] = useState(null);   // ✅ แจ้งเตือนสั้น ๆ มุมจอ (แทน modal สำหรับงานที่ไม่ต้องกดรับทราบ)
+  const [selectedIds, setSelectedIds] = useState([]);   // ✅ เลือกหลายรายการเพื่อเพิ่มลงตะกร้าพร้อมกัน
+  const searchInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), toast.duration ?? 2000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // ✅ เปลี่ยนตัวกรองแล้วล้างการเลือก เพื่อไม่ให้เพิ่มรายการที่มองไม่เห็นลงตะกร้าโดยไม่ตั้งใจ
+  useEffect(() => { setSelectedIds([]); }, [searchTerm, selectedType, showLowStock]);
+
+  // ✅ กด "/" เพื่อโฟกัสช่องค้นหา (ข้ามเมื่อกำลังพิมพ์ในช่องอื่นอยู่)
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (e.target?.tagName || '').toUpperCase();
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || e.target?.isContentEditable) return;
+      if (!searchInputRef.current) return;
+      e.preventDefault();
+      searchInputRef.current.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => { fetchLocations(); }, []);
 
@@ -159,11 +236,19 @@ const InventoryPage = () => {
     } catch (error) { console.error('Error fetching locations:', error); }
   };
 
+  // ตะกร้าแยกตาม user เพื่อไม่ให้ผู้ใช้คนอื่นบนเครื่องเดียวกันเห็นของของเรา
+  const cartStorageKey = `cart_${(user?.username || 'guest').toLowerCase()}`;
   const [cart, setCart] = useState(() => {
-    const savedCart = localStorage.getItem('cart');
-    return savedCart ? JSON.parse(savedCart) : [];
+    try {
+      const savedCart = localStorage.getItem(cartStorageKey);
+      return savedCart ? JSON.parse(savedCart) : [];
+    } catch (err) {
+      return [];
+    }
   });
-  useEffect(() => { localStorage.setItem('cart', JSON.stringify(cart)); }, [cart]);
+  useEffect(() => {
+    try { localStorage.setItem(cartStorageKey, JSON.stringify(cart)); } catch (err) { /* storage ไม่พร้อมใช้งาน */ }
+  }, [cart, cartStorageKey]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [qtyModal, setQtyModal] = useState({ isOpen: false, product: null, mode: 'cart' });
   const [selectQty, setSelectQty] = useState(1);
@@ -323,6 +408,9 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
     if (product.DeviceType === 'Asset' && (!assetSerialNumber.trim() || !isValidFixedAssetCode(assetFixedCode))) return;
     if (qtyModal.mode === 'withdraw' && !empData) return;   // ✅ บังคับต้องค้นหา/ยืนยันรหัสพนักงานก่อน
     if (qtyModal.mode === 'cart') {
+      // จับตำแหน่งรูปใน modal ก่อนปิด เพื่อใช้เป็นจุดเริ่มของแอนิเมชันบินลงตะกร้า
+      const srcRect = document.getElementById('qty-modal-thumb')?.getBoundingClientRect() || null;
+      flyToCart(srcRect, product);
       const existingIndex = cart.findIndex(c => c.ProductID === product.ProductID);
       let newCart = [...cart];
       if (existingIndex >= 0) {
@@ -332,7 +420,7 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
       }
       setCart(newCart);
       setQtyModal({ isOpen: false, product: null, mode: 'cart' });
-      setAlertModal({ isOpen: true, type: 'success', title: 'เพิ่มลงตะกร้า', message: `เพิ่ม ${product.ProductName} ลงในตะกร้าแล้ว`, autoClose: 1500 });
+      setToast({ type: 'success', message: `เพิ่ม ${product.ProductName} ลงในตะกร้าแล้ว`, duration: 2000 });
     } else {
       // ✅ ไม่บังคับ empData อีกแล้ว — แค่ "ถ้ามีก็แนบไปด้วย"
       setQtyModal({ isOpen: false, product: null, mode: 'cart' });
@@ -501,8 +589,10 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
     }
   };
 
+  const q = searchTerm.trim().toLowerCase();
   const filteredProducts = products.filter(p =>
-    p.ProductName.toLowerCase().includes(searchTerm.toLowerCase()) &&
+    (!q || [p.ProductName, p.BarcodeID, p.ProductID, p.Location, p.VendorName]
+      .some(v => v != null && String(v).toLowerCase().includes(q))) &&
     (selectedType === 'all' || p.DeviceType === selectedType) &&
     (!showLowStock || (p.CurrentStock <= p.MinStock && p.MinStock > 0))
   );
@@ -520,7 +610,12 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
       const diff = urgency(a) - urgency(b);
       return diff !== 0 ? diff : a.ProductName.localeCompare(b.ProductName);
     }
-    if (gridSort === 'stock') return a.CurrentStock - b.CurrentStock;
+    if (gridSort === 'stock') {
+      // เรียงตามอัตราส่วนเทียบขั้นต่ำ — รายการที่ไม่มี MinStock ไปท้ายสุด
+      const ratio = (p) => (p.MinStock > 0 ? p.CurrentStock / p.MinStock : Infinity);
+      const diff = ratio(a) - ratio(b);
+      return Number.isNaN(diff) ? 0 : diff;
+    }
     if (gridSort === 'price') return (b.LastPrice || 0) - (a.LastPrice || 0);
     if (gridSort === 'name') return a.ProductName.localeCompare(b.ProductName);
     return 0;
@@ -580,6 +675,99 @@ const handleFileUpload = async (file) => {
     }
   };
 
+  // ─── Fly-to-cart: รูปสินค้าบินจากจุดที่กดไปยังปุ่มตะกร้า แล้ว badge เด้ง ───
+  const cartBtnRef = useRef(null);
+  const [cartBump, setCartBump] = useState(0);
+  const flyToCart = (srcRect, product) => {
+    const target = cartBtnRef.current;
+    const bump = () => setCartBump(n => n + 1);
+    if (!srcRect || !target || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      bump();
+      return;
+    }
+    const tRect = target.getBoundingClientRect();
+    // ถ้าปุ่มตะกร้าเลื่อนพ้นจอ ไม่ต้องบิน ให้เด้ง badge อย่างเดียว
+    if (tRect.bottom < 0 || tRect.top > window.innerHeight) {
+      bump();
+      return;
+    }
+    const size = 48;
+    const sx = srcRect.left + srcRect.width / 2;
+    const sy = srcRect.top + srcRect.height / 2;
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed', 'z-index:9999', 'pointer-events:none', 'overflow:hidden',
+      `width:${size}px`, `height:${size}px`, `left:${sx - size / 2}px`, `top:${sy - size / 2}px`,
+      'border-radius:14px', 'background:linear-gradient(135deg,#6366f1,#4f46e5)',
+      'box-shadow:0 10px 25px rgba(79,70,229,.45)', 'display:flex', 'align-items:center', 'justify-content:center',
+      'color:#fff', 'font-weight:700', 'font-size:14px',
+    ].join(';');
+    if (product?.ImageURL) {
+      const img = document.createElement('img');
+      img.src = `${API_URL}${product.ImageURL}`;
+      img.style.cssText = 'width:100%;height:100%;object-fit:cover';
+      el.appendChild(img);
+    } else {
+      el.textContent = '+1';
+    }
+    document.body.appendChild(el);
+    const dx = tRect.left + tRect.width / 2 - sx;
+    const dy = tRect.top + tRect.height / 2 - sy;
+    animate(el,
+      { x: [0, dx * 0.5, dx], y: [0, dy * 0.3 - 80, dy], scale: [1, 1.15, 0.3], opacity: [1, 1, 0.4] },
+      { duration: 0.75, ease: 'easeInOut' }
+    ).then(() => { el.remove(); bump(); }).catch(() => { el.remove(); bump(); });
+  };
+
+  // ─── Bulk select / export helpers ───
+  const toggleSelect = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const allVisibleSelected = sortedProducts.length > 0 && sortedProducts.every(p => selectedIds.includes(p.ProductID));
+  const toggleSelectAll = () => setSelectedIds(allVisibleSelected ? [] : sortedProducts.map(p => p.ProductID));
+
+  const bulkAddToCart = () => {
+    const picked = products.filter(p => selectedIds.includes(p.ProductID));
+    // Asset ต้องกรอก S/N ทีละชิ้น และสินค้าหมดสต็อกเพิ่มไม่ได้ จึงข้ามไป
+    const addable = picked.filter(p => p.DeviceType !== 'Asset' && p.CurrentStock > 0 && !isInCart(p.ProductID));
+    const skipped = picked.length - addable.length;
+    const newItems = addable.map(p => {
+      const opts = getFilteredReasons(p);
+      return { ...p, qty: 1, reason: opts.length ? opts[0].Label : 'Other', reasonDetail: '', serialNumber: '', fixedAssetCode: '' };
+    });
+    if (newItems.length) setCart(prev => [...prev, ...newItems]);
+    setSelectedIds([]);
+    setToast({
+      type: 'success',
+      message: newItems.length
+        ? `เพิ่ม ${newItems.length} รายการลงตะกร้าแล้ว${skipped ? ` (ข้าม ${skipped} รายการ)` : ''}`
+        : 'ไม่มีรายการที่เพิ่มได้ (Asset หรือหมดสต็อก)',
+      duration: 3000,
+    });
+  };
+
+  const exportVisibleCsv = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    downloadCsv(`inventory_${today}.csv`,
+      ['รหัส', 'ชื่อ', 'หมวดหมู่', 'คงเหลือ', 'ขั้นต่ำ', 'สูงสุด', 'ราคา/หน่วย', 'สถานที่เก็บ', 'Vendor', 'สถานะ'],
+      sortedProducts.map(p => [
+        p.ProductID, p.ProductName, p.DeviceType, p.CurrentStock, p.MinStock, p.MaxStock || '',
+        p.LastPrice || 0, p.Location || '', p.VendorName || '',
+        p.MinStock > 0 && p.CurrentStock <= p.MinStock ? 'ต่ำกว่าขั้นต่ำ' : 'ปกติ',
+      ]));
+  };
+
+  // รายการที่ควรสั่งซื้อ: จำนวนแนะนำ = ระดับสูงสุด (หรือ 2× ขั้นต่ำ) - คงเหลือ
+  const exportReorderCsv = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const low = products.filter(p => p.MinStock > 0 && p.CurrentStock <= p.MinStock);
+    downloadCsv(`reorder_${today}.csv`,
+      ['รหัส', 'ชื่อ', 'คงเหลือ', 'ขั้นต่ำ', 'จำนวนแนะนำให้สั่ง', 'Vendor', 'Lead time (วัน)'],
+      low.map(p => [
+        p.ProductID, p.ProductName, p.CurrentStock, p.MinStock,
+        Math.max(1, (p.MaxStock || p.MinStock * 2) - p.CurrentStock),
+        p.VendorName || '', p.lead_time_days ?? 7,
+      ]));
+  };
+
   const handleDelete = (id) => {
     setAlertModal({
       isOpen: true, type: 'danger', title: 'ลบอุปกรณ์?',
@@ -614,15 +802,23 @@ const handleFileUpload = async (file) => {
         {/* ✅ ย้ายมาอยู่ขวาสุดของแถว tab */}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => { setSelectedReason('New Withdrawal'); setReasonDetail(''); setIsCartOpen(true); }}
+            ref={cartBtnRef}
+            onClick={() => setIsCartOpen(true)}
+            aria-label={`เปิดตะกร้า${cart.length > 0 ? ` (${cart.length} รายการ)` : ''}`}
             className="relative bg-white hover:bg-indigo-50 text-indigo-600 border border-slate-200 font-bold px-3 py-2 rounded-xl transition-all shadow-sm flex items-center gap-2"
           >
             <ShoppingCart size={18} />
             <span className="hidden sm:inline">ตะกร้า</span>
             {cart.length > 0 && (
-              <span className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center animate-pulse">
+              <motion.span
+                key={cartBump}
+                initial={cartBump ? { scale: 1.7 } : false}
+                animate={{ scale: 1 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 14 }}
+                className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center"
+              >
                 {getCartTotal()}
-              </span>
+              </motion.span>
             )}
           </button>
           <button
@@ -640,9 +836,9 @@ const handleFileUpload = async (file) => {
       {activeTab === 'inventory' && (<>
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatCard icon={Package} title="อุปกรณ์ทั้งหมด" value={totalProducts.toLocaleString()} color="from-blue-500 to-blue-600" />
-          <StatCard icon={DollarSign} title="มูลค่าสต็อค" value={`฿${totalValue.toLocaleString()}`} color="from-purple-500 to-purple-600" />
-          <StatCard icon={AlertTriangle} title="สต็อกต่ำ" value={lowStockCount} changeType={lowStockCount > 0 ? 'down' : 'up'} color="from-orange-500 to-orange-600" />
+          <StatCard icon={Package} title="อุปกรณ์ทั้งหมด" value={totalProducts} color="from-blue-500 to-blue-600" />
+          <StatCard icon={DollarSign} title="มูลค่าสต็อค" value={totalValue} format={(n) => `฿${Math.round(n).toLocaleString()}`} color="from-purple-500 to-purple-600" />
+          <StatCard icon={AlertTriangle} title="สต็อกต่ำ" value={lowStockCount} changeType={lowStockCount > 0 ? 'down' : 'up'} color="from-orange-500 to-orange-600" onClick={() => { setShowLowStock(true); setSearchTerm(''); setSelectedType('all'); }} />
           <StatCard icon={LayoutGrid} title="หมวดหมู่" value={deviceTypes.length} color="from-pink-500 to-pink-600" />
         </div>
 
@@ -659,7 +855,7 @@ const handleFileUpload = async (file) => {
             </div>
             <div className="flex gap-2 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
               <Search size={18} className="text-slate-400 self-center" />
-              <input type="text" placeholder="ค้นหาอุปกรณ์..." className="bg-transparent border-none outline-none text-sm w-32 sm:w-48 text-slate-700 placeholder-slate-400" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              <input ref={searchInputRef} type="text" aria-label="ค้นหาอุปกรณ์" placeholder="ค้นหาอุปกรณ์... (กด / )" className="bg-transparent border-none outline-none text-sm w-32 sm:w-48 text-slate-700 placeholder-slate-400" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
             <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} className="bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-medium text-slate-700 shadow-sm focus:border-indigo-500 outline-none cursor-pointer">
               <option value="all">ทุกประเภท</option>
@@ -677,7 +873,7 @@ const handleFileUpload = async (file) => {
           <span className="text-[11px] text-slate-400 font-medium shrink-0">เรียงตาม</span>
           {[
             { key: 'priority', label: '🔴 ความเร่งด่วน' },
-            { key: 'stock', label: '📦 Stock น้อย→มาก' },
+            { key: 'stock', label: '📦 ใกล้หมดก่อน' },
             { key: 'price', label: '💰 ราคา มาก→น้อย' },
             { key: 'name', label: '🔤 ชื่อ A–Z' },
           ].map(opt => (
@@ -692,15 +888,42 @@ const handleFileUpload = async (file) => {
               {opt.label}
             </button>
           ))}
-          {(searchTerm || selectedType !== 'all' || showLowStock) && (
+          <div className="flex items-center gap-2 ml-auto">
+            {(searchTerm || selectedType !== 'all' || showLowStock) && (
+              <button
+                onClick={() => { setSearchTerm(''); setSelectedType('all'); setShowLowStock(false); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-all"
+              >
+                <X size={13} /> ล้าง filter
+              </button>
+            )}
             <button
-              onClick={() => { setSearchTerm(''); setSelectedType('all'); setShowLowStock(false); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-all ml-auto"
+              onClick={exportVisibleCsv}
+              disabled={sortedProducts.length === 0}
+              title="ดาวน์โหลดรายการที่แสดงอยู่เป็นไฟล์ CSV"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition-all disabled:opacity-40"
             >
-              <X size={13} /> ล้าง filter
+              <Database size={13} /> ส่งออก CSV
             </button>
-          )}
+          </div>
         </div>
+
+        {/* ✅ แบนเนอร์สต็อกต่ำ — บอกสถานะชัด ๆ และดาวน์โหลดรายการที่ต้องสั่งซื้อได้ทันที */}
+        {showLowStock && (
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+            <div className="flex items-center gap-2 text-sm text-red-700">
+              <AlertTriangle size={16} className="shrink-0" />
+              {lowStockCount > 0
+                ? <span>มี <b>{lowStockCount}</b> รายการที่ต่ำกว่าขั้นต่ำ ควรสั่งซื้อเพิ่ม</span>
+                : <span>ไม่มีรายการสต็อกต่ำในตอนนี้ 🎉</span>}
+            </div>
+            {lowStockCount > 0 && (
+              <button onClick={exportReorderCsv} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold bg-white border border-red-200 text-red-600 hover:bg-red-100 transition-all">
+                <Database size={13} /> ดาวน์โหลดรายการที่ต้องสั่ง (CSV)
+              </button>
+            )}
+          </div>
+        )}
 
         {/* LIST VIEW */}
         {viewMode === 'list' && (
@@ -708,7 +931,10 @@ const handleFileUpload = async (file) => {
             <table className="w-full text-left text-sm">
               <thead className="bg-gradient-to-r from-slate-50 to-slate-100 text-slate-700 uppercase text-[12px] tracking-widest border-b border-slate-200">
                 <tr>
-                  <th className="p-4 pl-6">รายการ</th>
+                  <th className="p-4 pl-6 w-10">
+                    <input type="checkbox" aria-label="เลือกทั้งหมด" checked={allVisibleSelected} onChange={toggleSelectAll} className="w-4 h-4 accent-indigo-600 cursor-pointer" />
+                  </th>
+                  <th className="p-4">รายการ</th>
                   <th className="p-4">หมวดหมู่</th>
                   <th className="p-4">ราคาต่อหน่วย</th>
                   <th className="p-4 text-center">คงเหลือ</th>
@@ -726,11 +952,14 @@ const handleFileUpload = async (file) => {
                   const Icon = getIcon(p.DeviceType);
                   const inCart = isInCart(p.ProductID);
                   return (
-                    <motion.tr key={p.ProductID} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.03 }} className={`hover:bg-slate-50 transition-colors ${inCart ? 'bg-indigo-50/30' : ''}`}>
+                    <motion.tr key={p.ProductID} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.min(idx, 12) * 0.03 }} className={`hover:bg-slate-50 transition-colors ${selectedIds.includes(p.ProductID) ? 'bg-indigo-50' : inCart ? 'bg-indigo-50/30' : ''}`}>
                       <td className="p-4 pl-6">
+                        <input type="checkbox" aria-label={`เลือก ${p.ProductName}`} checked={selectedIds.includes(p.ProductID)} onChange={() => toggleSelect(p.ProductID)} className="w-4 h-4 accent-indigo-600 cursor-pointer" />
+                      </td>
+                      <td className="p-4">
                         <div className="flex items-center gap-3">
                           <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${getColorGradient(p.DeviceType)} flex items-center justify-center overflow-hidden shrink-0 shadow-md`}>
-                            {p.ImageURL ? <img src={`${API_URL}${p.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Icon size={18} className="text-white" />}
+                            {p.ImageURL ? <img loading="lazy" src={`${API_URL}${p.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Icon size={18} className="text-white" />}
                           </div>
                           <div>
                             <span className="font-bold text-slate-700 block truncate max-w-[200px]">{p.ProductName}</span>
@@ -763,24 +992,24 @@ const handleFileUpload = async (file) => {
                       </td>
                       <td className="p-4 text-center">
                         <div className="flex justify-center gap-1">
-                          <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-lg disabled:opacity-30" title="เพิ่มลงตะกร้า"><ShoppingCart size={16} /></button>
-                          <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg disabled:opacity-30" title="เบิกด่วน"><ShoppingBag size={16} /></button>
+                          <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-lg disabled:opacity-30" title="เพิ่มลงตะกร้า" aria-label="เพิ่มลงตะกร้า"><ShoppingCart size={16} /></button>
+                          <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg disabled:opacity-30" title="เบิกด่วน" aria-label="เบิกด่วน"><ShoppingBag size={16} /></button>
                         </div>
                       </td>
                       <td className="p-4 text-center">
                         <div className="flex justify-center gap-1">
-                          <button onClick={() => viewHistory(p)} className="text-slate-400 hover:text-indigo-600 transition-colors p-1.5 hover:bg-indigo-50 rounded-lg" title="ดูประวัติ"><Search size={16} /></button>
-                          <button onClick={() => setDetailItem(p)} className="text-slate-400 hover:text-blue-600 transition-colors p-1.5 hover:bg-blue-50 rounded-lg" title="ดูรายละเอียด">
+                          <button onClick={() => viewHistory(p)} className="text-slate-400 hover:text-indigo-600 transition-colors p-1.5 hover:bg-indigo-50 rounded-lg" title="ดูประวัติ" aria-label="ดูประวัติ"><Search size={16} /></button>
+                          <button onClick={() => setDetailItem(p)} className="text-slate-400 hover:text-blue-600 transition-colors p-1.5 hover:bg-blue-50 rounded-lg" title="ดูรายละเอียด" aria-label="ดูรายละเอียด">
                             <div className="w-4 h-4 rounded-full border border-current flex items-center justify-center font-bold text-[10px]">i</div>
                           </button>
-                          <button onClick={() => setBarcodeItem(p)} className="text-slate-400 hover:text-emerald-600 transition-colors p-1.5 hover:bg-emerald-50 rounded-lg" title="พิมพ์บาร์โค้ด"><Printer size={16} /></button>
+                          <button onClick={() => setBarcodeItem(p)} className="text-slate-400 hover:text-emerald-600 transition-colors p-1.5 hover:bg-emerald-50 rounded-lg" title="พิมพ์บาร์โค้ด" aria-label="พิมพ์บาร์โค้ด"><Printer size={16} /></button>
                         </div>
                       </td>
                       {isAdmin && (
                         <td className="p-4">
                           <div className="flex justify-center gap-2">
-                            <button onClick={() => setEditItem(p)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>
-                            <button onClick={() => handleDelete(p.ProductID)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                            <button onClick={() => setEditItem(p)} aria-label={`แก้ไข ${p.ProductName}`} title="แก้ไข" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>
+                            <button onClick={() => handleDelete(p.ProductID)} aria-label={`ลบ ${p.ProductName}`} title="ลบ" className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={16} /></button>
                           </div>
                         </td>
                       )}
@@ -789,7 +1018,6 @@ const handleFileUpload = async (file) => {
                 })}
               </tbody>
             </table>
-            {sortedProducts.length === 0 && <div className="text-center py-10 text-slate-400">ไม่พบอุปกรณ์</div>}
           </motion.div>
         )}
 
@@ -799,11 +1027,16 @@ const handleFileUpload = async (file) => {
             {sortedProducts.map((p, idx) => {
               const inCart = isInCart(p.ProductID);
               return (
-                <motion.div key={p.ProductID} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }} className={`group bg-white rounded-2xl border p-3 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${inCart ? 'border-indigo-300 ring-2 ring-indigo-100' : p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'border-red-200' : 'border-slate-100'}`}>
+                <motion.div key={p.ProductID} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(idx, 12) * 0.03 }} className={`group bg-white rounded-2xl border border-l-4 ${getStockState(p).edge} p-3 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${selectedIds.includes(p.ProductID) ? 'border-indigo-400 ring-2 ring-indigo-300' : inCart ? 'border-indigo-300 ring-2 ring-indigo-100' :p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'border-red-200' : 'border-slate-100'}`}>
                   <div className={`absolute top-0 left-0 w-full h-20 bg-gradient-to-br ${getColorGradient(p.DeviceType)} opacity-10 z-0`} />
 
-                  {/* ✅ Priority badge — มุมซ้ายบน */}
-                  <div className="absolute top-2 left-2 z-20">
+                  {/* ✅ เลือกหลายรายการ */}
+                  <label className="absolute top-2 left-2 z-30 flex items-center justify-center w-6 h-6 bg-white/95 rounded-md shadow-sm cursor-pointer" title="เลือกรายการนี้">
+                    <input type="checkbox" aria-label={`เลือก ${p.ProductName}`} checked={selectedIds.includes(p.ProductID)} onChange={() => toggleSelect(p.ProductID)} className="w-3.5 h-3.5 accent-indigo-600 cursor-pointer" />
+                  </label>
+
+                  {/* ✅ Priority badge — มุมซ้ายบน (ถัดจาก checkbox) */}
+                  <div className="absolute top-2 left-10 z-20">
                     <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
                       p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
                         p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
@@ -823,23 +1056,26 @@ const handleFileUpload = async (file) => {
                   )}
 
                   <div className="absolute top-2 right-2 z-20 flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => viewHistory(p)} className="p-1.5 bg-white/90 backdrop-blur text-indigo-600 rounded-full shadow-sm hover:bg-indigo-50" title="ดูประวัติ"><List size={14} /></button>
-                    <button onClick={() => setDetailItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-blue-600 rounded-full shadow-sm hover:bg-blue-50" title="ดูรายละเอียด"><div className="w-3.5 h-3.5 rounded-full border border-current flex items-center justify-center font-bold text-[9px]">i</div></button>
-                    <button onClick={() => setBarcodeItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-emerald-600 rounded-full shadow-sm hover:bg-emerald-50" title="พิมพ์บาร์โค้ด"><Printer size={14} /></button>
+                    <button onClick={() => viewHistory(p)} className="p-1.5 bg-white/90 backdrop-blur text-indigo-600 rounded-full shadow-sm hover:bg-indigo-50" title="ดูประวัติ" aria-label="ดูประวัติ"><List size={14} /></button>
+                    <button onClick={() => setDetailItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-blue-600 rounded-full shadow-sm hover:bg-blue-50" title="ดูรายละเอียด" aria-label="ดูรายละเอียด"><div className="w-3.5 h-3.5 rounded-full border border-current flex items-center justify-center font-bold text-[9px]">i</div></button>
+                    <button onClick={() => setBarcodeItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-emerald-600 rounded-full shadow-sm hover:bg-emerald-50" title="พิมพ์บาร์โค้ด" aria-label="พิมพ์บาร์โค้ด"><Printer size={14} /></button>
                     {isAdmin && (
                       <>
-                        <button onClick={() => setEditItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-amber-500 rounded-full shadow-sm hover:bg-amber-50"><Edit2 size={14} /></button>
-                        <button onClick={() => handleDelete(p.ProductID)} className="p-1.5 bg-white/90 backdrop-blur text-red-500 rounded-full shadow-sm hover:bg-red-50"><Trash2 size={14} /></button>
+                        <button onClick={() => setEditItem(p)} aria-label={`แก้ไข ${p.ProductName}`} title="แก้ไข" className="p-1.5 bg-white/90 backdrop-blur text-amber-500 rounded-full shadow-sm hover:bg-amber-50"><Edit2 size={14} /></button>
+                        <button onClick={() => handleDelete(p.ProductID)} aria-label={`ลบ ${p.ProductName}`} title="ลบ" className="p-1.5 bg-white/90 backdrop-blur text-red-500 rounded-full shadow-sm hover:bg-red-50"><Trash2 size={14} /></button>
                       </>
                     )}
                   </div>
                   <div className="relative z-10 flex flex-col items-center text-center">
                     <div className={`w-28 h-28 mb-3 rounded-xl overflow-hidden shadow-lg flex items-center justify-center border-2 border-white group-hover:scale-105 transition-transform bg-gradient-to-br ${getColorGradient(p.DeviceType)}`}>
-                      {p.ImageURL ? <img src={`${API_URL}${p.ImageURL}`} alt={p.ProductName} className="w-full h-full object-cover" /> : React.createElement(getIcon(p.DeviceType), { size: 40, className: 'text-white' })}
+                      {p.ImageURL ? <img loading="lazy" src={`${API_URL}${p.ImageURL}`} alt={p.ProductName} className="w-full h-full object-cover" /> : React.createElement(getIcon(p.DeviceType), { size: 40, className: 'text-white' })}
                     </div>
                     <h3 className="font-bold text-slate-800 text-xs mb-1 line-clamp-2 min-h-[1.25rem]">{p.ProductName}</h3>
                     {inCart && <span className="text-[10px] text-indigo-600 font-bold bg-indigo-100 px-1.5 py-0.5 rounded-sm mb-1">ในตะกร้า</span>}
-                    <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full mb-2 shadow-sm text-white" style={{ backgroundColor: getChartColor(p.DeviceType) }}>{p.DeviceType}</span>
+                    <div className="flex items-center justify-center gap-1 mb-2 flex-wrap">
+                      <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full shadow-sm text-white" style={{ backgroundColor: getChartColor(p.DeviceType) }}>{p.DeviceType}</span>
+                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${getStockState(p).chip}`}>{getStockState(p).label}</span>
+                    </div>
                     <div className="grid grid-cols-2 gap-1 w-full pt-2 border-t border-slate-100 mb-2">
                       <div>
                         <p className="text-[11px] text-slate-700 font-bold uppercase">คงเหลือ</p>
@@ -869,6 +1105,42 @@ const handleFileUpload = async (file) => {
             })}
           </div>
         )}
+
+        {/* ✅ EMPTY STATE — บอกสาเหตุและทางออกให้ชัดเจน */}
+        {sortedProducts.length === 0 && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center text-center py-14 px-6 bg-white rounded-2xl border border-dashed border-slate-300">
+            <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3"><Search size={26} /></div>
+            <p className="font-bold text-slate-700">ไม่พบอุปกรณ์ที่ตรงกับการค้นหา</p>
+            <p className="text-sm text-slate-400 mt-1">ลองเปลี่ยนคำค้น หรือเอาตัวกรองออกเพื่อดูรายการทั้งหมด</p>
+            {(searchTerm || selectedType !== 'all' || showLowStock) && (
+              <button onClick={() => { setSearchTerm(''); setSelectedType('all'); setShowLowStock(false); }} className="mt-4 px-4 py-2 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-200 transition-all">
+                ล้างตัวกรองทั้งหมด
+              </button>
+            )}
+          </motion.div>
+        )}
+
+        {/* ✅ BULK ACTION BAR — ปรากฏเมื่อเลือกรายการ */}
+        <AnimatePresence>
+          {selectedIds.length > 0 && (
+            <Portal>
+              <motion.div
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 24 }}
+                className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[65] flex items-center gap-3 bg-slate-900 text-white rounded-2xl shadow-2xl pl-4 pr-2 py-2"
+              >
+                <span className="text-sm font-semibold">เลือกแล้ว {selectedIds.length} รายการ</span>
+                <button onClick={bulkAddToCart} className="flex items-center gap-1.5 bg-indigo-500 hover:bg-indigo-400 rounded-xl px-3 py-2 text-sm font-bold transition-all">
+                  <ShoppingCart size={15} /> ใส่ตะกร้าทั้งหมด
+                </button>
+                <button onClick={() => setSelectedIds([])} className="text-slate-300 hover:text-white text-sm font-semibold px-3 py-2 rounded-xl hover:bg-white/10 transition-all">
+                  ยกเลิก
+                </button>
+              </motion.div>
+            </Portal>
+          )}
+        </AnimatePresence>
 
         {/* HISTORY MODAL */}
         {historyItem && (
@@ -934,7 +1206,7 @@ const handleFileUpload = async (file) => {
               <motion.div initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="w-full max-w-[480px] bg-white rounded-2xl border border-slate-200/80 shadow-xl overflow-hidden">
                 <div className="flex items-start gap-3 px-5 py-4 border-b border-slate-100">
                   <div className={`w-11 h-11 rounded-xl shrink-0 flex items-center justify-center overflow-hidden ${getDeviceTypeColor(editItem.DeviceType).bg}`}>
-                    {editItem.ImageURL ? <img src={`${API_URL}${editItem.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Package size={20} className={getDeviceTypeColor(editItem.DeviceType).text} />}
+                    {editItem.ImageURL ? <img loading="lazy" src={`${API_URL}${editItem.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Package size={20} className={getDeviceTypeColor(editItem.DeviceType).text} />}
                   </div>
                   <div className="flex-1 min-w-0 pt-0.5">
                     <p className="text-[11px] text-slate-400 mb-0.5">แก้ไขอุปกรณ์</p>
@@ -1042,7 +1314,7 @@ const handleFileUpload = async (file) => {
                   <button onClick={() => {
                     const printContents = document.getElementById('barcode-print-area').innerHTML;
                     const win = window.open('', '_blank', 'width=400,height=300');
-                    win.document.write(`<html><head><title>Barcode - ${barcodeItem.ProductName}</title><style>body{font-family:'Segoe UI',Arial,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0}.label{border:2px dashed #e2e8f0;border-radius:16px;padding:24px;display:flex;flex-direction:column;align-items:center;gap:12px}@media print{body{margin:0}.label{border:none}}</style></head><body><div class="label">${printContents}</div></body></html>`);
+                    win.document.write(`<html><head><title>Barcode - ${escapeHtml(barcodeItem.ProductName)}</title><style>body{font-family:'Segoe UI',Arial,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0}.label{border:2px dashed #e2e8f0;border-radius:16px;padding:24px;display:flex;flex-direction:column;align-items:center;gap:12px}@media print{body{margin:0}.label{border:none}}</style></head><body><div class="label">${printContents}</div></body></html>`);
                     win.document.close();
                     win.focus();
                     win.print();
@@ -1067,7 +1339,7 @@ const handleFileUpload = async (file) => {
                   <div className="flex items-center gap-3 relative z-10">
                     <div className="w-12 h-12 rounded-xl shrink-0 flex items-center justify-center overflow-hidden bg-white/20">
                       {detailItem.ImageURL
-                        ? <img src={`${API_URL}${detailItem.ImageURL}`} alt="" className="w-full h-full object-cover" />
+                        ? <img loading="lazy" src={`${API_URL}${detailItem.ImageURL}`} alt="" className="w-full h-full object-cover" />
                         : <Package size={22} className="text-white" />
                       }
                     </div>
@@ -1177,6 +1449,26 @@ const handleFileUpload = async (file) => {
           </Portal>
         )}
 
+        {/* ✅ TOAST — แจ้งเตือนสั้น ๆ มุมล่างจอ */}
+        <AnimatePresence>
+          {toast && (
+            <Portal>
+              <motion.div
+                key="inventory-toast"
+                role="status"
+                aria-live="polite"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 16 }}
+                className="fixed top-6 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2 bg-slate-900 text-white text-sm font-semibold px-4 py-3 rounded-xl shadow-2xl max-w-[90vw]"
+              >
+                <Check size={16} className="text-emerald-400 shrink-0" />
+                <span className="truncate">{toast.message}</span>
+              </motion.div>
+            </Portal>
+          )}
+        </AnimatePresence>
+
         {/* ALERT MODAL */}
         <AlertModal
           isOpen={alertModal.isOpen}
@@ -1209,8 +1501,8 @@ const handleFileUpload = async (file) => {
                     <button onClick={() => setQtyModal({ isOpen: false, product: null, mode: 'cart' })} className="p-1 hover:bg-white/20 rounded-full"><X size={18} /></button>
                   </div>
                   <div className="p-4 bg-slate-50 border-b border-slate-100 flex gap-3">
-                    <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${getColorGradient(qtyModal.product.DeviceType)} flex items-center justify-center overflow-hidden`}>
-                      {qtyModal.product.ImageURL ? <img src={`${API_URL}${qtyModal.product.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Package size={20} className="text-white" />}
+                    <div id="qty-modal-thumb" className={`w-12 h-12 rounded-lg bg-gradient-to-br ${getColorGradient(qtyModal.product.DeviceType)} flex items-center justify-center overflow-hidden`}>
+                      {qtyModal.product.ImageURL ? <img loading="lazy" src={`${API_URL}${qtyModal.product.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Package size={20} className="text-white" />}
                     </div>
                     <div>
                       <p className="font-bold text-sm text-slate-800 line-clamp-1">{qtyModal.product.ProductName}</p>
@@ -1253,8 +1545,7 @@ const handleFileUpload = async (file) => {
                       {/* ✅ S/N + รหัสครุภัณฑ์ + รหัสพนักงาน (Asset) ย้ายไปคอลัมน์ขวา ดูด้านล่าง */}
                       {qtyModal.mode === 'withdraw' && qtyModal.product.DeviceType !== 'Asset' && (
                         <div className="pt-2">
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">**ค้นหาชื่อคนที่ขอเบิกที่ไม่ใช่ไอที** </label>
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2"> ที่เป็นผู้ใช้งานจริงๆ เช่น User โดยใช้รหัสพนักงาน  </label>
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">ค้นหาชื่อผู้ใช้งานจริง (ที่ไม่ใช่ไอที) ด้วยรหัสพนักงาน</label>
                           {!empData ? (
                             <>
                               <div className="flex gap-2">
@@ -1333,8 +1624,7 @@ const handleFileUpload = async (file) => {
                       {/* ✅ รหัสพนักงาน — ย้ายมาอยู่คอลัมน์ขวาด้วยเมื่อเป็น Asset */}
                       {qtyModal.mode === 'withdraw' && (
                         <div className="pt-2 border-t border-slate-200">
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">**ค้นหาชื่อคนที่ขอเบิกที่ไม่ใช่ไอที** </label>
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2"> ที่เป็นผู้ใช้งานจริงๆ เช่น User โดยใช้รหัสพนักงาน  </label>
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">ค้นหาชื่อผู้ใช้งานจริง (ที่ไม่ใช่ไอที) ด้วยรหัสพนักงาน</label>
                           {!empData ? (
                             <>
                               <div className="flex flex-col gap-2">
@@ -1430,13 +1720,17 @@ const handleFileUpload = async (file) => {
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
                     {cart.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-60"><ShoppingCart size={48} className="mb-2" /><p className="font-bold">ตะกร้าว่างเปล่า</p></div>
+                      <div className="flex flex-col items-center justify-center h-full text-center px-6 text-slate-400">
+                        <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-300 flex items-center justify-center mb-3"><ShoppingCart size={30} /></div>
+                        <p className="font-bold text-slate-600">ยังไม่มีรายการในตะกร้า</p>
+                        <p className="text-xs mt-1">กดปุ่ม <span className="font-bold text-indigo-500">ใส่ตะกร้า</span> ที่สินค้าที่ต้องการ หรือเลือกหลายรายการในหน้ารายการ</p>
+                      </div>
                     ) : cart.map(item => (
                       <div key={item.ProductID} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative group">
                         <button onClick={() => removeFromCart(item.ProductID)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 p-1"><X size={16} /></button>
                         <div className="flex gap-3 mb-3">
                           <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${getColorGradient(item.DeviceType)} flex items-center justify-center shrink-0 overflow-hidden`}>
-                            {item.ImageURL ? <img src={`${API_URL}${item.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Package size={18} className="text-white" />}
+                            {item.ImageURL ? <img loading="lazy" src={`${API_URL}${item.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Package size={18} className="text-white" />}
                           </div>
                           <div className="pr-6">
                             <h4 className="font-bold text-slate-800 text-sm line-clamp-1">{item.ProductName}</h4>
@@ -1495,14 +1789,19 @@ const handleFileUpload = async (file) => {
                         <input autoFocus type="text" className="w-full bg-slate-100 border-2 border-slate-200 rounded-xl px-4 py-3 text-center font-bold focus:border-emerald-500 focus:bg-white outline-none transition-all" placeholder="Ready to Scan..." value={scanModal.scannedCode} onChange={e => setScanModal(prev => ({ ...prev, scannedCode: e.target.value, error: '' }))} onKeyDown={e => { if (e.key === 'Enter') handleScanLookup(scanModal.scannedCode); }} />
                         <button onClick={() => handleScanLookup(scanModal.scannedCode)} className="absolute right-2 top-2 bottom-2 bg-emerald-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-emerald-600 text-sm">Enter</button>
                       </div>
-                      {scanModal.error && <p className="text-red-500 font-bold mt-4 flex items-center gap-2 animate-bounce"><AlertTriangle size={16} /> {scanModal.error}</p>}
+                      {scanModal.error && (
+                        <div className="mt-4 text-left bg-red-50 border border-red-100 rounded-xl p-3">
+                          <p className="text-red-600 font-bold flex items-center gap-2 text-sm"><AlertTriangle size={16} /> {scanModal.error}</p>
+                          <p className="text-red-400 text-xs mt-1">ลองตรวจสอบรหัสอีกครั้ง หรือพิมพ์ชื่ออุปกรณ์บางส่วนเพื่อค้นหา</p>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="bg-slate-50">
                       <div className="p-5 bg-white rounded-b-2xl shadow-sm z-10 relative">
                         <div className="flex gap-4">
                           <div className={`w-20 h-20 rounded-xl bg-gradient-to-br ${getColorGradient(scanModal.foundProduct.DeviceType)} flex items-center justify-center shadow-md overflow-hidden border-2 border-white`}>
-                            {scanModal.foundProduct.ImageURL ? <img src={`${API_URL}${scanModal.foundProduct.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Package size={28} className="text-white" />}
+                            {scanModal.foundProduct.ImageURL ? <img loading="lazy" src={`${API_URL}${scanModal.foundProduct.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Package size={28} className="text-white" />}
                           </div>
                           <div className="flex-1">
                             <div className="flex justify-between items-start">
@@ -1532,7 +1831,7 @@ const handleFileUpload = async (file) => {
                               <input
                                 type="text"
                                 value={scanFixedCode}
-                                onChange={(e) => setScanFixedCode(e.target.value)}
+                                onChange={(e) => setScanFixedCode(nextFixedAssetCode(e.target.value, scanFixedCode))}
                                 placeholder="รหัสครุภัณฑ์ เช่น CO24-001-05"
                                 className={`w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-100 ${!isValidFixedAssetCode(scanFixedCode) ? 'border-red-300' : 'border-slate-200'}`}
                               />
@@ -1548,10 +1847,10 @@ const handleFileUpload = async (file) => {
                           </div>
                         )}
                         <div className="space-y-3">
-                          <p className="text-lg font-bold text-slate-400 uppercase ml-1">เหตุผล</p>
-                          <div className="grid grid-cols-1 gap-3">
-                            {reasonOptions.slice(0, 4).map(opt => (
-                              <button key={opt.ReasonID} onClick={() => setScanReason(opt.Label)} className={`p-2 rounded-xl text-ml font-bold border ${scanReason === opt.Label ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>{opt.Label}</button>
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">เหตุผลการเบิก</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {reasonOptions.map(opt => (
+                              <button key={opt.ReasonID} onClick={() => setScanReason(opt.Label)} aria-pressed={scanReason === opt.Label} className={`p-2 rounded-xl text-sm font-bold border transition-all ${scanReason === opt.Label ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-200' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>{opt.Label}</button>
                             ))}
                           </div>
                           <input type="text" placeholder="รายละเอียดเพิ่มเติม (Optional)..." className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-indigo-500 outline-none" value={scanReasonDetail} onChange={e => setScanReasonDetail(e.target.value)} />

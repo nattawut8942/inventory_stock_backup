@@ -1,8 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, ArrowLeftRight, Search, Laptop, X, Loader2, AlertTriangle, PackageOpen, Minus, CheckCircle2, Info, Edit2 } from 'lucide-react';
+import { Plus, ArrowLeftRight, Search, Laptop, X, Loader2, AlertTriangle, PackageOpen, Minus, CheckCircle2, Info, Edit2, CalendarPlus, Clock } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config/api';
+
+// ✅ JWT จาก login — backend ของ Borrowing ใช้ verifyToken ทุก endpoint จึงต้องแนบทุกครั้ง
+const authHeaders = (extra = {}) => {
+  const headers = { ...extra };
+  try {
+    const t = localStorage.getItem('it_stock_token');
+    if (t) headers.Authorization = `Bearer ${t}`;
+  } catch { /* storage ไม่พร้อม */ }
+  return headers;
+};
 
 // ✅ รูปแบบรหัสครุภัณฑ์บังคับ: (CO|OF) + ตัวเลขล้วน เช่น CO24-017-02 — เอามาจาก InventoryPage.jsx เพื่อให้ format ตรงกัน
 const FIXED_ASSET_CODE_REGEX = /^(CO|OF)\d{2}-\d{3}-\d{2}$/;
@@ -59,6 +70,36 @@ const emptyForm = {
   EndDate: '',
 };
 
+// ── วันที่ (ใช้เวลาท้องถิ่น, ตัดเวลาออกเทียบเฉพาะวัน) ──────────────────
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DUE_SOON_DAYS = 7; // ถือว่า "ใกล้ครบกำหนด" เมื่อเหลือไม่เกินกี่วัน
+const toDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+// จำนวนวันจากวันนี้ถึงวันกำหนดคืน (ค่าลบ = เลยกำหนดแล้ว)
+const daysUntil = (dateValue) => Math.round((toDay(dateValue) - toDay(new Date())) / DAY_MS);
+// แปลง Date เป็น 'YYYY-MM-DD' ตามเวลาท้องถิ่น (ไม่ใช้ toISOString เพราะจะเลื่อนวันตาม UTC)
+const toInputDate = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+// วันที่จาก API (ISO) → 'YYYY-MM-DD' ตามวันท้องถิ่น — ห้ามใช้ slice(0,10) เพราะ ISO เป็น UTC
+// ทำให้วันเลื่อนไป 1 วันเมื่อเวลาไทยเที่ยงคืนถูกเก็บเป็น UTC วันก่อนหน้า
+const dateOnly = (v) => (v ? toInputDate(new Date(v)) : '');
+// บวกจำนวนวันให้สตริง 'YYYY-MM-DD'
+const addDaysToInput = (isoDate, n) => {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return toInputDate(new Date(y, m - 1, d + n));
+};
+const isReturned = (b) => b.brStatus === 'returned';
+// เกินกำหนดเมื่อวันกำหนดคืนอยู่ก่อนวันนี้ (เทียบที่เที่ยงคืน จึงไม่ขึ้นเกินกำหนดตั้งแต่เช้าของวันครบกำหนด)
+const isOverdue = (b) => !isReturned(b) && !!b.EndDate && daysUntil(b.EndDate) < 0;
+const isDueSoon = (b) => {
+  if (isReturned(b) || !b.EndDate) return false;
+  const n = daysUntil(b.EndDate);
+  return n >= 0 && n <= DUE_SOON_DAYS;
+};
+
 // ─── StatCard — สไตล์เดียวกับหน้าอื่น (InventoryPage / SoundLayout) ────────
 // เลขลำดับขั้นตอนกำกับหน้าแต่ละ label ในฟอร์มบันทึกการยืม เพื่อบอกลำดับการกรอก
 const StepBadge = ({ n }) => (
@@ -67,13 +108,15 @@ const StepBadge = ({ n }) => (
   </span>
 );
 
-const StatCard = ({ icon: Icon, title, value, color, onClick, isActive }) => (
-  <div
-    onClick={onClick}
-    className={`bg-white rounded-2xl p-5 shadow-lg border transition-all
-      ${onClick ? 'cursor-pointer hover:shadow-xl' : ''}
-      ${isActive ? 'ring-2 ring-indigo-500 border-transparent scale-[1.02]' : 'border-slate-200'}`}
-  >
+const StatCard = ({ icon: Icon, title, value, color, alert = false }) => (
+  <div className="relative bg-white rounded-2xl p-5 shadow-lg border border-slate-200 overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-xl">
+    <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${color}`} />
+    {alert && (
+      <span className="absolute top-3.5 right-3.5 flex h-2.5 w-2.5" title="มีรายการเกินกำหนด">
+        <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75 animate-ping" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-rose-500" />
+      </span>
+    )}
     <div className="flex items-start justify-between">
       <div>
         <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mb-1">{title}</p>
@@ -88,14 +131,23 @@ const StatCard = ({ icon: Icon, title, value, color, onClick, isActive }) => (
 
 const ITBorrowSystem = () => {
   const { deviceTypes = [], products = [], refreshData } = useData();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  // token หมดอายุ (อายุ 1 ชม.) หรือใช้ไม่ได้ → ออกจากระบบแล้วพาไปหน้า login แทนการแสดง error ทั่วไป
+  const handleUnauthorized = (res) => {
+    if (res.status !== 401) return false;
+    logout?.();
+    navigate('/login', { replace: true });
+    return true;
+  };
   const isAdmin = user?.role === 'Staff'; // ✅ [validation #7] จำกัดสิทธิ์แก้ไข/เปลี่ยนสถานะเฉพาะ staff เหมือน InventoryPage
 
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'borrowed' | 'returned' — คลิก stat card เพื่อ toggle
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'borrowed' | 'due-soon' | 'overdue' | 'returned' — เลือกจาก segmented control
   const [page, setPage] = useState(1);
 
   const [showModal, setShowModal] = useState(false);
@@ -193,7 +245,7 @@ const ITBorrowSystem = () => {
     setAssetError('');
     try {
       const [assetRes, serialNumber] = await Promise.all([
-        fetch(`${API_BASE}/borrowings/assets/${encodeURIComponent(code)}`),
+        fetch(`${API_BASE}/borrowings/assets/${encodeURIComponent(code)}`, { headers: authHeaders() }),
         lookupSerialFromInventories(code),
       ]);
 
@@ -243,7 +295,8 @@ const ITBorrowSystem = () => {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API_BASE}/borrowings`);
+      const res = await fetch(`${API_BASE}/borrowings`, { headers: authHeaders() });
+      if (handleUnauthorized(res)) return;
       if (!res.ok) throw new Error('โหลดข้อมูลไม่สำเร็จ');
       const data = await res.json();
       setList(Array.isArray(data) ? data : []);
@@ -268,7 +321,10 @@ const ITBorrowSystem = () => {
           .some((field) => String(field).toLowerCase().includes(q));
       const matchesStatus =
         statusFilter === 'all' ||
-        (statusFilter === 'returned' ? b.brStatus === 'returned' : b.brStatus !== 'returned');
+        (statusFilter === 'returned' && isReturned(b)) ||
+        (statusFilter === 'borrowed' && !isReturned(b)) ||
+        (statusFilter === 'overdue' && isOverdue(b)) ||
+        (statusFilter === 'due-soon' && isDueSoon(b));
       return matchesSearch && matchesStatus;
     });
   }, [list, search, statusFilter]);
@@ -286,8 +342,6 @@ const ITBorrowSystem = () => {
     setPage(1);
   }, [search, statusFilter]);
 
-  const isOverdue = (b) => b.brStatus !== 'returned' && b.EndDate && new Date(b.EndDate) < new Date();
-
   // จำนวนวันที่ยืม: วันที่เริ่มยืม → วันที่รับคืนจริง (ถ้าคืนแล้ว) หรือ → วันนี้ (ถ้ายังไม่คืน)
   const borrowDurationDays = (b) => {
     if (!b.StartDate) return null;
@@ -296,14 +350,31 @@ const ITBorrowSystem = () => {
     const diffDays = Math.floor((end.setHours(0, 0, 0, 0) - start.setHours(0, 0, 0, 0)) / (1000 * 60 * 60 * 24));
     return diffDays < 0 ? 0 : diffDays;
   };
+  // จำนวนวันทั้งหมดของการยืม (วันที่ยืม → กำหนดคืน) ใช้วาดแถบความคืบหน้า
+  const borrowTotalDays = (b) => {
+    if (!b.StartDate || !b.EndDate) return 1;
+    return Math.max(1, Math.round((toDay(b.EndDate) - toDay(b.StartDate)) / DAY_MS));
+  };
   const isAssetCategory = form.Category === 'Asset'; // ✅ บังคับ S/N + Fix Asset เฉพาะประเภทครุภัณฑ์ (Asset) เท่านั้น
   const matchingProducts = form.Category ? products.filter((p) => p.DeviceType === form.Category) : [];
+  // รายการที่ยังขาดก่อนกดบันทึกได้ — แสดงข้างปุ่ม เพราะปุ่มถูก disable และผู้ใช้ต้องรู้ว่าต้องกรอกอะไร
+  const missingFields = [
+    !form.brname && 'ชื่ออุปกรณ์',
+    isAssetCategory && !form.brfixasset && 'Fix Asset No.',
+    isAssetCategory && !form.brserial && 'S/N',
+    !empData && 'ค้นหารหัสพนักงานผู้ยืม',
+    !form.brReason.trim() && 'เหตุผลการยืม',
+    !form.StartDate && 'วันที่ยืม',
+    !form.EndDate && 'กำหนดคืน',
+  ].filter(Boolean);
 
   const stats = useMemo(() => {
     const total = list.length;
-    const borrowed = list.filter((b) => b.brStatus !== 'returned').length;
-    const returned = list.filter((b) => b.brStatus === 'returned').length;
-    return { total, borrowed, returned };
+    const borrowed = list.filter((b) => !isReturned(b)).length;
+    const returned = list.filter(isReturned).length;
+    const overdue = list.filter(isOverdue).length;
+    const dueSoon = list.filter(isDueSoon).length;
+    return { total, borrowed, returned, overdue, dueSoon };
   }, [list]);
 
   const handleOpenModal = () => {
@@ -348,7 +419,7 @@ const ITBorrowSystem = () => {
     try {
       const res = await fetch(`${API_BASE}/borrowings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           brname: form.brname,
           Category: form.Category,
@@ -364,6 +435,7 @@ const ITBorrowSystem = () => {
           recorded_by: (user?.username || '').toUpperCase(),
         }),
       });
+      if (handleUnauthorized(res)) return;
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'บันทึกไม่สำเร็จ');
 
@@ -390,9 +462,10 @@ const ITBorrowSystem = () => {
     try {
       const res = await fetch(`${API_BASE}/borrowings/${id}/return`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ received_by: (user?.username || '').toUpperCase() }), 
       });
+      if (handleUnauthorized(res)) return;
       if (!res.ok) throw new Error('รับคืนไม่สำเร็จ');
       // ✅ อัปเดตสถานะในแถวเดิมแทนการลบทิ้ง เพื่อให้ยังเห็นข้อมูลรายการนี้เหมือนเดิม (แค่สถานะเปลี่ยนเป็นคืนแล้ว)
       setList((prev) =>
@@ -420,11 +493,79 @@ const ITBorrowSystem = () => {
     await handleReturn(id);
   };
 
+  // ── ยืดเวลาคืน (Staff) — ส่ง PUT ชุดเดิมพร้อมวันกำหนดคืนใหม่ ─────
+  const [extendItem, setExtendItem] = useState(null);
+  const [extendDate, setExtendDate] = useState('');
+  const [extendBase, setExtendBase] = useState('');
+  const [extendSubmitting, setExtendSubmitting] = useState(false);
+  const [extendError, setExtendError] = useState('');
+
+  const openExtend = (b) => {
+    if (!isAdmin) return;
+    // ฐานการนับ: กำหนดคืนเดิม (ถ้ายังไม่เกิน) หรือวันนี้ (ถ้าเลยกำหนดแล้ว)
+    const base = !b.EndDate || isOverdue(b) ? toInputDate(new Date()) : dateOnly(b.EndDate);
+    setExtendBase(base);
+    setExtendDate(base);
+    setExtendError('');
+    setExtendItem(b);
+  };
+
+  const closeExtend = () => {
+    if (extendSubmitting) return;
+    setExtendItem(null);
+    setExtendError('');
+  };
+
+  const handleExtend = async () => {
+    if (!extendItem || !extendDate) return;
+    const currentEnd = dateOnly(extendItem.EndDate);
+    if (currentEnd && extendDate <= currentEnd) {
+      setExtendError('วันกำหนดคืนใหม่ต้องอยู่หลังกำหนดคืนเดิม');
+      return;
+    }
+    const startStr = dateOnly(extendItem.StartDate) || extendDate;
+
+    setExtendSubmitting(true);
+    setExtendError('');
+    try {
+      const res = await fetch(`${API_BASE}/borrowings/${extendItem.brID}`, {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          brname: extendItem.brname,
+          Category: extendItem.Category || '',
+          brfixasset: extendItem.brfixasset || '',
+          brserial: extendItem.brserial || '',
+          brqty: extendItem.brqty || 1,
+          brEmpCode: extendItem.brEmpCode,
+          brEmpname: extendItem.brEmpname,
+          brEmpDept: extendItem.brEmpDept || '',
+          brReason: extendItem.brReason || '',
+          StartDate: startStr,
+          EndDate: extendDate,
+          brStatus: 'borrowed',
+          received_by: null,
+        }),
+      });
+      if (handleUnauthorized(res)) return;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || data.message || 'ยืดเวลาไม่สำเร็จ');
+
+      const newEnd = extendDate;
+      setList((prev) => prev.map((l) => (l.brID === extendItem.brID ? { ...l, EndDate: newEnd } : l)));
+      setExtendItem(null);
+      showToast(`ยืดเวลาคืนถึง ${new Date(newEnd).toLocaleDateString('th-TH')} แล้ว`);
+      refreshData?.();
+    } catch (err) {
+      setExtendError(err.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
+    } finally {
+      setExtendSubmitting(false);
+    }
+  };
+
   // ── แก้ไขรายการ (เผื่อบันทึกผิด) ──────────────────────────────
   const openEditModal = (b) => {
-    // ⚠️ นี่เป็นแค่การกันเบื้องต้นฝั่ง frontend เท่านั้น (validation #7)
-    // ยังไม่ใช่การป้องกันที่แท้จริง — endpoint PUT /borrowings/:id ฝั่ง backend ควรมี
-    // auth middleware เช็ค role อีกชั้นด้วย เพราะใครก็ยิง API ตรงๆ ข้าม UI นี้ได้
+    // กันเบื้องต้นฝั่ง frontend — ตัวป้องกันจริงอยู่ที่ backend (PUT /borrowings/:id ใช้ requireRole('Staff'))
     if (!isAdmin) return;
     setEditForm({
       brname: b.brname || '',
@@ -436,8 +577,8 @@ const ITBorrowSystem = () => {
       brEmpname: b.brEmpname || '',
       brEmpDept: b.brEmpDept || '',
       brReason: b.brReason || '',
-      StartDate: b.StartDate ? b.StartDate.slice(0, 10) : '',
-      EndDate: b.EndDate ? b.EndDate.slice(0, 10) : '',
+      StartDate: dateOnly(b.StartDate),
+      EndDate: dateOnly(b.EndDate),
       brStatus: b.brStatus || 'borrowed',
       received_by: b.received_by || '',
     });
@@ -480,13 +621,14 @@ const ITBorrowSystem = () => {
     try {
       const res = await fetch(`${API_BASE}/borrowings/${editItem.brID}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           ...editForm,
           brqty: editForm.Category === 'Asset' ? 1 : (Number(editForm.brqty) || 1),
           received_by: editForm.brStatus === 'returned' ? (editForm.received_by || user?.username || '').toUpperCase() : null,
         }),
       });
+      if (handleUnauthorized(res)) return;
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'แก้ไขไม่สำเร็จ');
 
@@ -509,73 +651,73 @@ const ITBorrowSystem = () => {
             <Laptop size={22} />
           </div>
           <div>
-            <h2 className="text-3xl font-black text-slate-800">BORROWING SYSTEM</h2>
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-800">BORROWING SYSTEM</h2>
             <p className="text-sm text-slate-400 font-medium">
               ทั้งหมด {stats.total} รายการ
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="relative">
+        <div className="flex items-center gap-3 w-full sm:w-auto min-w-0">
+          <div className="relative flex-1 sm:flex-none min-w-0">
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="ค้นหาอุปกรณ์, ผู้ยืม, แผนก..."
-              className="pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm w-64 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full sm:w-64 pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
           <button
             onClick={handleOpenModal}
-            className="bg-indigo-600 hover:bg-indigo-700 transition-colors text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-200"
+            className="shrink-0 bg-indigo-600 hover:bg-indigo-700 transition-colors text-white px-4 sm:px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-200 whitespace-nowrap"
           >
             <Plus size={18} /> บันทึกการยืม
           </button>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <StatCard
-          icon={PackageOpen}
-          title="ทั้งหมด"
-          value={stats.total}
-          color="from-slate-600 to-slate-700"
-          onClick={() => setStatusFilter('all')}
-          isActive={statusFilter === 'all'}
-        />
-        <StatCard
-          icon={ArrowLeftRight}
-          title="กำลังยืมอยู่"
-          value={stats.borrowed}
-          color="from-emerald-500 to-emerald-600"
-          onClick={() => setStatusFilter((f) => (f === 'borrowed' ? 'all' : 'borrowed'))}
-          isActive={statusFilter === 'borrowed'}
-        />
-        <StatCard
-          icon={CheckCircle2}
-          title="คืนแล้ว"
-          value={stats.returned}
-          color="from-slate-400 to-slate-500"
-          onClick={() => setStatusFilter((f) => (f === 'returned' ? 'all' : 'returned'))}
-          isActive={statusFilter === 'returned'}
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <StatCard icon={PackageOpen} title="ทั้งหมด" value={stats.total} color="from-slate-500 to-slate-700" />
+        <StatCard icon={ArrowLeftRight} title="กำลังยืมอยู่" value={stats.borrowed} color="from-emerald-400 to-emerald-600" />
+        <StatCard icon={Clock} title={`ใกล้ครบ ≤ ${DUE_SOON_DAYS} วัน`} value={stats.dueSoon} color="from-amber-400 to-amber-500" />
+        <StatCard icon={AlertTriangle} title="เกินกำหนด" value={stats.overdue} color="from-rose-500 to-rose-600" alert={stats.overdue > 0} />
+        <StatCard icon={CheckCircle2} title="คืนแล้ว" value={stats.returned} color="from-slate-400 to-slate-500" />
       </div>
 
-      {statusFilter !== 'all' && (
-        <div className="flex items-center gap-2 mb-4 -mt-2">
-          <span className="text-xs text-slate-400">
-            กำลังกรอง: <span className="font-bold text-slate-600">{statusFilter === 'returned' ? 'คืนแล้ว' : 'กำลังยืมอยู่'}</span>
-          </span>
-          <button
-            onClick={() => setStatusFilter('all')}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-700"
-          >
-            ล้าง filter
-          </button>
+      {/* Segmented filter — เลือกมุมมองรายการ พร้อมจำนวนในแต่ละกลุ่ม */}
+      <div className="mb-4 overflow-x-auto">
+        <div className="inline-flex min-w-full sm:min-w-0 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+          {[
+            { key: 'all', label: 'ทั้งหมด', count: stats.total },
+            { key: 'borrowed', label: 'กำลังยืม', count: stats.borrowed },
+            { key: 'due-soon', label: 'ใกล้ครบกำหนด', count: stats.dueSoon },
+            { key: 'overdue', label: 'เกินกำหนด', count: stats.overdue },
+            { key: 'returned', label: 'คืนแล้ว', count: stats.returned },
+          ].map((opt) => {
+            const active = statusFilter === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setStatusFilter(opt.key)}
+                aria-pressed={active}
+                className={`flex-1 sm:flex-none whitespace-nowrap px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                  active
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+                    : 'text-slate-500 hover:bg-slate-100'
+                }`}
+              >
+                {opt.label}
+                <span className={`px-1.5 rounded-md text-[10px] leading-4 ${active ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>
+                  {opt.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      )}
+      </div>
 
       {error && (
         <div className="mb-4 flex items-center gap-2 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl px-4 py-3 text-sm font-medium">
@@ -584,7 +726,9 @@ const ITBorrowSystem = () => {
       )}
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-sm table-fixed">
+        {/* ตารางเต็มรูปแบบบนจอกว้าง (lg ขึ้นไป) — ต่ำกว่านั้นใช้ card list ด้านล่าง */}
+        <div className="hidden lg:block overflow-x-auto">
+        <table className="w-full min-w-[980px] text-sm table-fixed">
           <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-xs">
             <tr>
               <th className="px-4 py-2.5 text-left" style={{ width: '15%' }}>ชื่ออุปกรณ์</th>
@@ -601,12 +745,15 @@ const ITBorrowSystem = () => {
           </thead>
           <tbody>
             {loading ? (
-              <tr>
-                <td colSpan={10} className="p-8 text-center text-slate-400">
-                  <Loader2 size={22} className="animate-spin mx-auto mb-2" />
-                  กำลังโหลดข้อมูล...
-                </td>
-              </tr>
+              Array.from({ length: 6 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="border-t border-slate-100">
+                  {Array.from({ length: 10 }).map((__, j) => (
+                    <td key={j} className="px-4 py-3">
+                      <div className="h-3 rounded bg-slate-100 animate-pulse" style={{ width: `${40 + ((i * 7 + j * 13) % 50)}%` }} />
+                    </td>
+                  ))}
+                </tr>
+              ))
             ) : pagedList.length === 0 ? (
               <tr>
                 <td colSpan={10} className="p-8 text-center text-slate-400">
@@ -618,9 +765,17 @@ const ITBorrowSystem = () => {
               pagedList.map((b) => {
                 const overdue = isOverdue(b);
                 const categoryLabel = deviceTypes.find((t) => t.TypeId === b.Category)?.Label || b.Category;
+                const dueSoon = isDueSoon(b);
+                const returned = isReturned(b);
+                // สีแถบซ้าย: แดง = เกินกำหนด, เหลือง = ใกล้ครบ, เขียว = กำลังยืมปกติ, ไม่มีสี = คืนแล้ว
+                const accent = overdue ? '#f43f5e' : dueSoon ? '#f59e0b' : returned ? 'transparent' : '#10b981';
+                const barColor = overdue ? 'bg-rose-500' : dueSoon ? 'bg-amber-400' : returned ? 'bg-slate-300' : 'bg-emerald-500';
+                const total = borrowTotalDays(b);
+                const used = borrowDurationDays(b) ?? 0;
+                const progress = Math.min(100, Math.round((used / total) * 100));
                 return (
-                  <tr key={b.brID} className="border-t border-slate-100 hover:bg-slate-50/60 transition-colors text-[13px]">
-                    <td className="px-4 py-2 font-bold text-slate-700 break-words leading-snug">{b.brname}</td>
+                  <tr key={b.brID} className={`border-t border-slate-100 hover:bg-slate-50/60 transition-colors text-[13px] ${returned ? 'opacity-70 hover:opacity-100' : ''}`}>
+                    <td className="px-4 py-2 font-bold text-slate-700 break-words leading-snug" style={{ boxShadow: `inset 4px 0 0 ${accent}` }}>{b.brname}</td>
                     <td className="px-4 py-2 text-slate-600 break-words leading-snug">{categoryLabel || '-'}</td>
                     <td className="px-4 py-2 text-slate-500 font-mono break-words leading-snug">{b.brfixasset || '-'}</td>
                     <td className="px-4 py-2 text-slate-500 font-mono break-words leading-snug">{b.brserial || '-'}</td>
@@ -632,10 +787,24 @@ const ITBorrowSystem = () => {
                     </td>
                     <td className="px-4 py-2 text-slate-600 leading-snug">
                       {b.EndDate ? new Date(b.EndDate).toLocaleDateString('th-TH') : '-'}
-                      {borrowDurationDays(b) !== null && (
-                        <div className="text-[11px] text-slate-400">
-                          {b.brStatus === 'returned' ? `ยืม ${borrowDurationDays(b)} วัน` : `ยืมมาแล้ว ${borrowDurationDays(b)} วัน`}
+                      {(overdue || dueSoon) && (
+                        <div className={`text-[11px] font-bold ${overdue ? 'text-rose-600' : 'text-amber-600'}`}>
+                          {overdue
+                            ? `เลยมา ${-daysUntil(b.EndDate)} วัน`
+                            : daysUntil(b.EndDate) === 0
+                              ? 'ครบวันนี้'
+                              : `อีก ${daysUntil(b.EndDate)} วัน`}
                         </div>
+                      )}
+                      {borrowDurationDays(b) !== null && (
+                        <>
+                          <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden" title={`ใช้ไป ${used} จาก ${total} วัน${used > total ? ' (เกินกำหนด)' : ''}`}>
+                            <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${progress}%` }} />
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            {returned ? `ยืม ${used} วัน` : `ยืมมาแล้ว ${used} วัน`}
+                          </div>
+                        </>
                       )}
                     </td>
                     <td className="px-4 py-2 text-center">
@@ -674,6 +843,16 @@ const ITBorrowSystem = () => {
                             <Edit2 size={15} />
                           </button>
                         )}
+                        {isAdmin && !returned && (
+                          <button
+                            onClick={() => openExtend(b)}
+                            className="text-slate-400 hover:text-indigo-600 transition-colors"
+                            title="ยืดเวลาคืน"
+                            aria-label="ยืดเวลาคืน"
+                          >
+                            <CalendarPlus size={16} />
+                          </button>
+                        )}
                         {b.brStatus !== 'returned' && (
                           <button
                             onClick={() => requestReturn(b)}
@@ -696,6 +875,117 @@ const ITBorrowSystem = () => {
             )}
           </tbody>
         </table>
+        </div>
+
+        {/* card list บนจอเล็ก/แท็บเล็ต */}
+        <div className="lg:hidden divide-y divide-slate-100">
+          {loading ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={`msk-${i}`} className="p-4 space-y-3">
+                <div className="h-4 w-2/3 rounded bg-slate-100 animate-pulse" />
+                <div className="h-3 w-1/2 rounded bg-slate-100 animate-pulse" />
+                <div className="h-1.5 w-full rounded bg-slate-100 animate-pulse" />
+              </div>
+            ))
+          ) : pagedList.length === 0 ? (
+            <div className="p-8 text-center text-slate-400">
+              <PackageOpen size={28} className="mx-auto mb-2 text-slate-300" />
+              {search || statusFilter !== 'all' ? 'ไม่พบรายการที่ค้นหา / กรอง' : 'ยังไม่มีรายการยืมอุปกรณ์'}
+            </div>
+          ) : (
+            pagedList.map((b) => {
+              const overdue = isOverdue(b);
+              const dueSoon = isDueSoon(b);
+              const returned = isReturned(b);
+              const accent = overdue ? '#f43f5e' : dueSoon ? '#f59e0b' : returned ? 'transparent' : '#10b981';
+              const barColor = overdue ? 'bg-rose-500' : dueSoon ? 'bg-amber-400' : returned ? 'bg-slate-300' : 'bg-emerald-500';
+              const total = borrowTotalDays(b);
+              const used = borrowDurationDays(b) ?? 0;
+              const progress = Math.min(100, Math.round((used / total) * 100));
+              const categoryLabel = deviceTypes.find((t) => t.TypeId === b.Category)?.Label || b.Category;
+              const codes = [b.brfixasset, b.brserial].filter(Boolean).join(' · ');
+              return (
+                <div
+                  key={b.brID}
+                  className={`p-4 ${returned ? 'opacity-70' : ''}`}
+                  style={{ boxShadow: `inset 4px 0 0 ${accent}` }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-800 break-words leading-snug">{b.brname}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{categoryLabel || '-'}</p>
+                      {codes && <p className="text-[11px] text-slate-400 font-mono break-all">{codes}</p>}
+                    </div>
+                    {returned ? (
+                      <span className="shrink-0 bg-slate-100 text-slate-500 text-xs font-bold px-2.5 py-0.5 rounded-full">คืนแล้ว</span>
+                    ) : overdue ? (
+                      <span className="shrink-0 bg-rose-50 text-rose-600 text-xs font-bold px-2.5 py-0.5 rounded-full">เกินกำหนด</span>
+                    ) : dueSoon ? (
+                      <span className="shrink-0 bg-amber-50 text-amber-600 text-xs font-bold px-2.5 py-0.5 rounded-full">ใกล้ครบ</span>
+                    ) : (
+                      <span className="shrink-0 bg-emerald-50 text-emerald-600 text-xs font-bold px-2.5 py-0.5 rounded-full">กำลังยืม</span>
+                    )}
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 text-xs font-black flex items-center justify-center shrink-0">
+                      {(b.brEmpname || '?').charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700 truncate">{b.brEmpname || '-'}</p>
+                      <p className="text-[11px] text-slate-400 font-mono">{[b.brEmpCode, b.brEmpDept].filter(Boolean).join(' · ') || '-'}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="flex justify-between text-[11px] text-slate-500">
+                      <span>ยืม {b.StartDate ? new Date(b.StartDate).toLocaleDateString('th-TH') : '-'}</span>
+                      <span>คืน {b.EndDate ? new Date(b.EndDate).toLocaleDateString('th-TH') : '-'}</span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${progress}%` }} />
+                    </div>
+                    <div className="mt-1 text-[11px] font-bold">
+                      {overdue && <span className="text-rose-600">เลยมา {-daysUntil(b.EndDate)} วัน</span>}
+                      {dueSoon && !overdue && (
+                        <span className="text-amber-600">{daysUntil(b.EndDate) === 0 ? 'ครบวันนี้' : `อีก ${daysUntil(b.EndDate)} วัน`}</span>
+                      )}
+                      {!overdue && !dueSoon && (
+                        <span className="text-slate-400 font-normal">{returned ? `ยืม ${used} วัน` : `ยืมมาแล้ว ${used} วัน`}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-end gap-1 border-t border-slate-100 pt-2">
+                    <button onClick={() => setDetailItem(b)} className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-50" aria-label="ดูรายละเอียด">
+                      <Info size={18} />
+                    </button>
+                    {isAdmin && (
+                      <button onClick={() => openEditModal(b)} className="p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-slate-50" aria-label="แก้ไขข้อมูล">
+                        <Edit2 size={17} />
+                      </button>
+                    )}
+                    {isAdmin && !returned && (
+                      <button onClick={() => openExtend(b)} className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-50" aria-label="ยืดเวลาคืน">
+                        <CalendarPlus size={18} />
+                      </button>
+                    )}
+                    {!returned && (
+                      <button
+                        onClick={() => requestReturn(b)}
+                        disabled={returningId === b.brID}
+                        className="ml-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        {returningId === b.brID ? <Loader2 size={14} className="animate-spin" /> : <ArrowLeftRight size={14} />}
+                        รับคืน
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
 
         {!loading && filteredList.length > 0 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
@@ -755,7 +1045,18 @@ const ITBorrowSystem = () => {
                     <select
                       value={form.Category}
                       onChange={(e) => {
-                        setForm((f) => ({ ...f, Category: e.target.value, brname: '', brqty: e.target.value === 'Asset' ? 1 : f.brqty }));
+                        // ล้างข้อมูลครุภัณฑ์ (Fix Asset / S/N / ผลค้นหา) ทุกครั้งที่เปลี่ยนประเภท
+                        // กันค่าเก่าค้างแล้วถูกส่งไปบันทึกกับอุปกรณ์ทั่วไปโดยไม่ตั้งใจ
+                        setForm((f) => ({
+                          ...f,
+                          Category: e.target.value,
+                          brname: '',
+                          brfixasset: '',
+                          brserial: '',
+                          brqty: e.target.value === 'Asset' ? 1 : f.brqty,
+                        }));
+                        setAssetInfo(null);
+                        setAssetError('');
                         setManualDeviceName(false);
                       }}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1033,6 +1334,27 @@ const ITBorrowSystem = () => {
                         onChange={(e) => setForm((f) => ({ ...f, EndDate: e.target.value }))}
                         className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
+                      <div className="flex gap-1.5 mt-2">
+                        {[1, 3, 7, 30].map((n) => {
+                          const target = form.StartDate ? addDaysToInput(form.StartDate, n) : '';
+                          const active = !!target && form.EndDate === target;
+                          return (
+                            <button
+                              key={n}
+                              type="button"
+                              disabled={!form.StartDate}
+                              onClick={() => setForm((f) => ({ ...f, EndDate: addDaysToInput(f.StartDate, n) }))}
+                              className={`flex-1 py-1 rounded-lg text-[11px] font-bold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                active
+                                  ? 'bg-indigo-600 text-white border-indigo-600'
+                                  : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+                              }`}
+                            >
+                              {n} วัน
+                            </button>
+                          );
+                        })}
+                      </div>
                       {form.EndDate && new Date(form.EndDate) < new Date(new Date().toDateString()) && (
                         <p className="text-[11px] text-amber-600 font-bold mt-1 flex items-center gap-1">
                           <AlertTriangle size={12} /> วันที่นี้ผ่านมาแล้ว — ตรวจสอบว่าถูกต้อง (ยังบันทึกได้ตามปกติ)
@@ -1043,7 +1365,12 @@ const ITBorrowSystem = () => {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 px-5 py-4 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-100">
+                {missingFields.length > 0 && (
+                  <p className="mr-auto text-xs text-slate-400">
+                    <span className="font-bold text-amber-600">ยังขาด:</span> {missingFields.join(' · ')}
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
@@ -1423,7 +1750,7 @@ const ITBorrowSystem = () => {
                       type="text"
                       value={editForm.received_by}
                       onChange={(e) => setEditForm((f) => ({ ...f, received_by: e.target.value.toUpperCase() }))}
-                      pplaceholder={(user?.username || '').toUpperCase()}
+                      placeholder={(user?.username || '').toUpperCase()}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
@@ -1448,6 +1775,69 @@ const ITBorrowSystem = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {extendItem && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50"
+          onClick={closeExtend}
+        >
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="w-12 h-12 mb-4 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <CalendarPlus size={22} />
+            </div>
+            <h3 className="text-lg font-black text-slate-800 mb-1">ยืดเวลาคืนอุปกรณ์</h3>
+            <p className="text-sm text-slate-500 mb-4">
+              <span className="font-bold text-slate-700">{extendItem.brname}</span>
+              <br />
+              กำหนดคืนเดิม: {extendItem.EndDate ? new Date(extendItem.EndDate).toLocaleDateString('th-TH') : '-'}
+            </p>
+
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {[7, 14, 30].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setExtendDate(addDaysToInput(extendBase, n))}
+                  className="py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition-colors"
+                >
+                  +{n} วัน
+                </button>
+              ))}
+            </div>
+            <input
+              type="date"
+              value={extendDate}
+              onChange={(e) => setExtendDate(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            {extendError && (
+              <p className="text-rose-500 font-bold mt-2 flex items-center gap-1.5 text-xs">
+                <AlertTriangle size={13} /> {extendError}
+              </p>
+            )}
+
+            <div className="flex gap-3 mt-5">
+              <button
+                type="button"
+                onClick={closeExtend}
+                disabled={extendSubmitting}
+                className="flex-1 py-2.5 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors disabled:opacity-60"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleExtend}
+                disabled={extendSubmitting || !extendDate}
+                className="flex-1 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {extendSubmitting && <Loader2 size={16} className="animate-spin" />}
+                ยืนยันยืดเวลา
+              </button>
+            </div>
           </div>
         </div>
       )}

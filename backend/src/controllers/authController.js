@@ -1,8 +1,7 @@
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import { sql, getPool } from '../config/db.js';
-
-const SECRET_KEY = process.env.JWT_SECRET || 'your-secret-key-change-this-in-env';
+import { getJwtSecret } from '../config/jwtSecret.js';
 
 export const login = async (req, res) => {
     // Handle both body and query parameters (for URL login support)
@@ -79,13 +78,13 @@ export const login = async (req, res) => {
             // Generate JWT
             const token = jwt.sign(
                 {
-                    username: username,
+                    username: String(username).toUpperCase(),
                     role: role,
                     name: shortName || username,
                     sect: sect,
                     empcode: empCode
                 },
-                SECRET_KEY,
+                getJwtSecret(),
                 { expiresIn: '1h' }
             );
 
@@ -93,7 +92,7 @@ export const login = async (req, res) => {
                 success: true,
                 token, // Send token for future use
                 user: {
-                    username,
+                    username: String(username).toUpperCase(),
                     role,
                     name: shortName || username,
                     sect: sect,

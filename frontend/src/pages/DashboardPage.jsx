@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Package, TrendingUp, TrendingDown, AlertTriangle, Monitor, HardDrive, Tag, DollarSign, ShoppingCart, Clock, ArrowRight, Flame, Activity } from 'lucide-react';
+import { Package, TrendingUp, TrendingDown, AlertTriangle, Monitor, HardDrive, Tag, DollarSign, ShoppingCart, Clock, ArrowRight, Flame, Activity, RefreshCw, Wrench, ArrowDownToLine, ArrowUpFromLine, ClipboardList, CalendarClock, Printer, Briefcase } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useData } from '../context/DataContext';
 import { API_BASE } from '../config/api';
@@ -10,41 +10,120 @@ import StatCard from '../components/StatCard';
 import LoadingState from '../components/LoadingState';
 import { getChartColor, getBadgeStyle, getDeviceTypeColor } from '../utils/styleHelpers';
 
+const DAY_MS = 1000 * 60 * 60 * 24;
+const RANGE_OPTIONS = [3, 6, 12];
+
+// Counts up from 0 to `value` (ease-out) — used for KPI numbers
+const AnimatedNumber = ({ value, prefix = '', duration = 900 }) => {
+    const [display, setDisplay] = useState(0);
+    useEffect(() => {
+        const target = Number(value) || 0;
+        let raf;
+        const start = performance.now();
+        const tick = (now) => {
+            const p = Math.min((now - start) / duration, 1);
+            setDisplay(Math.round(target * (1 - Math.pow(1 - p, 3))));
+            if (p < 1) raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+    }, [value, duration]);
+    return <>{prefix}{display.toLocaleString()}</>;
+};
+
 const DashboardPage = () => {
-    const { products, transactions, purchaseOrders, loading } = useData();
+    const { products, transactions, purchaseOrders, loading, refreshData } = useData();
     const navigate = useNavigate();
     const [maItems, setMaItems] = useState([]);
 
-    const [isAnimating, setIsAnimating] = useState(true);
+    // Skeleton branches below are kept, but the artificial 800ms loader was removed
+    const [isAnimating] = useState(false);
     const [pcSummary, setPcSummary] = useState(null);
+    const [refreshing, setRefreshing] = useState(false);
+    const [lastUpdated, setLastUpdated] = useState(() => new Date());
+    const [range, setRange] = useState(6);
+    const [tab, setTab] = useState('overview');
+    const [itStats, setItStats] = useState(null);
+    const [upcomingTasks, setUpcomingTasks] = useState([]);
+    const show = (id) => tab === id;
 
-    React.useEffect(() => {
-        const timer = setTimeout(() => setIsAnimating(false), 800);
-        return () => clearTimeout(timer);
+    const loadItStats = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/it-requests/stats`);
+            const json = await res.json();
+            if (json.success) setItStats(json.data || {});
+        } catch (err) { }
     }, []);
 
-    React.useEffect(() => {
-        const fetchPcSum = async () => {
-            try {
-                const res = await fetch(`${API_BASE}/pc-inventory/summary`);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.success) setPcSummary(data);
-                }
-            } catch (err) {}
-        };
-        fetchPcSum();
+    const loadUpcoming = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/calendar/upcoming`);
+            const json = await res.json();
+            if (json.success) setUpcomingTasks(json.data || []);
+        } catch (err) { }
     }, []);
 
-    React.useEffect(() => {
-        const fetchMa = async () => {
-            try {
-                const res = await fetch(`${API_BASE}/ma`);
-                if (res.ok) setMaItems(await res.json());
-            } catch (err) { }
-        };
-        fetchMa();
+    const [borrowings, setBorrowings] = useState([]);
+    const [inkItems, setInkItems] = useState([]);
+    const [printers, setPrinters] = useState([]);
+
+    const loadBorrowings = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/borrowings`);
+            if (res.ok) setBorrowings(await res.json());
+        } catch (err) { }
     }, []);
+
+    const loadInk = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/ink-toner`);
+            if (res.ok) setInkItems(await res.json());
+        } catch (err) { }
+    }, []);
+
+    const loadPrinters = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/printer-health`);
+            if (res.ok) setPrinters(await res.json());
+        } catch (err) { }
+    }, []);
+
+    const loadPcSummary = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/pc-inventory/summary`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success) setPcSummary(data);
+            }
+        } catch (err) { }
+    }, []);
+
+    const loadMa = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/ma`);
+            if (res.ok) setMaItems(await res.json());
+        } catch (err) { }
+    }, []);
+
+    useEffect(() => {
+        loadPcSummary();
+        loadMa();
+        loadItStats();
+        loadUpcoming();
+        loadBorrowings();
+        loadInk();
+        loadPrinters();
+    }, [loadPcSummary, loadMa, loadItStats, loadUpcoming, loadBorrowings, loadInk, loadPrinters]);
+
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        try {
+            await Promise.all([Promise.resolve(refreshData?.()), loadPcSummary(), loadMa(), loadItStats(), loadUpcoming(), loadBorrowings(), loadInk(), loadPrinters()]);
+        } finally {
+            setRefreshing(false);
+            setLastUpdated(new Date());
+        }
+    };
 
     // 1. Calculate Stats
     const stats = useMemo(() => {
@@ -71,42 +150,43 @@ const DashboardPage = () => {
         }));
     }, [products]);
 
-    // 3. Prepare Chart Data: Stock Movement (Last 6 Months)
+    // 3. Prepare Chart Data: Stock Movement (last `range` months, keyed by year+month so years never collide)
     const stockData = useMemo(() => {
         const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+        const now = new Date();
         const dataMap = {};
+        const order = [];
 
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const key = `${months[d.getMonth()]}`;
-            dataMap[key] = { month: key, inbound: 0, outbound: 0 };
+        for (let i = range - 1; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const key = `${d.getFullYear()}-${d.getMonth()}`;
+            const label = range > 6 ? `${months[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}` : months[d.getMonth()];
+            dataMap[key] = { month: label, inbound: 0, outbound: 0 };
+            order.push(key);
         }
 
         transactions.forEach(t => {
-    const date = new Date(t.TransDate);
-    const monthKey = months[date.getMonth()];
+            const date = new Date(t.TransDate);
+            const row = dataMap[`${date.getFullYear()}-${date.getMonth()}`];
+            if (!row) return;
 
-    if (dataMap[monthKey]) {
-        const type = (t.TransType || '').toUpperCase().trim();
-        const qty = Math.abs(t.Qty);
-        const refInfo = t.RefInfo || '';
+            const type = (t.TransType || '').toUpperCase().trim();
+            const qty = Math.abs(t.Qty);
+            const refInfo = t.RefInfo || '';
+            if (refInfo.includes('ยกเลิก Invoice') || refInfo.includes('Stock Count Adjust')) return;
 
-        if (type === 'IN'
-            && !refInfo.includes('ยกเลิก Invoice')
-            && !refInfo.includes('Stock Count Adjust')) {
-            dataMap[monthKey].inbound += qty;  // ← เพิ่ม body
-        }
-        if (type === 'OUT'
-            && !refInfo.includes('ยกเลิก Invoice')
-            && !refInfo.includes('Stock Count Adjust')) {
-            dataMap[monthKey].outbound += qty; // ← เพิ่ม body
-        }
-    }
-});
+            if (type === 'IN') row.inbound += qty;
+            if (type === 'OUT') row.outbound += qty;
+        });
 
-        return Object.values(dataMap);
-    }, [transactions]);
+        return order.map(k => dataMap[k]);
+    }, [transactions, range]);
+
+    const movementTotals = useMemo(() => {
+        const inbound = stockData.reduce((s, r) => s + r.inbound, 0);
+        const outbound = stockData.reduce((s, r) => s + r.outbound, 0);
+        return { inbound, outbound, net: inbound - outbound };
+    }, [stockData]);
 
     // 4. Critical Low Stock Items (Top 5)
     const lowStockItems = useMemo(() => {
@@ -120,7 +200,9 @@ const DashboardPage = () => {
     .slice(0, 5);
     }, [products]);
 
-    // 5. Top 5 Most Withdrawn (Current Month)
+    // 5. Top 5 Most Withdrawn (Current Month) — O(1) product lookup via Map
+    const productMap = useMemo(() => new Map(products.map(p => [p.ProductID, p])), [products]);
+
     const topWithdrawn = useMemo(() => {
         const now = new Date();
         const currentMonth = now.getMonth();
@@ -134,7 +216,7 @@ const DashboardPage = () => {
             if (type === 'OUT' && date.getMonth() === currentMonth && date.getFullYear() === currentYear && !refInfo.includes('ยกเลิก Invoice')) {
                 const productId = t.ProductID;
                 if (!withdrawMap[productId]) {
-                    const product = products.find(p => p.ProductID === productId);
+                    const product = productMap.get(productId);
                     withdrawMap[productId] = {
                         ProductID: productId,
                         ProductName: product?.ProductName || `ID: ${productId}`,
@@ -149,7 +231,7 @@ const DashboardPage = () => {
         return Object.values(withdrawMap)
             .sort((a, b) => b.totalQty - a.totalQty)
             .slice(0, 5);
-    }, [transactions]);
+    }, [transactions, productMap]);
 
     // 6. Pending POs (Open/Partial, sorted by oldest first)
     const pendingPOs = useMemo(() => {
@@ -201,6 +283,46 @@ const DashboardPage = () => {
             .slice(0, 5);
     }, [maItems]);
     
+    // 9b. Action-center counts (full lists, not the top-5 slices)
+    const actionCounts = useMemo(() => {
+        const now = Date.now();
+        const outOfStock = products.filter(p => p.CurrentStock <= 0 && p.MinStock > 0).length;
+        const maDue = maItems.filter(ma => ma.Status !== 'Cancelled' && ma.EndDate
+            && Math.ceil((new Date(ma.EndDate) - now) / DAY_MS) <= 90).length;
+        const poStale = purchaseOrders.filter(po => po.Status !== 'Completed'
+            && (now - new Date(po.RequestDate)) / DAY_MS > 7).length;
+        const pcIssues = (pcSummary?.lowBatteryHealth?.length || 0) + (pcSummary?.lowDiskCSpace?.length || 0);
+        return { outOfStock, maDue, poStale, pcIssues };
+    }, [products, maItems, purchaseOrders, pcSummary]);
+
+    // 9c. Borrowings past due date (not yet returned), most overdue first
+    const overdueBorrowings = useMemo(() => {
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        return borrowings
+            .filter(b => b.brStatus !== 'returned' && b.EndDate && new Date(b.EndDate) < startOfToday)
+            .map(b => ({ ...b, daysOver: Math.floor((startOfToday - new Date(b.EndDate)) / DAY_MS) }))
+            .sort((a, b) => b.daysOver - a.daysOver);
+    }, [borrowings]);
+
+    // 9d. Ink & toner at or below minimum
+    const inkLow = useMemo(() => inkItems
+        .filter(i => Number(i.Minimum) > 0 && Number(i.CurrentStock) <= Number(i.Minimum))
+        .sort((a, b) => Number(a.CurrentStock) - Number(b.CurrentStock)), [inkItems]);
+
+    // 9e. Printers that are offline, have open errors, or any colour toner <= 10%
+    const printerIssues = useMemo(() => printers
+        .map(p => {
+            const reasons = [];
+            if (p.Online === false || p.Online === 0) reasons.push('Offline');
+            if (Number(p.OpenErrorCount) > 0) reasons.push(`Error ${p.OpenErrorCount}`);
+            const lowToner = [['K', p.BlackPct], ['C', p.CyanPct], ['M', p.MagentaPct], ['Y', p.YellowPct]]
+                .filter(([, v]) => v != null && Number(v) <= 10).map(([k, v]) => `${k} ${v}%`);
+            if (lowToner.length) reasons.push(`Toner ${lowToner.join(', ')}`);
+            return { ...p, reasons };
+        })
+        .filter(p => p.reasons.length > 0), [printers]);
+
     // 10. Data for Stock Value Bar Chart
     const stockValueDistributionData = useMemo(() => {
         const data = categoryData.map(c => {
@@ -261,7 +383,7 @@ const DashboardPage = () => {
     const SectionHeader = ({ icon: Icon, gradient, title, actionText, onAction }) => (
         <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-3">
-                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg shadow-${gradient.split('-')[2]}/20`}>
+                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg`}>
                     <Icon className="w-5 h-5 text-white" />
                 </div>
                 <div>
@@ -293,35 +415,152 @@ const DashboardPage = () => {
                     </div>
                     <p className="text-slate-500 font-medium pl-[52px]">สรุปข้อมูลและสถานะคลังอุปกรณ์</p>
                 </div>
+                <div className="flex items-center gap-3">
+                    <div className="hidden sm:block text-right">
+                        <p className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">อัปเดตล่าสุด</p>
+                        <p className="text-sm font-mono font-bold text-slate-700">
+                            {lastUpdated.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                    </div>
+                    <button
+                        onClick={handleRefresh}
+                        disabled={refreshing}
+                        className="flex items-center gap-2 bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 text-slate-600 text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all disabled:opacity-70"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                        {refreshing ? 'กำลังโหลด…' : 'รีเฟรช'}
+                    </button>
+                </div>
             </motion.div>
 
+            {/* Module tabs: group widgets by the sidebar module they belong to */}
+            <div className="flex gap-2 overflow-x-auto pb-1 -mt-2 scrollbar-none">
+                {[
+                    { id: 'overview', label: 'ภาพรวม', icon: Activity, tone: 'from-indigo-500 to-blue-600' },
+                    { id: 'inventory', label: 'คลังสินค้า & จัดซื้อ', icon: Package, tone: 'from-blue-500 to-cyan-500' },
+                    { id: 'asset', label: 'ทรัพย์สิน IT', icon: Monitor, tone: 'from-emerald-500 to-teal-500' },
+                    { id: 'work', label: 'งาน & คำขอ', icon: ClipboardList, tone: 'from-purple-500 to-pink-500' },
+                ].map(t => {
+                    const Icon = t.icon;
+                    const active = tab === t.id;
+                    return (
+                        <button
+                            key={t.id}
+                            onClick={() => setTab(t.id)}
+                            className={`relative flex items-center gap-2 whitespace-nowrap px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${active
+                                ? `bg-gradient-to-r ${t.tone} text-white shadow-lg`
+                                : 'bg-white text-slate-500 border border-slate-200 hover:text-slate-800 hover:border-slate-300'}`}
+                        >
+                            <Icon className="w-4 h-4" />
+                            {t.label}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Action Center: what needs attention right now (each chip jumps to the relevant page) */}
+            <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 }}
+                className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4"
+            >
+                {[
+                    {
+                        key: 'low', icon: AlertTriangle, label: 'สต็อกต่ำ / ต้องเติม',
+                        count: stats.lowStockCount, sub: `หมดสต็อก ${actionCounts.outOfStock} รายการ`,
+                        tone: 'from-red-500 to-orange-500', ring: 'hover:border-red-300',
+                        onClick: () => navigate('/inventory', { state: { filter: 'lowstock' } }),
+                    },
+                    {
+                        key: 'ma', icon: Clock, label: 'MA / License ครบกำหนด',
+                        count: actionCounts.maDue, sub: 'ภายใน 90 วัน / หมดอายุแล้ว',
+                        tone: 'from-orange-400 to-amber-500', ring: 'hover:border-orange-300',
+                        onClick: () => navigate('/ma-license'),
+                    },
+                    {
+                        key: 'po', icon: ShoppingCart, label: 'PO ค้างเกิน 7 วัน',
+                        count: actionCounts.poStale, sub: `PO ค้างทั้งหมด ${stats.activePOs} ใบ`,
+                        tone: 'from-amber-400 to-yellow-500', ring: 'hover:border-amber-300',
+                        onClick: () => navigate('/receive'),
+                    },
+                    {
+                        key: 'pc', icon: Wrench, label: 'PC ต้องตรวจสอบ',
+                        count: actionCounts.pcIssues, sub: 'แบตต่ำ / Disk C เต็ม',
+                        tone: 'from-indigo-500 to-blue-600', ring: 'hover:border-indigo-300',
+                        onClick: () => navigate('/pc-inventory'),
+                    },
+                    {
+                        key: 'borrow', icon: Briefcase, label: 'ยืมเลยกำหนดคืน',
+                        count: overdueBorrowings.length, sub: 'อุปกรณ์ที่ยังไม่ถูกคืน',
+                        tone: 'from-rose-500 to-red-600', ring: 'hover:border-rose-300',
+                        onClick: () => navigate('/borrowings'),
+                    },
+                    {
+                        key: 'ink', icon: Printer, label: 'Ink & Toner ใกล้หมด',
+                        count: inkLow.length, sub: 'ต่ำกว่าขั้นต่ำที่กำหนด',
+                        tone: 'from-cyan-500 to-teal-500', ring: 'hover:border-cyan-300',
+                        onClick: () => navigate('/ink-toner'),
+                    },
+                ].map((c, idx) => {
+                    const Icon = c.icon;
+                    const hasIssue = c.count > 0;
+                    return (
+                        <motion.button
+                            key={c.key}
+                            onClick={c.onClick}
+                            initial={{ opacity: 0, scale: 0.96 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ delay: 0.1 + idx * 0.05 }}
+                            whileHover={{ y: -3 }}
+                            whileTap={{ scale: 0.98 }}
+                            className={`group text-left bg-white rounded-2xl p-4 border border-slate-200 ${c.ring} shadow-md hover:shadow-xl transition-colors flex items-center gap-4 relative overflow-hidden`}
+                        >
+                            <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${c.tone} flex items-center justify-center shadow-md flex-shrink-0`}>
+                                <Icon className="w-6 h-6 text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-slate-500 truncate">{c.label}</p>
+                                <p className={`text-2xl font-black font-mono leading-tight ${hasIssue ? 'text-slate-900' : 'text-emerald-500'}`}>
+                                    <AnimatedNumber value={c.count} />
+                                </p>
+                                <p className="text-[11px] text-slate-400 truncate">{c.sub}</p>
+                            </div>
+                            <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                            {hasIssue && <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
+                        </motion.button>
+                    );
+                })}
+            </motion.div>
+
+            {show('overview') && (<>
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard
                     icon={Package}
                     title="อุปกรณ์ทั้งหมด "
-                    value={stats.productCount.toLocaleString()}
+                    value={<AnimatedNumber value={stats.productCount} />}
                     subValue={`รวม ${stats.totalStock.toLocaleString()} ชิ้น `}
                     color="from-blue-500 to-blue-600"
                 />
                 <StatCard
                     icon={ShoppingCart}
                     title="ใบสั่งซื้อรอส่ง "
-                    value={stats.activePOs}
+                    value={<AnimatedNumber value={stats.activePOs} />}
                     subValue="รายการ "
                     color="from-purple-500 to-purple-600"
                 />
                 <StatCard
                     icon={DollarSign}
                     title="มูลค่าสต็อคปัจจุบัน "
-                    value={`฿${stats.totalValue.toLocaleString()}`}
+                    value={<AnimatedNumber value={stats.totalValue} prefix="฿" />}
                     subValue="บาท"
                     color="from-pink-500 to-pink-600"
                 />
                 <StatCard
                     icon={AlertTriangle}
                     title="สต็อกต่ำ "
-                    value={stats.lowStockCount}
+                    value={<AnimatedNumber value={stats.lowStockCount} />}
                     subValue="รายการที่ต้องเติม "
                     changeType="down"
                     color="from-orange-500 to-orange-600"
@@ -329,6 +568,8 @@ const DashboardPage = () => {
                 />
             </div>
 
+            </>)}
+            {show('inventory') && (<>
             {/* Charts Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Stock Movement Chart */}
@@ -340,8 +581,37 @@ const DashboardPage = () => {
                 >
                     {/* Subtle decorative gradient */}
                     <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-blue-50 to-transparent rounded-bl-[60px] opacity-60 pointer-events-none" />
-                    <h3 className="relative text-lg font-bold text-slate-800 mb-1">ความเคลื่อนไหวสต็อค 6 เดือน</h3>
-                    <p className="relative text-xs text-slate-400 mb-6">รายงานรับเข้า-เบิกจ่ายรายเดือน</p>
+                    <div className="relative flex flex-wrap justify-between items-start gap-3 mb-4">
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800 mb-1">ความเคลื่อนไหวสต็อค {range} เดือน</h3>
+                            <p className="text-xs text-slate-400">รายงานรับเข้า-เบิกจ่ายรายเดือน</p>
+                        </div>
+                        <div className="inline-flex bg-slate-100 rounded-lg p-1 gap-1">
+                            {RANGE_OPTIONS.map(r => (
+                                <button
+                                    key={r}
+                                    onClick={() => setRange(r)}
+                                    className={`text-xs font-bold px-3 py-1 rounded-md transition-all ${range === r ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    {r} ด.
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="relative grid grid-cols-3 gap-2 mb-5">
+                        <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
+                            <p className="text-[10px] font-semibold text-emerald-600 uppercase flex items-center gap-1"><ArrowDownToLine className="w-3 h-3" />รับเข้า</p>
+                            <p className="font-mono font-black text-emerald-700">+<AnimatedNumber value={movementTotals.inbound} /></p>
+                        </div>
+                        <div className="rounded-xl bg-red-50 border border-red-100 px-3 py-2">
+                            <p className="text-[10px] font-semibold text-red-500 uppercase flex items-center gap-1"><ArrowUpFromLine className="w-3 h-3" />เบิกจ่าย</p>
+                            <p className="font-mono font-black text-red-600">-<AnimatedNumber value={movementTotals.outbound} /></p>
+                        </div>
+                        <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-2">
+                            <p className="text-[10px] font-semibold text-indigo-500 uppercase">คงเหลือสุทธิ</p>
+                            <p className={`font-mono font-black ${movementTotals.net >= 0 ? 'text-indigo-700' : 'text-red-600'}`}>{movementTotals.net >= 0 ? '+' : ''}<AnimatedNumber value={movementTotals.net} /></p>
+                        </div>
+                    </div>
                     <div className="w-full">
                         {isAnimating ? (
                             <div className="h-[300px] w-full bg-slate-50 rounded-xl animate-pulse" />
@@ -478,6 +748,8 @@ const DashboardPage = () => {
                 </motion.div>
             </div>
 
+            </>)}
+            {show('overview') && (<>
             {/* Critical Alerts Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Critical Low Stock */}
@@ -584,6 +856,8 @@ const DashboardPage = () => {
                 </motion.div>
             </div>
 
+            </>)}
+            {show('inventory') && (<>
             {/* Operational Insights Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Recommended Order Trend */}
@@ -716,7 +990,83 @@ const DashboardPage = () => {
                     </div>
                 </motion.div>
             </div>
+            </>)}
+            {show('inventory') && (<>
+            {/* Ink & Toner below minimum */}
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl transition-shadow duration-300"
+            >
+                <SectionHeader icon={Printer} gradient="from-cyan-500 to-teal-500" title={`Ink & Toner ใกล้หมด (${inkLow.length})`} actionText="ดูทั้งหมด" onAction={() => navigate('/ink-toner')} />
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {inkLow.length > 0 ? inkLow.slice(0, 6).map((item, idx) => (
+                        <motion.div
+                            key={item.Prt_Code}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            className="flex items-center justify-between gap-3 p-3.5 bg-cyan-50/60 border border-cyan-100 rounded-xl"
+                        >
+                            <div className="min-w-0">
+                                <p className="font-semibold text-sm text-slate-800 truncate">{item.Prt_Name}</p>
+                                <p className="text-xs text-cyan-600 truncate mt-0.5">{item.Vender || 'ไม่ระบุผู้ขาย'}</p>
+                            </div>
+                            <span className="text-xs font-bold text-white bg-gradient-to-r from-cyan-500 to-teal-500 px-2.5 py-1 rounded-lg flex-shrink-0 font-mono">
+                                {item.CurrentStock} {item.Um || ''}
+                            </span>
+                        </motion.div>
+                    )) : (
+                        <div className="md:col-span-2 lg:col-span-3 text-center py-8 text-slate-400">
+                            <p className="text-sm font-medium">Ink & Toner เพียงพอ ✅</p>
+                        </div>
+                    )}
+                </div>
+            </motion.div>
+            </>)}
+            {show('asset') && (<>
+            {/* Printer health: only devices needing attention */}
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl transition-shadow duration-300"
+            >
+                <SectionHeader icon={Printer} gradient="from-cyan-500 to-teal-500" title={`เครื่องพิมพ์ที่ต้องดูแล (${printerIssues.length}/${printers.length})`} actionText="Printer Health" onAction={() => navigate('/printer-health')} />
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {printerIssues.length > 0 ? printerIssues.slice(0, 6).map((p, idx) => (
+                        <motion.div
+                            key={p.PrinterId}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            className="p-3.5 bg-cyan-50/50 border border-cyan-100 rounded-xl"
+                        >
+                            <p className="font-semibold text-sm text-slate-800 truncate">{p.Name}</p>
+                            <p className="text-xs text-slate-500 truncate mt-0.5">{p.Location || p.IpAddress}</p>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                                {p.reasons.map(r => (
+                                    <span key={r} className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-600">{r}</span>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )) : (
+                        <div className="md:col-span-2 lg:col-span-3 text-center py-8 text-slate-400">
+                            <p className="text-sm font-medium">เครื่องพิมพ์ทุกเครื่องปกติ ✅</p>
+                        </div>
+                    )}
+                </div>
+            </motion.div>
+
             {/* PC Inventory Insights Grid */}
+            <div className="flex items-center justify-between -mb-2">
+                <div className="flex items-center gap-2">
+                    <Monitor className="w-5 h-5 text-slate-500" />
+                    <h3 className="text-lg font-bold text-slate-800">PC Inventory</h3>
+                </div>
+                <button onClick={() => navigate('/pc-inventory')} className="text-xs font-semibold text-indigo-500 hover:text-indigo-700 flex items-center gap-1 group">
+                    เปิดหน้า PC Inventory <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
+                </button>
+            </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Battery Health < 70% */}
             <motion.div
@@ -786,6 +1136,8 @@ const DashboardPage = () => {
         </div>
 
 
+            </>)}
+            {show('overview') && (<>
             {/* Recent Activities */}
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -864,6 +1216,122 @@ const DashboardPage = () => {
             </motion.div>
 
         
+            </>)}
+            {show('work') && (<>
+            {/* Work & Requests: IT request pipeline + upcoming calendar tasks */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl transition-shadow duration-300"
+                >
+                    <SectionHeader icon={ClipboardList} gradient="from-purple-500 to-pink-500" title={`IT Request ปีนี้ (${Object.values(itStats || {}).reduce((s, n) => s + Number(n || 0), 0)})`} actionText="เปิดหน้า IT Request" onAction={() => navigate('/it-request')} />
+                    <div className="space-y-3">
+                        {itStats && Object.keys(itStats).length > 0 ? (() => {
+                            const entries = Object.entries(itStats).sort((a, b) => b[1] - a[1]);
+                            const total = entries.reduce((s, [, n]) => s + Number(n || 0), 0) || 1;
+                            return entries.map(([status, n], idx) => (
+                                <motion.div
+                                    key={status}
+                                    initial={{ opacity: 0, x: -10 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    transition={{ delay: idx * 0.05 }}
+                                    className="p-3.5 bg-gradient-to-r from-purple-50/70 to-pink-50/40 rounded-xl border border-purple-100/80"
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <p className="text-sm font-semibold text-slate-800">{status}</p>
+                                        <span className="text-xs font-bold font-mono text-purple-600">{n} ({Math.round((Number(n) / total) * 100)}%)</span>
+                                    </div>
+                                    <div className="h-2 bg-purple-100 rounded-full overflow-hidden">
+                                        <div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-700" style={{ width: `${(Number(n) / total) * 100}%` }} />
+                                    </div>
+                                </motion.div>
+                            ));
+                        })() : (
+                            <div className="text-center py-10 text-slate-400">
+                                <div className="w-14 h-14 rounded-2xl bg-purple-50 flex items-center justify-center mx-auto mb-3">
+                                    <ClipboardList className="w-7 h-7 text-purple-300" />
+                                </div>
+                                <p className="text-sm font-medium">ยังไม่มีคำขอในปีนี้</p>
+                            </div>
+                        )}
+                    </div>
+                </motion.div>
+
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl transition-shadow duration-300"
+                >
+                    <SectionHeader icon={CalendarClock} gradient="from-sky-500 to-blue-600" title="งาน / นัดหมายที่กำลังจะถึง" actionText="ไปปฏิทิน" onAction={() => navigate('/calendar')} />
+                    <div className="space-y-2.5">
+                        {upcomingTasks.length > 0 ? upcomingTasks.map((task, idx) => (
+                            <motion.div
+                                key={task.task_id}
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: idx * 0.05 }}
+                                className="flex items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-sky-50/70 to-blue-50/40 rounded-xl border border-sky-100/80 hover:border-sky-200 transition-colors"
+                            >
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className="w-8 h-8 rounded-lg bg-sky-100 flex items-center justify-center flex-shrink-0">
+                                        <CalendarClock className="w-4 h-4 text-sky-600" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="font-semibold text-sm text-slate-800 truncate">{task.task_title}</p>
+                                        <p className="text-xs text-sky-500 font-mono mt-0.5">{task.start_date}</p>
+                                    </div>
+                                </div>
+                                {task.type_label && (
+                                    <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-sky-100 text-sky-700 flex-shrink-0">{task.type_label}</span>
+                                )}
+                            </motion.div>
+                        )) : (
+                            <div className="text-center py-10 text-slate-400">
+                                <div className="w-14 h-14 rounded-2xl bg-sky-50 flex items-center justify-center mx-auto mb-3">
+                                    <CalendarClock className="w-7 h-7 text-sky-300" />
+                                </div>
+                                <p className="text-sm font-medium">ไม่มีงานที่กำลังจะถึง</p>
+                            </div>
+                        )}
+                    </div>
+                </motion.div>
+            </div>
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+                className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl transition-shadow duration-300"
+            >
+                <SectionHeader icon={Briefcase} gradient="from-rose-500 to-red-600" title={`ยืมเลยกำหนดคืน (${overdueBorrowings.length})`} actionText="ดูทั้งหมด" onAction={() => navigate('/borrowings')} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {overdueBorrowings.length > 0 ? overdueBorrowings.slice(0, 6).map((b, idx) => (
+                        <motion.div
+                            key={b.brID}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            className="flex items-center justify-between gap-3 p-3.5 bg-rose-50/60 border border-rose-100 rounded-xl"
+                        >
+                            <div className="min-w-0">
+                                <p className="font-semibold text-sm text-slate-800 truncate">
+                                    {b.brname}{b.brserial ? ` · S/N ${b.brserial}` : ''}
+                                </p>
+                                <p className="text-xs text-rose-500 truncate mt-0.5">{b.brEmpname || b.brEmpDept || '-'}</p>
+                            </div>
+                            <span className="text-xs font-bold text-white bg-gradient-to-r from-rose-500 to-red-600 px-2.5 py-1 rounded-lg flex-shrink-0">
+                                เกิน {b.daysOver} วัน
+                            </span>
+                        </motion.div>
+                    )) : (
+                        <div className="md:col-span-2 text-center py-8 text-slate-400">
+                            <p className="text-sm font-medium">ไม่มีอุปกรณ์ยืมเลยกำหนด ✅</p>
+                        </div>
+                    )}
+                </div>
+            </motion.div>
+            </>)}
       </div>
     );
 };

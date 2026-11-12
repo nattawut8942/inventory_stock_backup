@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ShoppingCart, Plus, X, Eye, Search, Calendar, Filter, Check, Building2, Upload, FileText, Loader2, RefreshCw, AlertTriangle, Phone, Trash2, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Portal from './Portal';
 import ProductCombobox from './ProductCombobox';
+import ProductPickerPanel from './ProductPickerPanel';
 import VendorCombobox from './VendorCombobox';
 import * as pdfjsLib from 'pdfjs-dist';
 import Tesseract from 'tesseract.js';
@@ -18,7 +19,7 @@ try {
     console.error('Failed to initialize PDF.js worker:', e);
 }
 
-const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendors, user, onSuccess }) => {
+const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, deviceTypes, purchaseOrders = [], vendors, user, onSuccess }) => {
     const [activeTab, setActiveTab] = useState('manual');
     const [ocrFile, setOcrFile] = useState(null);
     const [ocrLoading, setOcrLoading] = useState(false);
@@ -43,6 +44,30 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
     const [selectedVendor, setSelectedVendor] = useState({ VendorID: null, VendorName: '' });
 
     const sectionRef = useRef(null);
+    const [activeItemIndex, setActiveItemIndex] = useState(0);
+    const [confirmState, setConfirmState] = useState({ isOpen: false, validation: null });
+
+    // อุปกรณ์ที่กำลังสั่ง (อยู่ใน PO ที่ยังค้างรับ) รวมตามชื่อ เพื่อเลือกซ้ำแทนการสร้างรายการใหม่
+    const orderingItems = useMemo(() => {
+        const map = new Map();
+        (purchaseOrders || []).forEach(po => {
+            if (isEditMode && initialData && po.PO_ID === initialData.PO_ID) return; // ไม่นับใบที่กำลังแก้ไขเอง
+            if (!['Open', 'Pending', 'Partial'].includes(po.Status)) return;
+            (po.Items || []).forEach(it => {
+                const remaining = Number(it.QtyOrdered || 0) - Number(it.QtyReceived || 0);
+                if (remaining <= 0) return;
+                const name = String(it.ItemName || it.ProductName || '').trim();
+                if (!name) return;
+                const key = it.ProductID ? `id:${it.ProductID}` : `name:${name.toLowerCase().replace(/\s+/g, '')}`;
+                const cur = map.get(key) || { key, ProductID: it.ProductID || null, ItemName: name, remaining: 0, pos: [], UnitCost: Number(it.UnitCost) || 0 };
+                cur.remaining += remaining;
+                if (!cur.pos.includes(po.PO_ID)) cur.pos.push(po.PO_ID);
+                if (!cur.UnitCost && Number(it.UnitCost)) cur.UnitCost = Number(it.UnitCost);
+                map.set(key, cur);
+            });
+        });
+        return [...map.values()].sort((a, b) => a.ItemName.localeCompare(b.ItemName, 'th'));
+    }, [purchaseOrders, isEditMode, initialData]);
 
     const [resultModal, setResultModal] = useState({
         isOpen: false,
@@ -139,6 +164,37 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
         const updated = [...poItems];
         updated[index][field] = value;
         setPoItems(updated);
+    };
+
+    // แถวที่กำลังเลือกจาก panel (ค่าเริ่มต้น = แถวแรก)
+    const targetIndex = Math.min(activeItemIndex, Math.max(poItems.length - 1, 0));
+
+    // อัปเดตแถวจากช่องพิมพ์ชื่อ (ตั้ง ProductID เป็น null เมื่อพิมพ์เอง)
+    const setItemFromCombobox = (index, data) => {
+        setPoItems(prev => prev.map((it, i) => i === index ? {
+            ...it,
+            ProductID: data.ProductID ?? null,
+            ItemName: data.ItemName,
+            UnitCost: data.LastPrice ? data.LastPrice : it.UnitCost
+        } : it));
+    };
+
+    // เลือกจาก panel ลงแถวที่ active แล้วขยับไปแถวถัดไป (เพิ่มแถวให้ถ้าเป็นแถวสุดท้าย)
+    const fillActiveItem = (data) => {
+        const idx = targetIndex;
+        setPoItems(prev => {
+            const next = prev.map((it, i) => i === idx ? {
+                ...it,
+                ProductID: data.ProductID ?? null,
+                ItemName: data.ItemName,
+                UnitCost: data.LastPrice ? data.LastPrice : it.UnitCost
+            } : it);
+            if (idx >= next.length - 1) {
+                next.push({ ProductID: null, ItemName: '', QtyOrdered: 1, UnitCost: 0, BG_No: '' });
+            }
+            return next;
+        });
+        setActiveItemIndex(idx + 1);
     };
 
     const getTotalAmount = () => {
@@ -421,41 +477,110 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
         }
     };
 
-    const handleFormSubmit = async (e) => {
+    // ตรวจข้อมูลก่อนสร้าง/บันทึก: คืนค่า errors (ต้องแก้ก่อน), warnings (ยืนยันได้), และรายการที่จะบันทึก
+    const validatePO = () => {
+        const errors = [];
+        const warnings = [];
+        const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
+
+        if (!String(newPO.PO_ID || '').trim()) errors.push('กรุณาระบุเลข PO Number');
+
+        const vendorName = (selectedVendor.VendorName || '').trim();
+        if (!vendorName) {
+            errors.push('กรุณาเลือกผู้ขาย');
+        } else if (!vendors.some(v => v.VendorName === vendorName)) {
+            errors.push(`ผู้ขาย "${vendorName}" ไม่อยู่ในรายการ กรุณาเลือกจากรายการ หรือเพิ่มผู้ขายในหน้า Management`);
+        }
+
+        // แถวที่ว่างทั้งแถว (แถวเพิ่มอัตโนมัติ) ข้ามไป แต่ถ้ามี B/G No. แต่ไม่มีชื่อ ถือว่าผิด
+        const rows = poItems.map((it, i) => ({ ...it, _row: i + 1 }));
+        const filled = rows.filter(it => String(it.ItemName || '').trim());
+        rows.filter(it => !String(it.ItemName || '').trim() && String(it.BG_No || '').trim())
+            .forEach(it => errors.push(`แถวที่ ${it._row} มี B/G No. แต่ยังไม่ได้ระบุชื่ออุปกรณ์`));
+
+        if (filled.length === 0) errors.push('กรุณาเพิ่มรายการอุปกรณ์อย่างน้อย 1 รายการ');
+
+        const seen = new Map();
+        filled.forEach(it => {
+            const name = String(it.ItemName).trim();
+            const qty = Number(it.QtyOrdered);
+            const cost = Number(it.UnitCost);
+
+            if (!Number.isInteger(qty) || qty < 1) errors.push(`แถวที่ ${it._row} (${name}): จำนวนต้องเป็นจำนวนเต็มตั้งแต่ 1`);
+            if (Number.isNaN(cost) || cost < 0) errors.push(`แถวที่ ${it._row} (${name}): ราคาต่อหน่วยไม่ถูกต้อง`);
+
+            if (!it.ProductID) {
+                // ชื่อใหม่ที่ตรงกับ Master (ไม่สนช่องว่างและตัวพิมพ์เล็ก-ใหญ่) = ซ้ำ ให้เลือกจากรายการแทน
+                const match = products.find(p => norm(p.ProductName) === norm(name));
+                if (match) errors.push(`แถวที่ ${it._row}: "${name}" มีอยู่ใน Master แล้ว กรุณาเลือกจากรายการ`);
+                else {
+                    const pending = orderingItems.find(o => !o.ProductID && norm(o.ItemName) === norm(name));
+                    if (pending) warnings.push(`แถวที่ ${it._row}: "${name}" กำลังสั่งอยู่แล้วใน ${pending.pos.join(', ')} (คงค้าง ${pending.remaining}) ควรเลือกจากแถบ "กำลังสั่ง" เพื่อไม่ให้สร้างซ้ำ`);
+                    else warnings.push(`แถวที่ ${it._row}: "${name}" เป็นอุปกรณ์ใหม่ (จะเพิ่มใน Master แต่ยังไม่แสดงในคลังจนกว่าจะรับของ)`);
+                }
+            }
+
+            if (!String(it.BG_No || '').trim()) warnings.push(`แถวที่ ${it._row} (${name}) ยังไม่ได้ใส่ B/G No.`);
+
+            const key = it.ProductID ? `id:${it.ProductID}` : `name:${norm(name)}`;
+            if (seen.has(key)) warnings.push(`"${name}" ซ้ำในใบนี้ (แถวที่ ${seen.get(key)} และ ${it._row})`);
+            else seen.set(key, it._row);
+        });
+
+        if (newPO.DueDate) {
+            const d = new Date();
+            const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            if (newPO.DueDate < today) warnings.push(`กำหนดส่ง ${newPO.DueDate} ผ่านมาแล้ว`);
+        }
+
+        const total = filled.reduce((s, it) => s + (Number(it.QtyOrdered) || 0) * (Number(it.UnitCost) || 0), 0);
+        if (filled.length > 0 && total <= 0) warnings.push('ยอดรวมเป็น 0 บาท');
+
+        return {
+            errors,
+            warnings,
+            items: filled.map(({ _row, ...it }) => ({
+                ...it,
+                ItemName: String(it.ItemName).trim(),
+                QtyOrdered: Number(it.QtyOrdered),
+                UnitCost: Number(it.UnitCost) || 0,
+                BG_No: String(it.BG_No || '').trim() || null
+            })),
+            total,
+            newCount: filled.filter(it => !it.ProductID).length,
+        };
+    };
+
+    // กดปุ่มสร้าง/บันทึก: ตรวจก่อน แล้วค่อยขอยืนยัน
+    const handleFormSubmit = (e) => {
         e.preventDefault();
+        const v = validatePO();
 
-        if (!newPO.PO_ID || !selectedVendor.VendorName) {
+        if (v.errors.length > 0) {
             setResultModal({
                 isOpen: true,
                 type: 'error',
-                title: 'ข้อมูลไม่ครบถ้วน',
-                message: 'กรุณาระบุ PO Number, Vendor และ Budget No. ให้ครบถ้วน'
+                title: 'ข้อมูลยังไม่ถูกต้อง',
+                message: (
+                    <span className="block text-left space-y-1">
+                        {v.errors.map((err, i) => (
+                            <span key={i} className="block">• {err}</span>
+                        ))}
+                    </span>
+                )
             });
             return;
         }
 
-        if (poItems.length === 0) {
-            setResultModal({
-                isOpen: true,
-                type: 'error',
-                title: 'ไม่พบรายการสินค้า',
-                message: 'กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 รายการ'
-            });
-            return;
-        }
+        setConfirmState({ isOpen: true, validation: v });
+    };
 
-        const validVendor = vendors.find(v => v.VendorName === newPO.VendorName);
-        if (!validVendor && newPO.VendorName.trim() !== '') {
-            setResultModal({
-                isOpen: true,
-                type: 'error',
-                title: 'ข้อมูลผู้ขายไม่ถูกต้อง',
-                message: 'กรุณาเลือกผู้ขายจากรายการที่มีอยู่ หรือเพิ่มผู้ขายใหม่ในหน้า Management'
-            });
-            return;
-        }
-
-        await onSuccess({ ...newPO, VendorName: selectedVendor.VendorName, Items: poItems });
+    // ผู้ใช้กดยืนยันใน alert แล้ว จึงบันทึกจริง
+    const confirmSubmit = async () => {
+        const v = confirmState.validation;
+        setConfirmState({ isOpen: false, validation: null });
+        if (!v) return;
+        await onSuccess({ ...newPO, VendorName: selectedVendor.VendorName.trim(), Items: v.items });
     };
 
     if (!isOpen) return null;
@@ -464,7 +589,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
         <Portal>
             <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-sm">
                 <div className="flex min-h-[100dvh] items-center justify-center p-2 md:p-4">
-                    <div className="w-full max-w-3xl transform overflow-hidden rounded-2xl bg-white text-left align-middle shadow-xl transition-all animate-in zoom-in-95 my-8">
+                    <div className="w-full max-w-7xl transform overflow-hidden rounded-2xl bg-white text-left align-middle shadow-xl transition-all animate-in zoom-in-95 my-8">
                         <div className="bg-slate-50 rounded-t-2xl border-b border-slate-200">
                             <div className="p-4 md:p-5 flex justify-between items-center">
                                 <h3 className="font-bold text-base text-slate-800">{isEditMode ? 'แก้ไขใบสั่งซื้อ' : 'สร้างใบสั่งซื้อ'}</h3>
@@ -549,7 +674,20 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                 )}
                             </div>
                         ) : (
-                            <form onSubmit={handleFormSubmit} className="p-4 md:p-5 space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-[minmax(440px,520px)_minmax(0,1fr)]">
+                                {/* LEFT: Master picker (เปิดค้างไว้) */}
+                                <div className="order-2 md:order-1 p-4 md:p-5 border-t md:border-t-0 md:border-r border-slate-200 bg-slate-50/60 h-[60vh] md:h-[74vh]">
+                                    <ProductPickerPanel
+                                        products={products}
+                                        deviceTypes={deviceTypes}
+                                        orderingItems={orderingItems}
+                                        selectedProductId={poItems[targetIndex]?.ProductID || null}
+                                        targetLabel={`กำลังเลือกลงรายการที่ ${targetIndex + 1} · คลิกช่องรายการอื่นเพื่อเปลี่ยนแถว`}
+                                        onSelect={fillActiveItem}
+                                        onCreateNew={(name) => fillActiveItem({ ProductID: null, ItemName: name })}
+                                    />
+                                </div>
+                            <form onSubmit={handleFormSubmit} className="order-1 md:order-2 p-4 md:p-5 space-y-4 md:h-[74vh] md:overflow-y-auto">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">PO Number</label>
@@ -645,17 +783,10 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                                 <div className="flex-1 w-full">
                                                     <div className="sm:hidden text-[10px] font-bold text-slate-400 mb-1 uppercase">ชื่ออุปกรณ์</div>
                                                     <ProductCombobox
-                                                        products={products}
                                                         value={{ ProductID: item.ProductID, ItemName: item.ItemName }}
-                                                        onChange={({ ProductID, ItemName, LastPrice }) => {
-                                                            const updated = [...poItems];
-                                                            updated[index].ProductID = ProductID;
-                                                            updated[index].ItemName = ItemName;
-                                                            if (ProductID && LastPrice !== undefined) {
-                                                                updated[index].UnitCost = LastPrice;
-                                                            }
-                                                            setPoItems(updated);
-                                                        }}
+                                                        isActive={index === targetIndex}
+                                                        onActivate={() => setActiveItemIndex(index)}
+                                                        onChange={(data) => setItemFromCombobox(index, data)}
                                                     />
                                                     {item.ItemName && !item.ProductID && (
                                                         <div className="flex items-center gap-1 mt-1 text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded-md border border-amber-100 animate-in fade-in slide-in-from-top-1">
@@ -730,6 +861,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                                     </button>
                                 </div>
                             </form>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -749,6 +881,34 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, vendo
                 message={resultModal.message}
                 confirmText={resultModal.confirmText || "ตกลง "}
                 cancelText={resultModal.cancelText || "ยกเลิก"}
+            />
+            <AlertModal
+                isOpen={confirmState.isOpen}
+                type="confirm"
+                title={isEditMode ? 'ยืนยันการบันทึกการแก้ไข' : 'ยืนยันการสร้างใบสั่งซื้อ'}
+                message={confirmState.validation && (
+                    <span className="block text-left space-y-1.5">
+                        <span className="block text-center text-slate-700">
+                            <span className="font-mono font-bold">{newPO.PO_ID}</span> · {selectedVendor.VendorName}
+                        </span>
+                        <span className="block text-center text-xs text-slate-500">
+                            {confirmState.validation.items.length} รายการ · รวม ฿{confirmState.validation.total.toLocaleString()}
+                            {confirmState.validation.newCount > 0 && <> · อุปกรณ์ใหม่ {confirmState.validation.newCount} รายการ</>}
+                        </span>
+                        {confirmState.validation.warnings.length > 0 && (
+                            <span className="block mt-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs space-y-1">
+                                <span className="block font-bold">ตรวจพบข้อสังเกต ({confirmState.validation.warnings.length})</span>
+                                {confirmState.validation.warnings.map((w, i) => (
+                                    <span key={i} className="block">• {w}</span>
+                                ))}
+                            </span>
+                        )}
+                    </span>
+                )}
+                onConfirm={confirmSubmit}
+                onCancel={() => setConfirmState({ isOpen: false, validation: null })}
+                confirmText={isEditMode ? 'ยืนยันบันทึก' : 'ยืนยันสร้าง PO'}
+                cancelText="กลับไปแก้ไข"
             />
         </Portal>
     );

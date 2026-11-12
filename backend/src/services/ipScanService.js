@@ -3,18 +3,29 @@
  * Core scan logic — ping + hostname lookup (DNS + nbtstat fallback)
  */
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import dns      from 'dns';
 import { promisify } from 'util';
 
 const dnsReverse = promisify(dns.reverse);
 
+// ─── Input validation ─────────────────────────────────────────────────────────
+// subnet = "x.y.z" (แต่ละ octet 0–255), ip = "x.y.z.w"
+const OCTET = '(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
+const SUBNET_RE = new RegExp(`^${OCTET}\\.${OCTET}\\.${OCTET}$`);
+const IP_RE = new RegExp(`^${OCTET}\\.${OCTET}\\.${OCTET}\\.${OCTET}$`);
+
+export const isValidSubnet = (s) => typeof s === 'string' && SUBNET_RE.test(s);
+export const isValidIP = (s) => typeof s === 'string' && IP_RE.test(s);
+
 // ─── Ping single IP ───────────────────────────────────────────────────────────
+// ใช้ execFile (ส่ง argument เป็น array) ไม่ผ่าน shell จึงไม่มี command injection
 export function pingIP(ip) {
   return new Promise((resolve) => {
+    if (!isValidIP(ip)) return resolve(false);
     const isWin = process.platform === 'win32';
-    const cmd   = isWin ? `ping -n 1 -w 2000 ${ip}` : `ping -c 1 -W 2 ${ip}`;
-    exec(cmd, { timeout: 5000 }, (error, stdout) => {
+    const args  = isWin ? ['-n', '1', '-w', '2000', ip] : ['-c', '1', '-W', '2', ip];
+    execFile('ping', args, { timeout: 5000 }, (error, stdout) => {
       resolve(!error && (
         stdout.includes('TTL=') || stdout.includes('ttl=') ||
         stdout.includes('1 received') || stdout.includes('1 packets received')
@@ -25,6 +36,7 @@ export function pingIP(ip) {
 
 // ─── Hostname lookup (DNS → nbtstat fallback) ─────────────────────────────────
 export async function getHostname(ip) {
+  if (!isValidIP(ip)) return null;
   // 1. DNS Reverse lookup
   try {
     const names = await dnsReverse(ip);
@@ -35,7 +47,7 @@ export async function getHostname(ip) {
   if (process.platform === 'win32') {
     try {
       const name = await new Promise((resolve) => {
-        exec(`nbtstat -A ${ip}`, { timeout: 3000 }, (err, stdout) => {
+        execFile('nbtstat', ['-A', ip], { timeout: 3000 }, (err, stdout) => {
           // nbtstat output: "  COMPUTERNAME      <00>  UNIQUE"
           const match = stdout?.match(/^\s{1,}(\S+)\s+<00>\s+UNIQUE/m);
           resolve(match?.[1]?.trim() || null);
@@ -62,6 +74,7 @@ export async function scanIP(ip) {
 
 // ─── Scan entire subnet (1–254) with concurrency limit ────────────────────────
 export async function scanSubnet(subnet, concurrency = 50, onProgress = null) {
+  if (!isValidSubnet(subnet)) throw new Error(`invalid subnet: ${subnet}`);
   const ips     = Array.from({ length: 254 }, (_, i) => `${subnet}.${i + 1}`);
   const results = [];
   let   done    = 0;

@@ -267,6 +267,7 @@ const PCInventoryPage = () => {
   const [modalData, setModalData] = useState({});
   const [multiLoginData, setMultiLoginData] = useState({ data: [], allHostnames: [] });
   const [showMultiLoginModal, setShowMultiLoginModal] = useState(false);
+  const [showDiskHealthModal, setShowDiskHealthModal] = useState(false);
   const [reincarnatedData, setReincarnatedData] = useState({ data: [], allHostnames: [] }); // ✅ เพิ่ม
   const [showReincarnatedModal, setShowReincarnatedModal] = useState(false); // ✅ เพิ่ม
   const [showPrinterModal, setShowPrinterModal] = useState(false);
@@ -777,24 +778,24 @@ const fmtDateOnly = (d) => {
     return /notebook|laptop|portable|sub notebook|convertible|detachable/.test(t);
   };
 
-  const StatBox = ({ id, label, list, bgClass, textClass, ringClass, onSecondaryClick }) => {
+  const StatBox = ({ id, label, list, bgClass, textClass, ringClass, onSecondaryClick, secondaryLabel = 'Detail', secondaryAlways = false }) => {
     const isOn = filterKeys.find(k => k.key === id);
     const count = list?.length || 0;
     const clickable = count > 0 || isOn;
     return (
       <div
         onClick={() => { if (clickable) toggleFilter(id, label); }}
-        className={`bg-white border rounded-xl p-3 px-3.5 shadow-sm transition-all 
-        ${clickable ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md' : 'opacity-70'} 
+        className={`bg-white border rounded-xl p-3 px-3.5 shadow-sm transition-all
+        ${clickable ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md' : 'opacity-70'}
         ${isOn ? `${ringClass} ring-2 ring-offset-2 scale-100 ${bgClass}` : 'border-gray-200'}`}
       >
         <div className="text-xs font-medium text-gray-500 mb-2 flex items-center justify-between">
           {label}
-          {onSecondaryClick && count > 0 && (
+          {onSecondaryClick && (count > 0 || secondaryAlways) && (
             <span
               onClick={e => { e.stopPropagation(); onSecondaryClick(); }}
               className="text-[10px] text-purple-500 hover:text-purple-700 font-semibold bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5 transition-colors"
-            >Detail</span>
+            >{secondaryLabel}</span>
           )}
         </div>
         <div className={`text-2xl font-bold leading-none ${textClass}`}>{count}</div>
@@ -926,7 +927,7 @@ const sessionView = useMemo(() => {
 
                     <StatBox id="lowBatteryHealth" label="Battery Health < 70%" list={sumData?.lowBatteryHealth} textClass="text-amber-600" bgClass="bg-amber-50" ringClass="ring-amber-500" />
                     <StatBox id="lowDiskCSpace" label="Disk C Free < 20GB" list={sumData?.lowDiskCSpace} textClass="text-red-600" bgClass="bg-red-50" ringClass="ring-red-500" />
-                    <StatBox id="diskSmartWarn" label="Disk SMART เตือน" list={sumData?.diskSmartWarn} textClass="text-red-600" bgClass="bg-red-50" ringClass="ring-red-500" />
+                    <StatBox id="diskSmartWarn" label="Disk SMART เตือน" list={sumData?.diskSmartWarn} textClass="text-red-600" bgClass="bg-red-50" ringClass="ring-red-500" onSecondaryClick={() => setShowDiskHealthModal(true)} secondaryLabel="ดู Health" secondaryAlways />
                     <StatBox id="longUptime" label="Uptime > 5 วัน" list={sumData?.longUptime} textClass="text-sky-600" bgClass="bg-sky-50" ringClass="ring-sky-500" />
 
                     <StatBox id="noAsset" label="No Fix Asset" list={sumData?.noAsset} textClass="text-amber-600" bgClass="bg-amber-50" ringClass="ring-amber-500" />
@@ -2177,6 +2178,62 @@ const sessionView = useMemo(() => {
         </div>
         </Portal>
       )}
+
+      {showDiskHealthModal && (() => {
+        const map = sumData?.diskHealthMap || {};
+        const healthy = map['Healthy'] || [];
+        const others = Object.entries(map).filter(([k]) => k !== 'Healthy').sort((a, b) => b[1].length - a[1].length);
+        const groups = [['Healthy', healthy], ...others];
+        return (
+          <Portal>
+          <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-[760px] shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col overflow-hidden border border-gray-200">
+              <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-[10px] bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[18px] shrink-0">💽</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[15px] font-bold text-gray-900">สถานะ Disk SMART</span>
+                      <span className="inline-flex items-center bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-full px-2.5 py-0.5 text-[11px] font-semibold">Healthy {healthy.length} เครื่อง</span>
+                    </div>
+                    <div className="text-[12px] text-gray-400 mt-0.5">นับต่อค่า Health · เครื่องที่มีหลายดิสก์อาจอยู่หลายกลุ่ม</div>
+                  </div>
+                </div>
+                <button onClick={() => setShowDiskHealthModal(false)} className="w-7 h-7 rounded-md border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors">
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="overflow-y-auto flex-1 px-6 py-4 space-y-3">
+                {groups.map(([name, hosts], gi) => (
+                  <div key={name} className="bg-[#fafafa] border border-gray-200 rounded-xl p-4">
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <span className={`text-[12px] font-bold px-2 py-0.5 rounded-md border ${gi === 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>{name}</span>
+                      <span className="text-[12px] text-gray-500">{hosts.length} เครื่อง</span>
+                    </div>
+                    {hosts.length > 0 && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        {hosts.map(h => (
+                          <button
+                            key={h}
+                            onClick={() => { setShowDiskHealthModal(false); setHostname(h); setView('detail'); }}
+                            className="bg-white border border-gray-200 hover:border-[#a5b4fc] hover:bg-[#f5f3ff] rounded-lg px-2.5 py-2 text-left transition-all group"
+                          >
+                            <span className="text-[11px] font-semibold text-gray-800 truncate block group-hover:text-[#4338ca]">{h}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+                <button onClick={() => setShowDiskHealthModal(false)} className="px-4 py-2 rounded-lg border border-gray-200 text-[12px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors">ปิด</button>
+              </div>
+            </div>
+          </div>
+          </Portal>
+        );
+      })()}
 
       {showMultiLoginModal && (
         <Portal>
