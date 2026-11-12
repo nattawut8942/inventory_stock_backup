@@ -84,8 +84,30 @@ const isInDateRange = (dateStr, preset, customStart, customEnd) => {
     return (!start || key >= start) && (!end || key <= end);
 };
 
+const DAY_MS = 86400000;
+
+// แสดงวันที่แบบสั้นจาก key "YYYY-MM-DD"
+const fmtDateKey = (key) => new Date(`${key}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+
+// % เปลี่ยนแปลง (null ถ้าไม่มีฐานเทียบ)
+const pctChange = (cur, prev) => (prev > 0 ? ((cur - prev) / prev) * 100 : null);
+
+// ปุ่ม "ดูทั้งหมด" / "แสดงน้อยลง" — ไม่แสดงถ้ารายการไม่เกินจำนวนที่กำหนด
+const ToggleAllButton = ({ total, limit, expanded, onToggle }) => {
+    if (total <= limit) return null;
+    return (
+        <button
+            type="button"
+            onClick={onToggle}
+            className="mt-3 w-full text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg py-2 border border-dashed border-indigo-200 transition-colors"
+        >
+            {expanded ? 'แสดงน้อยลง' : `ดูทั้งหมด (${total} รายการ)`}
+        </button>
+    );
+};
+
 // StatCard Component
-const StatCard = ({ icon: Icon, title, value, subtitle, color }) => (
+const StatCard =({ icon: Icon, title, value, subtitle, color }) => (
     <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -105,7 +127,7 @@ const StatCard = ({ icon: Icon, title, value, subtitle, color }) => (
 );
 
 const ReportPage = () => {
-    const { products, deviceTypes, purchaseOrders, transactions } = useData();
+    const { products, deviceTypes, purchaseOrders, invoices, transactions } = useData();
     const typeLabel = useMemo(
         () => Object.fromEntries((deviceTypes || []).map(t => [t.TypeId, t.Label])),
         [deviceTypes]
@@ -127,6 +149,8 @@ const ReportPage = () => {
     const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
     const [isMounted, setIsMounted] = useState(false);
     const [expandedMonth, setExpandedMonth] = useState(null);
+    const [expandedLists, setExpandedLists] = useState({});  // ดูทั้งหมด: key -> true/false
+    const toggleList = (key) => setExpandedLists(prev => ({ ...prev, [key]: !prev[key] }));
 
     useEffect(() => {
         const timer = setTimeout(() => setIsMounted(true), 500);
@@ -347,7 +371,7 @@ const ReportPage = () => {
             .filter(p => !activeProductIds.has(p.ProductID) && p.CurrentStock > 0)
             .sort((a, b) => (b.CurrentStock * (b.LastPrice || 0)) - (a.CurrentStock * (a.LastPrice || 0)));
     }, [transactions, filteredProducts]);
-    const slowMovingItems = useMemo(() => deadStockAll.slice(0, 10), [deadStockAll]);
+    const slowMovingItems = deadStockAll; // ตัดจำนวนตอนแสดงผล (ดูทั้งหมดได้)
 
     // ─── Stock Analytics (ไม่รับผลจากตัวกรองด้านบน: ใช้ประวัติทั้งหมดและกรอบเวลาคงที่) ───
     const stockAnalytics = useMemo(() => {
@@ -412,8 +436,7 @@ const ReportPage = () => {
                 const daily = out3m[p.ProductID] / 90;
                 return { ProductID: p.ProductID, ProductName: p.ProductName, DeviceType: p.DeviceType, CurrentStock: p.CurrentStock || 0, daily, days: (p.CurrentStock || 0) / daily };
             })
-            .sort((a, b) => a.days - b.days)
-            .slice(0, 10);
+            .sort((a, b) => a.days - b.days);
 
         // Overstock: คงเหลือเกิน MaxStock
         const overstockAll = active
@@ -422,7 +445,7 @@ const ReportPage = () => {
             .sort((a, b) => b.excess - a.excess);
         const overstockValue = overstockAll.reduce((s, r) => s + r.excess, 0);
 
-        return { abcRows: abcRows.slice(0, 15), abcSummary, abcTotal, agingBuckets, agingTotal, daysOfStock, overstockAll: overstockAll.slice(0, 10), overstockCount: overstockAll.length, overstockValue };
+        return { abcRows, abcSummary, abcTotal, agingBuckets, agingTotal, daysOfStock, overstockAll, overstockCount: overstockAll.length, overstockValue };
     }, [transactions, products]);
 
     // 2. สรุปมูลค่าเบิกใช้รายเดือน
@@ -510,6 +533,143 @@ const ReportPage = () => {
         return result;
     }, [transactions, products]);
 
+    // ─── เทียบช่วงก่อนหน้า: ช่วงที่เลือกในตัวกรอง vs ช่วงความยาวเท่ากันก่อนหน้า (รับผลจากหมวดหมู่) ───
+    const periodComparison = useMemo(() => {
+        const { start, end } = presetRange(filterDateRange, filterCustomStart, filterCustomEnd);
+        if (!start || !end) return null;
+        const startTs = new Date(`${start}T00:00:00`).getTime();
+        const endTs = new Date(`${end}T00:00:00`).getTime();
+        const days = Math.round((endTs - startTs) / DAY_MS) + 1;
+        const prevEndKey = toDateKey(new Date(startTs - DAY_MS));
+        const prevStartKey = toDateKey(new Date(startTs - days * DAY_MS));
+
+        const sumRange = (from, to) => {
+            const acc = { inValue: 0, outValue: 0, count: 0 };
+            (transactions || []).forEach(t => {
+                if (!isCountedMovement(t)) return;
+                const d = new Date(t.TransDate);
+                if (Number.isNaN(d.getTime())) return;
+                const key = toDateKey(d);
+                if (key < from || key > to) return;
+                const product = productById[t.ProductID];
+                if (filterCategories.length > 0 && !filterCategories.includes(product?.DeviceType)) return;
+                const type = (t.TransType || '').toUpperCase().trim();
+                if (type !== 'IN' && type !== 'OUT') return;
+                const value = Math.abs(t.Qty) * (product?.LastPrice || 0);
+                if (type === 'IN') acc.inValue += value;
+                else acc.outValue += value;
+                acc.count += 1;
+            });
+            return acc;
+        };
+
+        return {
+            days,
+            prevStart: prevStartKey,
+            prevEnd: prevEndKey,
+            current: sumRange(start, end),
+            previous: sumRange(prevStartKey, prevEndKey),
+        };
+    }, [transactions, productById, filterDateRange, filterCustomStart, filterCustomEnd, filterCategories]);
+
+    // ─── Procurement analytics: กรองตามวันที่ขอซื้อ (RequestDate) ของตัวกรองด้านบน ───
+    const procurementAnalytics = useMemo(() => {
+        const now = Date.now();
+        const todayKey = toDateKey(new Date());
+        const pos = (purchaseOrders || []).filter(po => isInDateRange(po.RequestDate, filterDateRange, filterCustomStart, filterCustomEnd));
+
+        // ใบรับของแรกของแต่ละ PO (ไม่นับ Invoice ที่ยกเลิก)
+        const firstReceiveTs = {};
+        (invoices || []).forEach(inv => {
+            if (!inv.PO_ID || !inv.ReceiveDate || inv.Status === 'Cancelled') return;
+            const ts = new Date(inv.ReceiveDate).getTime();
+            if (Number.isNaN(ts)) return;
+            if (firstReceiveTs[inv.PO_ID] === undefined || ts < firstReceiveTs[inv.PO_ID]) firstReceiveTs[inv.PO_ID] = ts;
+        });
+
+        const STATUS_ORDER = ['Pending', 'Open', 'Partial', 'Completed', 'Cancelled'];
+        const statusCount = Object.fromEntries(STATUS_ORDER.map(s => [s, 0]));
+        const agingDefs = [
+            { key: 'a', label: '≤ 7 วัน', max: 7 },
+            { key: 'b', label: '8–30 วัน', max: 30 },
+            { key: 'c', label: '31–90 วัน', max: 90 },
+            { key: 'd', label: 'เกิน 90 วัน', max: Infinity },
+        ];
+        const openAging = agingDefs.map(d => ({ ...d, count: 0 }));
+        let overdueCount = 0;
+        const leadDays = [];
+        let onTimeBase = 0, onTimeHit = 0;
+        const budgetMap = {};
+        const vendorMap = {};
+
+        pos.forEach(po => {
+            const status = po.Status || 'Open';
+            statusCount[status] = (statusCount[status] || 0) + 1;
+
+            const reqTs = po.RequestDate ? new Date(po.RequestDate).getTime() : NaN;
+            const isOpen = status !== 'Completed' && status !== 'Cancelled';
+            if (isOpen && !Number.isNaN(reqTs)) {
+                const age = Math.max(0, Math.floor((now - reqTs) / DAY_MS));
+                openAging.find(d => age <= d.max).count += 1;
+            }
+            if (isOpen && po.DueDate && toDateKey(new Date(po.DueDate)) < todayKey) overdueCount += 1;
+
+            // Lead time = วันรับของแรก − วันขอซื้อ ; ตรงกำหนด = รับภายในวัน DueDate
+            const rec = firstReceiveTs[po.PO_ID];
+            let lead = null;
+            let onTime = null;
+            if (rec !== undefined && !Number.isNaN(reqTs)) {
+                lead = Math.max(0, Math.round((rec - reqTs) / DAY_MS));
+                leadDays.push(lead);
+                if (po.DueDate) {
+                    onTime = toDateKey(new Date(rec)) <= toDateKey(new Date(po.DueDate));
+                    onTimeBase += 1;
+                    if (onTime) onTimeHit += 1;
+                }
+            }
+
+            const ordered = (po.Items || []).reduce((s, i) => s + (Number(i.QtyOrdered) || 0) * (Number(i.UnitCost) || 0), 0);
+            const received = (po.Items || []).reduce((s, i) => s + (Number(i.QtyReceived) || 0) * (Number(i.UnitCost) || 0), 0);
+
+            const budgetName = po.BudgetNo || 'ไม่ระบุ';
+            const b = budgetMap[budgetName] || (budgetMap[budgetName] = { name: budgetName, ordered: 0, received: 0, count: 0 });
+            b.ordered += ordered; b.received += received; b.count += 1;
+
+            const vendorName = po.VendorName || 'ไม่ระบุ';
+            const v = vendorMap[vendorName] || (vendorMap[vendorName] = { name: vendorName, ordered: 0, count: 0, leadSum: 0, leadCount: 0, onTimeBase: 0, onTimeHit: 0 });
+            v.ordered += ordered; v.count += 1;
+            if (lead !== null) { v.leadSum += lead; v.leadCount += 1; }
+            if (onTime !== null) { v.onTimeBase += 1; if (onTime) v.onTimeHit += 1; }
+        });
+
+        const sortedLead = [...leadDays].sort((a, b) => a - b);
+        const medianLead = sortedLead.length ? sortedLead[Math.floor(sortedLead.length / 2)] : null;
+        const avgLead = sortedLead.length ? Math.round((sortedLead.reduce((s, x) => s + x, 0) / sortedLead.length) * 10) / 10 : null;
+
+        const budgetRows = Object.values(budgetMap).sort((a, b) => b.ordered - a.ordered);
+        const vendorRows = Object.values(vendorMap)
+            .map(v => ({
+                ...v,
+                avgLead: v.leadCount > 0 ? Math.round((v.leadSum / v.leadCount) * 10) / 10 : null,
+                onTimeRate: v.onTimeBase > 0 ? Math.round((v.onTimeHit / v.onTimeBase) * 100) : null,
+            }))
+            .sort((a, b) => b.ordered - a.ordered);
+
+        return {
+            totalPOs: pos.length,
+            openCount: pos.filter(po => po.Status !== 'Completed' && po.Status !== 'Cancelled').length,
+            statusCount,
+            statusOrder: STATUS_ORDER,
+            openAging,
+            overdueCount,
+            medianLead,
+            avgLead,
+            onTimeRate: onTimeBase > 0 ? Math.round((onTimeHit / onTimeBase) * 100) : null,
+            budgetRows,
+            vendorRows,
+        };
+    }, [purchaseOrders, invoices, filterDateRange, filterCustomStart, filterCustomEnd]);
+
     // Calculate total dead stock value
     const deadStockValue = deadStockAll.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
 
@@ -543,8 +703,7 @@ const ReportPage = () => {
         });
 
         return Object.values(userMap)
-            .sort((a, b) => b.totalValue - a.totalValue)
-            .slice(0, 5);
+            .sort((a, b) => b.totalValue - a.totalValue);
     }, [filteredTransactions, products]);
 
     // NEW: Top Withdrawn Items (Most withdrawn products)
@@ -585,8 +744,7 @@ const ReportPage = () => {
         });
 
         return Object.values(itemMap)
-            .sort((a, b) => b.totalQty - a.totalQty)
-            .slice(0, 10);
+            .sort((a, b) => b.totalQty - a.totalQty);
     }, [filteredTransactions, products]);
 
     // NEW: Withdrawals By Category
@@ -870,6 +1028,57 @@ const ReportPage = () => {
                 })}
             </div>
             {activeTab === 'overview' && (<>
+            {/* ═══ เทียบกับช่วงก่อนหน้า ═══ */}
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-2xl p-5 shadow-lg border border-slate-200"
+            >
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                    <div>
+                        <h3 className="font-bold text-slate-800 text-sm">เทียบกับช่วงก่อนหน้า</h3>
+                        <p className="text-[10px] text-slate-400">
+                            {periodComparison
+                                ? `ช่วงเดียวกันความยาว ${periodComparison.days} วัน: ${fmtDateKey(periodComparison.prevStart)} – ${fmtDateKey(periodComparison.prevEnd)}${filterCategories.length > 0 ? ' • กรองตามหมวดหมู่' : ''}`
+                                : 'เลือกช่วงวันที่ในตัวกรอง (เดือนนี้ / 3 เดือน / ไตรมาส / ปีงบประมาณ / กำหนดเอง) เพื่อดูการเปรียบเทียบ'}
+                        </p>
+                    </div>
+                </div>
+                {periodComparison && (() => {
+                    const cur = periodComparison.current;
+                    const prev = periodComparison.previous;
+                    const metrics = [
+                        { label: 'มูลค่ารับเข้า', cur: cur.inValue, prev: prev.inValue, money: true, goodWhenUp: true, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-100' },
+                        { label: 'มูลค่าเบิกออก', cur: cur.outValue, prev: prev.outValue, money: true, goodWhenUp: false, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-100' },
+                        { label: 'จำนวนรายการเคลื่อนไหว', cur: cur.count, prev: prev.count, money: false, goodWhenUp: true, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-100' },
+                    ];
+                    return (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            {metrics.map(m => {
+                                const change = pctChange(m.cur, m.prev);
+                                const up = change !== null && change >= 0;
+                                const tone = change === null
+                                    ? 'text-slate-500 bg-slate-100'
+                                    : (up === m.goodWhenUp ? 'text-emerald-700 bg-emerald-100' : 'text-rose-700 bg-rose-100');
+                                const fmt = (v) => m.money ? `฿${Math.round(v).toLocaleString('th-TH')}` : v.toLocaleString('th-TH');
+                                return (
+                                    <div key={m.label} className={`rounded-xl p-3 border ${m.bg}`}>
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">{m.label}</p>
+                                        <p className={`text-xl font-black ${m.color}`}>{fmt(m.cur)}</p>
+                                        <div className="flex items-center justify-between mt-1 gap-2">
+                                            <p className="text-[10px] text-slate-400 font-mono truncate">ก่อนหน้า {fmt(m.prev)}</p>
+                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${tone}`}>
+                                                {change === null ? 'ไม่มีฐานเทียบ' : `${up ? '▲' : '▼'} ${Math.abs(change).toFixed(1)}%`}
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    );
+                })()}
+            </motion.div>
+
             {/* Stats Grid */}
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -1097,6 +1306,137 @@ const ReportPage = () => {
             </div>
             </>)}
             {activeTab === 'procurement' && (<>
+            {/* ═══ Procurement Analytics (กรองตามวันที่ขอซื้อ) ═══ */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard icon={FileText} title="PO ในช่วงนี้" value={procurementAnalytics.totalPOs.toLocaleString()} subtitle={`ค้างอยู่ ${procurementAnalytics.openCount} ใบ`} color="from-blue-500 to-blue-600" />
+                <StatCard icon={AlertCircle} title="เกินกำหนดส่ง" value={procurementAnalytics.overdueCount} subtitle="PO ค้างที่เลย DueDate" color={procurementAnalytics.overdueCount > 0 ? 'from-rose-500 to-rose-600' : 'from-emerald-500 to-emerald-600'} />
+                <StatCard icon={Clock} title="Lead time (มัธยฐาน)" value={procurementAnalytics.medianLead !== null ? `${procurementAnalytics.medianLead} วัน` : '—'} subtitle={procurementAnalytics.avgLead !== null ? `เฉลี่ย ${procurementAnalytics.avgLead} วัน (ขอซื้อ → รับของ)` : 'ยังไม่มีข้อมูลการรับของ'} color="from-indigo-500 to-indigo-600" />
+                <StatCard icon={TrendingUp} title="ส่งตรงกำหนด" value={procurementAnalytics.onTimeRate !== null ? `${procurementAnalytics.onTimeRate}%` : '—'} subtitle="รับของภายใน DueDate" color="from-emerald-500 to-emerald-600" />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Funnel สถานะ PO */}
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                    <h3 className="font-bold text-slate-800">สถานะใบสั่งซื้อ</h3>
+                    <p className="text-xs text-slate-500 mb-4">จำนวน PO แยกตามสถานะ</p>
+                    <div className="space-y-3">
+                        {procurementAnalytics.statusOrder.map(s => {
+                            const n = procurementAnalytics.statusCount[s] || 0;
+                            const pct = procurementAnalytics.totalPOs > 0 ? (n / procurementAnalytics.totalPOs) * 100 : 0;
+                            const tone = s === 'Completed' ? 'bg-emerald-500' : s === 'Cancelled' ? 'bg-slate-400' : s === 'Pending' ? 'bg-amber-400' : s === 'Partial' ? 'bg-sky-500' : 'bg-indigo-500';
+                            return (
+                                <div key={s}>
+                                    <div className="flex justify-between text-xs mb-1">
+                                        <span className="font-bold text-slate-700">{s}</span>
+                                        <span className="font-mono text-slate-600">{n} ใบ • {Math.round(pct)}%</span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                        <div className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </motion.div>
+
+                {/* อายุ PO ที่ยังค้าง */}
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                    <h3 className="font-bold text-slate-800">อายุ PO ที่ยังค้าง</h3>
+                    <p className="text-xs text-slate-500 mb-4">นับจากวันที่ขอซื้อ (สถานะที่ยังไม่ Completed / Cancelled)</p>
+                    <div className="space-y-3">
+                        {procurementAnalytics.openAging.map(b => {
+                            const pct = procurementAnalytics.openCount > 0 ? (b.count / procurementAnalytics.openCount) * 100 : 0;
+                            const tone = b.key === 'd' ? 'bg-rose-500' : b.key === 'c' ? 'bg-amber-500' : b.key === 'b' ? 'bg-yellow-400' : 'bg-emerald-500';
+                            return (
+                                <div key={b.key}>
+                                    <div className="flex justify-between text-xs mb-1">
+                                        <span className="font-bold text-slate-700">{b.label}</span>
+                                        <span className="font-mono text-slate-600">{b.count} ใบ</span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                        <div className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </motion.div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* ยอดสั่งซื้อตามงบ */}
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                    <h3 className="font-bold text-slate-800">ยอดสั่งซื้อตาม Budget No.</h3>
+                    <p className="text-xs text-slate-500 mb-4">มูลค่าที่สั่ง (QtyOrdered × UnitCost) และมูลค่าที่รับแล้ว</p>
+                    {procurementAnalytics.budgetRows.length === 0 ? (
+                        <p className="text-sm text-slate-400 py-8 text-center">ไม่มีข้อมูล PO ในช่วงนี้</p>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                                <thead>
+                                    <tr className="border-b border-slate-200 text-slate-500">
+                                        <th className="text-left py-1.5 px-2 font-medium">Budget No.</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">PO</th>
+                                        <th className="text-right py-1.5 px-2 font-medium">สั่งซื้อ</th>
+                                        <th className="text-right py-1.5 px-2 font-medium">รับแล้ว</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(expandedLists.budget ? procurementAnalytics.budgetRows : procurementAnalytics.budgetRows.slice(0, 10)).map(b => (
+                                        <tr key={b.name} className="border-b border-slate-100">
+                                            <td className="py-1.5 px-2 text-slate-800 font-medium truncate max-w-[180px]">{b.name}</td>
+                                            <td className="py-1.5 px-2 text-center font-mono text-slate-500">{b.count}</td>
+                                            <td className="py-1.5 px-2 text-right font-mono text-slate-800">฿{Math.round(b.ordered).toLocaleString('th-TH')}</td>
+                                            <td className="py-1.5 px-2 text-right font-mono text-emerald-600">฿{Math.round(b.received).toLocaleString('th-TH')}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                    <ToggleAllButton total={procurementAnalytics.budgetRows.length} limit={10} expanded={!!expandedLists.budget} onToggle={() => toggleList('budget')} />
+                </motion.div>
+
+                {/* Vendor Scorecard */}
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                    <h3 className="font-bold text-slate-800">Vendor Scorecard</h3>
+                    <p className="text-xs text-slate-500 mb-4">เรียงตามยอดสั่งซื้อ • Lead time เฉลี่ย และอัตราส่งตรงกำหนด</p>
+                    {procurementAnalytics.vendorRows.length === 0 ? (
+                        <p className="text-sm text-slate-400 py-8 text-center">ไม่มีข้อมูล PO ในช่วงนี้</p>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                                <thead>
+                                    <tr className="border-b border-slate-200 text-slate-500">
+                                        <th className="text-left py-1.5 px-2 font-medium">Vendor</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">PO</th>
+                                        <th className="text-right py-1.5 px-2 font-medium">ยอดสั่ง</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Lead เฉลี่ย</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">ตรงกำหนด</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(expandedLists.vendor ? procurementAnalytics.vendorRows : procurementAnalytics.vendorRows.slice(0, 10)).map(v => (
+                                        <tr key={v.name} className="border-b border-slate-100">
+                                            <td className="py-1.5 px-2 text-slate-800 font-medium truncate max-w-[160px]">{v.name}</td>
+                                            <td className="py-1.5 px-2 text-center font-mono text-slate-500">{v.count}</td>
+                                            <td className="py-1.5 px-2 text-right font-mono text-slate-800">฿{Math.round(v.ordered).toLocaleString('th-TH')}</td>
+                                            <td className="py-1.5 px-2 text-center font-mono text-slate-600">{v.avgLead !== null ? `${v.avgLead} วัน` : '—'}</td>
+                                            <td className="py-1.5 px-2 text-center">
+                                                {v.onTimeRate === null ? <span className="text-slate-300">—</span> : (
+                                                    <span className={`px-1.5 py-0.5 rounded font-bold ${v.onTimeRate >= 80 ? 'bg-emerald-100 text-emerald-700' : v.onTimeRate >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{v.onTimeRate}%</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                    <ToggleAllButton total={procurementAnalytics.vendorRows.length} limit={10} expanded={!!expandedLists.vendor} onToggle={() => toggleList('vendor')} />
+                </motion.div>
+            </div>
+
             {/* ═══ Priority Order List ════════════════════════════════════════ */}
             {forecastItems.length > 0 && (
                 <motion.div
@@ -1467,7 +1807,7 @@ const ReportPage = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {slowMovingItems.length > 0 ? slowMovingItems.map((item, idx) => (
+                                {slowMovingItems.length > 0 ? (expandedLists.slowMoving ? slowMovingItems : slowMovingItems.slice(0, 10)).map((item, idx) => (
                                     <motion.tr
                                         key={item.ProductID}
                                         initial={{ opacity: 0 }}
@@ -1497,6 +1837,7 @@ const ReportPage = () => {
                             </tbody>
                         </table>
                     </div>
+                    <ToggleAllButton total={slowMovingItems.length} limit={10} expanded={!!expandedLists.slowMoving} onToggle={() => toggleList('slowMoving')} />
                 </motion.div>
                 )}
 
@@ -1518,7 +1859,7 @@ const ReportPage = () => {
                         </div>
                     </div>
                     <div className="space-y-3">
-                        {topConsumers.length > 0 ? topConsumers.map((user, idx) => (
+                        {topConsumers.length > 0 ? (expandedLists.consumers ? topConsumers : topConsumers.slice(0, 5)).map((user, idx) => (
                             <motion.div
                                 key={user.userId}
                                 initial={{ opacity: 0, x: -10 }}
@@ -1544,6 +1885,7 @@ const ReportPage = () => {
                             </div>
                         )}
                     </div>
+                    <ToggleAllButton total={topConsumers.length} limit={5} expanded={!!expandedLists.consumers} onToggle={() => toggleList('consumers')} />
                 </motion.div>
                 )}
             </div>
@@ -1578,7 +1920,7 @@ const ReportPage = () => {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {stockAnalytics.abcRows.map(r => (
+                                            {(expandedLists.abc ? stockAnalytics.abcRows : stockAnalytics.abcRows.slice(0, 15)).map(r => (
                                                 <tr key={r.ProductID} className="border-b border-slate-100">
                                                     <td className="py-1.5 px-2 text-slate-800 truncate max-w-[220px]">{r.ProductName}</td>
                                                     <td className="py-1.5 px-2 text-center"><span className={`px-1.5 py-0.5 rounded font-bold border ${ABC_STYLE[r.cls]}`}>{r.cls}</span></td>
@@ -1588,6 +1930,7 @@ const ReportPage = () => {
                                         </tbody>
                                     </table>
                                 </div>
+                                <ToggleAllButton total={stockAnalytics.abcRows.length} limit={15} expanded={!!expandedLists.abc} onToggle={() => toggleList('abc')} />
                             </>
                         ) : (
                             <p className="text-sm text-slate-400 py-8 text-center">ยังไม่มีข้อมูลการเบิกใน 12 เดือน</p>
@@ -1634,7 +1977,7 @@ const ReportPage = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {stockAnalytics.daysOfStock.map(r => (
+                                    {(expandedLists.days ? stockAnalytics.daysOfStock : stockAnalytics.daysOfStock.slice(0, 10)).map(r => (
                                         <tr key={r.ProductID} className="border-b border-slate-100">
                                             <td className="py-1.5 px-2 text-slate-800 truncate max-w-[200px]">{r.ProductName}</td>
                                             <td className="py-1.5 px-2 text-right font-mono">{r.CurrentStock}</td>
@@ -1648,6 +1991,9 @@ const ReportPage = () => {
                                     ))}
                                 </tbody>
                             </table>
+                        )}
+                        {stockAnalytics.daysOfStock.length > 0 && (
+                            <ToggleAllButton total={stockAnalytics.daysOfStock.length} limit={10} expanded={!!expandedLists.days} onToggle={() => toggleList('days')} />
                         )}
                     </motion.div>
 
@@ -1675,7 +2021,7 @@ const ReportPage = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {stockAnalytics.overstockAll.map(r => (
+                                    {(expandedLists.overstock ? stockAnalytics.overstockAll : stockAnalytics.overstockAll.slice(0, 10)).map(r => (
                                         <tr key={r.ProductID} className="border-b border-slate-100">
                                             <td className="py-1.5 px-2 text-slate-800 truncate max-w-[220px]">{r.ProductName}</td>
                                             <td className="py-1.5 px-2 text-right font-mono">{r.CurrentStock} / {r.MaxStock}</td>
@@ -1684,6 +2030,9 @@ const ReportPage = () => {
                                     ))}
                                 </tbody>
                             </table>
+                        )}
+                        {stockAnalytics.overstockCount > 0 && (
+                            <ToggleAllButton total={stockAnalytics.overstockAll.length} limit={10} expanded={!!expandedLists.overstock} onToggle={() => toggleList('overstock')} />
                         )}
                     </motion.div>
                 </div>
@@ -1835,7 +2184,7 @@ const ReportPage = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {topWithdrawnItems.length > 0 ? topWithdrawnItems.slice(0, 5).map((item, idx) => (
+                                {topWithdrawnItems.length > 0 ? (expandedLists.withdrawn ? topWithdrawnItems : topWithdrawnItems.slice(0, 5)).map((item, idx) => (
                                     <tr key={item.productId} className="border-b border-slate-100 hover:bg-slate-50">
                                         <td className="py-2 px-2">
                                             <span className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold
@@ -1860,6 +2209,7 @@ const ReportPage = () => {
                             </tbody>
                         </table>
                     </div>
+                    <ToggleAllButton total={topWithdrawnItems.length} limit={5} expanded={!!expandedLists.withdrawn} onToggle={() => toggleList('withdrawn')} />
                 </motion.div>
 
                 <motion.div
