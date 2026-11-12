@@ -31,7 +31,7 @@ const THUMB_MAX_DIMENSION = 480;
 
 // เฉพาะ role นี้เท่านั้นที่ลบ/แก้ไขได้ (ตาม convention เดิมของระบบ — isAdmin = role 'Staff')
 const ADMIN_ROLE = 'Staff';
-const isAdminRole = (role) => role === ADMIN_ROLE;
+const isAdminRole = (role) => role === ADMIN_ROLE || role === 'Admin';
 
 // ─── Helper: resize รูปเป็น main + thumbnail แล้วเซฟลง network share (ใช้ jimp — pure JS ไม่มี native binary) ───
 const saveResizedImage = async (fileBuffer) => {

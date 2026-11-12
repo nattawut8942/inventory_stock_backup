@@ -560,7 +560,7 @@ function GlobalSearchModal({ cameras, onSelect, onClose }) {
 
 function CCTVPage() {
     const { user } = useAuth();
-    const isStaff = user?.role === 'Staff'; // ✅ ลากย้ายตำแหน่งกล้องได้เฉพาะ staff — ดูอย่างเดียวได้ทุกคน
+    const isStaff = (user?.role === 'Staff' || user?.role === 'Admin'); // ✅ ลากย้ายตำแหน่งกล้องได้เฉพาะ staff — ดูอย่างเดียวได้ทุกคน
     const isStaffRef = useRef(isStaff);
     useEffect(() => { isStaffRef.current = isStaff; }, [isStaff]);
     const [layouts, setLayouts] = useState([]);

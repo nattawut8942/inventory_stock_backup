@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server } from 'lucide-react';
+import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
@@ -9,19 +9,23 @@ import { API_BASE, API_URL } from '../config/api';
 import { getBadgeStyle, getDeviceTypeColor, getChartColor } from '../utils/styleHelpers';
 
 const ManagementPage = () => {
-    const { user } = useAuth();
+    const { user, token } = useAuth();
     const { deviceTypes, vendors, refreshData } = useData();
     const [activeTab, setActiveTab] = useState('admin');
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Admin Users State
-    const [adminUsers, setAdminUsers] = useState([]);
-    const [isLoadingAdmins, setIsLoadingAdmins] = useState(false);
-    const [newAdmin, setNewAdmin] = useState('');
-    const [newAdminEmpCode, setNewAdminEmpCode] = useState('');
-    const [isAddAdminOpen, setIsAddAdminOpen] = useState(false);
-    const [editingAdmin, setEditingAdmin] = useState(null);
-    const [editAdminForm, setEditAdminForm] = useState({ Username: '', EmpCode: '' });
+    // Users State (Stock_Users — recorded automatically on login)
+    const [stockUsers, setStockUsers] = useState([]);
+    const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+    const [savingRoleId, setSavingRoleId] = useState(null);
+    const isAdminUser = user?.role === 'Admin';
+    const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
+    // Login Log State (Admin only)
+    const [loginLogs, setLoginLogs] = useState([]);
+    const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+    const [logStatus, setLogStatus] = useState('');
+    const [logDays, setLogDays] = useState(30);
 
     // Vendors State
     const [isAddVendorOpen, setIsAddVendorOpen] = useState(false);
@@ -91,15 +95,34 @@ const ManagementPage = () => {
     };
 
     // --- Fetch Functions ---
-    const fetchAdminUsers = async () => {
-        setIsLoadingAdmins(true);
+    const fetchLoginLogs = async () => {
+        setIsLoadingLogs(true);
         try {
-            const res = await fetch(`${API_BASE}/admin-users`);
-            if (res.ok) setAdminUsers(await res.json());
+            const params = new URLSearchParams({ days: String(logDays) });
+            if (logStatus) params.set('status', logStatus);
+            const res = await fetch(`${API_BASE}/login-logs?${params}`, { headers: authHeaders });
+            if (res.ok) setLoginLogs(await res.json());
         } catch (err) {
             console.error(err);
         } finally {
-            setIsLoadingAdmins(false);
+            setIsLoadingLogs(false);
+        }
+    };
+
+    useEffect(() => {
+        if (activeTab === 'login-logs') fetchLoginLogs();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, logStatus, logDays]);
+
+    const fetchStockUsers = async () => {
+        setIsLoadingUsers(true);
+        try {
+            const res = await fetch(`${API_BASE}/stock-users`, { headers: authHeaders });
+            if (res.ok) setStockUsers(await res.json());
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setIsLoadingUsers(false);
         }
     };
 
@@ -224,7 +247,7 @@ const ManagementPage = () => {
     };
 
     useEffect(() => {
-        if (activeTab === 'admin') fetchAdminUsers();
+        if (activeTab === 'admin') fetchStockUsers();
         if (activeTab === 'locations') fetchLocations();
         if (activeTab === 'reasons') fetchReasons();
         if (activeTab === 'ma-types') fetchMATypes();
@@ -235,51 +258,47 @@ const ManagementPage = () => {
         setSearchTerm('');
     }, [activeTab]);
 
-    // --- Admin Functions ---
-    const handleAddAdmin = async (e) => {
-        e.preventDefault();
-        try {
-            const res = await fetch(`${API_BASE}/admin-users`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: newAdmin, empCode: newAdminEmpCode, createdBy: user?.username })
-            });
-            const data = await res.json();
-            if (data.success) {
-                setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: 'เพิ่มผู้ดูแลระบบสำเร็จ' });
-                setNewAdmin('');
-                setNewAdminEmpCode('');
-                setIsAddAdminOpen(false);
-                fetchAdminUsers();
-            } else {
-                setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: data.error || 'Failed' });
-            }
-        } catch (err) {
-            setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: err.message });
-        }
-    };
-
-    const handleDeleteAdmin = (username) => {
+    // --- User Role Functions ---
+    const handleChangeRole = (target, newRole) => {
+        if (newRole === target.Role) return;
         setAlertModal({
             isOpen: true,
             type: 'danger',
-            title: 'ยืนยันการลบ',
-            message: `คุณแน่ใจหรือไม่ที่จะลบ ${username}?`,
-            confirmText: 'ลบ',
+            title: 'ยืนยันการเปลี่ยนสิทธิ์',
+            message: `เปลี่ยนสิทธิ์ ${target.Name || target.Username || target.EmpCode} จาก ${target.Role} เป็น ${newRole}? (มีผลเมื่อผู้ใช้ login ครั้งถัดไป)`,
+            confirmText: 'เปลี่ยน',
             cancelText: 'ยกเลิก',
             onConfirm: async () => {
+                setSavingRoleId(target.ID);
                 try {
-                    const res = await fetch(`${API_BASE}/admin-users/${username}`, { method: 'DELETE' });
-                    if (res.ok) {
-                        setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: 'ลบผู้ดูแลระบบสำเร็จ' });
-                        fetchAdminUsers();
+                    const res = await fetch(`${API_BASE}/stock-users/${target.ID}/role`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', ...authHeaders },
+                        body: JSON.stringify({ Role: newRole })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok && data.success) {
+                        setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: data.message || 'อัปเดตสิทธิ์สำเร็จ' });
+                        fetchStockUsers();
+                    } else {
+                        setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: data.error || data.message || `HTTP ${res.status}` });
                     }
                 } catch (err) {
                     setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: err.message });
+                } finally {
+                    setSavingRoleId(null);
                 }
             },
             onCancel: () => setAlertModal(prev => ({ ...prev, isOpen: false }))
         });
+    };
+
+    // DB uses useUTC:false, so JSON dates are real UTC instants — show them in local time
+    const formatDbDate = (d) => {
+        const t = d ? new Date(d) : null;
+        if (!t || isNaN(t)) return '-';
+        const p = (n) => String(n).padStart(2, '0');
+        return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`;
     };
 
 
@@ -295,32 +314,6 @@ const handleFileSelect = (e) => {
 };
 
 
-    const handleEditAdmin = (admin) => {
-        setEditingAdmin(admin);
-        setEditAdminForm({ Username: admin.Username, EmpCode: admin.EmpCode || '' });
-        setIsAddAdminOpen(true);
-    };
-
-    const handleSaveEditAdmin = async (e) => {
-        e.preventDefault();
-        try {
-            const res = await fetch(`${API_BASE}/admin-users/${editingAdmin.ID}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(editAdminForm)
-            });
-            const data = await res.json();
-            if (data.success) {
-                setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: 'อัปเดตสำเร็จ' });
-                setEditingAdmin(null);
-                setEditAdminForm({ Username: '', EmpCode: '' });
-                setIsAddAdminOpen(false);
-                fetchAdminUsers();
-            }
-        } catch (err) {
-            setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: err.message });
-        }
-    };
 
     // --- Vendor Functions ---
     const handleSaveVendor = async (e) => {
@@ -748,7 +741,7 @@ const handleFileSelect = (e) => {
                 {/* Tabs */}
                 <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto custom-scrollbar w-full md:w-auto">
                     {[
-                        { id: 'admin', label: 'Admin', icon: Users },
+                        { id: 'admin', label: 'Users', icon: Users },
                         { id: 'vendors', label: 'Vendors', icon: Truck },
                         { id: 'locations', label: 'Locations', icon: Archive },
                         { id: 'reasons', label: 'Reasons', icon: MessageSquare },
@@ -756,7 +749,8 @@ const handleFileSelect = (e) => {
                         { id: 'budgets', label: 'Budgets', icon: DollarSign },
                         { id: 'factory-layouts', label: 'Maps', icon: Map },
                         { id: 'record-servers', label: 'Record Servers', icon: Server },
-                        { id: 'activity-categories', label: 'Activity Categories', icon: Camera }
+                        { id: 'activity-categories', label: 'Activity Categories', icon: Camera },
+                        ...(isAdminUser ? [{ id: 'login-logs', label: 'Login Log', icon: History }] : [])
                     ].map(tab => (
                         <button
                             key={tab.id}
@@ -789,71 +783,174 @@ const handleFileSelect = (e) => {
                     <div className="space-y-6 animate-in fade-in duration-300">
                         <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
                             <div>
-                                <h3 className="text-lg font-bold text-slate-800 mb-2">SYSTEM ADMINISTRATORS</h3>
-                                <p className="text-slate-500 text-xs">จัดการสิทธิผู้ดูแลระบบ</p>
+                                <h3 className="text-lg font-bold text-slate-800 mb-2">USERS</h3>
+                                <p className="text-slate-500 text-xs">
+                                    ผู้ใช้ถูกบันทึกอัตโนมัติเมื่อ login ครั้งแรก (ได้สิทธิ์ Staff) · {isAdminUser ? 'คุณเปลี่ยนสิทธิ์ได้ในคอลัมน์ Role' : 'เฉพาะ Admin เท่านั้นที่เปลี่ยนสิทธิ์ได้'}
+                                </p>
                             </div>
-                            <button
-                                onClick={() => setIsAddAdminOpen(true)}
-                                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"
-                            >
-                                <Plus size={18} />
-                                เพิ่ม Admin
-                            </button>
+                            <div className="text-right text-xs text-slate-500 shrink-0">
+                                <div><span className="font-bold text-slate-700">{stockUsers.length}</span> users</div>
+                                <div><span className="font-bold text-violet-600">{stockUsers.filter(u => u.Role === 'Admin').length}</span> admins</div>
+                            </div>
                         </div>
 
-                        {isLoadingAdmins ? (
+                        {isLoadingUsers ? (
                             <div className="text-center py-10 text-slate-400">Loading...</div>
-                        ) : (
-                            <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-                                <table className="w-full text-left border-collapse whitespace-nowrap min-w-[500px]">
-                                    <thead>
-                                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                                            <th className="p-4 font-bold">ID</th>
-                                            <th className="p-4 font-bold">Username</th>
-                                            <th className="p-4 font-bold">EmpCode</th>
-                                            <th className="p-4 font-bold">Created By</th>
-                                            <th className="p-4 font-bold text-right">จัดการ</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {adminUsers.filter(u => u.Username.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                                            adminUsers.filter(u => u.Username.toLowerCase().includes(searchTerm.toLowerCase())).map(admin => (
-                                                <tr key={admin.ID} className="hover:bg-slate-50 transition-colors group">
-                                                    <td className="p-4 text-slate-400 font-mono text-sm">#{admin.ID}</td>
-                                                    <td className="p-4 font-bold text-slate-700 flex items-center gap-2"><Shield size={16} className="text-indigo-600" />{admin.Username}</td>
-                                                    <td className="p-4 text-slate-600 text-sm">{admin.EmpCode || '-'}</td>
-                                                    <td className="p-4 text-slate-600 text-sm">{admin.CreatedBy || 'System'}</td>
-                                                    <td className="p-4 text-right">
-                                                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button
-                                                                onClick={() => handleEditAdmin(admin)}
-                                                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                                                            >
-                                                                <Edit2 size={16} />
-                                                            </button>
-                                                            {admin.Username.toLowerCase() !== 'admin' && (
-                                                                <button
-                                                                    onClick={() => handleDeleteAdmin(admin.Username)}
-                                                                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                                                                >
-                                                                    <Trash2 size={16} />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        ) : (
-                                            <tr>
-                                                <td colSpan="5" className="p-12 text-center text-slate-400">No admins found</td>
+                        ) : (() => {
+                            const q = searchTerm.toLowerCase();
+                            const rows = stockUsers.filter(u =>
+                                [u.EmpCode, u.Username, u.Name, u.Sect, u.Role].some(v => String(v || '').toLowerCase().includes(q))
+                            );
+                            return (
+                                <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
+                                    <table className="w-full text-left border-collapse whitespace-nowrap min-w-[760px]">
+                                        <thead>
+                                            <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
+                                                <th className="p-4 font-bold">EmpCode</th>
+                                                <th className="p-4 font-bold">Name</th>
+                                                <th className="p-4 font-bold">Username</th>
+                                                <th className="p-4 font-bold">Sect</th>
+                                                <th className="p-4 font-bold">Role</th>
+                                                <th className="p-4 font-bold">Last Login</th>
+                                                <th className="p-4 font-bold">First Login</th>
                                             </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {rows.length > 0 ? rows.map(u => {
+                                                const isSelf = String(u.EmpCode) === String(user?.empcode);
+                                                const canEdit = isAdminUser && !isSelf;
+                                                return (
+                                                    <tr key={u.ID} className="hover:bg-slate-50 transition-colors">
+                                                        <td className="p-4 text-slate-600 font-mono text-sm">{u.EmpCode}</td>
+                                                        <td className="p-4 font-bold text-slate-700">
+                                                            {u.Name || '-'}
+                                                            {isSelf && <span className="ml-2 text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">คุณ</span>}
+                                                        </td>
+                                                        <td className="p-4 text-slate-600 text-sm">{u.Username || '-'}</td>
+                                                        <td className="p-4 text-slate-600 text-sm">{u.Sect || '-'}</td>
+                                                        <td className="p-4">
+                                                            {canEdit ? (
+                                                                <select
+                                                                    value={u.Role}
+                                                                    disabled={savingRoleId === u.ID}
+                                                                    onChange={(e) => handleChangeRole(u, e.target.value)}
+                                                                    className="px-2 py-1 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                                                                >
+                                                                    <option value="Staff">Staff</option>
+                                                                    <option value="Admin">Admin</option>
+                                                                </select>
+                                                            ) : (
+                                                                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold ${u.Role === 'Admin' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                                    {u.Role === 'Admin' && <Shield size={12} />}
+                                                                    {u.Role}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-4 text-slate-600 text-sm font-mono">{formatDbDate(u.LastLoginAt)}</td>
+                                                        <td className="p-4 text-slate-400 text-sm font-mono">{formatDbDate(u.FirstLoginAt)}</td>
+                                                    </tr>
+                                                );
+                                            }) : (
+                                                <tr>
+                                                    <td colSpan="7" className="p-12 text-center text-slate-400">ไม่พบผู้ใช้</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            );
+                        })()}
                     </div>
                 )}
+
+                {/* LOGIN LOG TAB (Admin only) */}
+                {activeTab === 'login-logs' && isAdminUser && (() => {
+                    const q = searchTerm.toLowerCase();
+                    const rows = loginLogs.filter(l =>
+                        [l.Username, l.EmpCode, l.Name, l.IpAddress, l.Reason, l.Status].some(v => String(v || '').toLowerCase().includes(q))
+                    );
+                    const count = (s) => loginLogs.filter(l => l.Status === s).length;
+                    const statusStyle = {
+                        SUCCESS: 'bg-emerald-50 text-emerald-700',
+                        FAILED: 'bg-amber-50 text-amber-700',
+                        DENIED: 'bg-rose-50 text-rose-700',
+                        ERROR: 'bg-slate-200 text-slate-700'
+                    };
+                    const browserOf = (ua = '') =>
+                        /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : (ua ? 'Other' : '-');
+                    return (
+                        <div className="space-y-6 animate-in fade-in duration-300">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-800 mb-2">LOGIN LOG</h3>
+                                    <p className="text-slate-500 text-xs">
+                                        ประวัติการ login ทุกครั้ง · สำเร็จ <b className="text-emerald-600">{count('SUCCESS')}</b> · ผิดรหัส <b className="text-amber-600">{count('FAILED')}</b> · ไม่มีสิทธิ์ <b className="text-rose-600">{count('DENIED')}</b> · ระบบขัดข้อง <b className="text-slate-700">{count('ERROR')}</b>
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <select value={logStatus} onChange={(e) => setLogStatus(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 bg-white">
+                                        <option value="">ทุกสถานะ</option>
+                                        <option value="SUCCESS">SUCCESS</option>
+                                        <option value="FAILED">FAILED</option>
+                                        <option value="DENIED">DENIED</option>
+                                        <option value="ERROR">ERROR</option>
+                                    </select>
+                                    <select value={logDays} onChange={(e) => setLogDays(Number(e.target.value))} className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 bg-white">
+                                        <option value={1}>24 ชม.</option>
+                                        <option value={7}>7 วัน</option>
+                                        <option value={30}>30 วัน</option>
+                                        <option value={90}>90 วัน</option>
+                                        <option value={365}>1 ปี</option>
+                                    </select>
+                                    <button onClick={fetchLoginLogs} title="รีเฟรช" className="p-2 border border-slate-200 rounded-lg bg-white text-slate-500 hover:text-indigo-600">
+                                        <RefreshCw size={16} className={isLoadingLogs ? 'animate-spin' : ''} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {isLoadingLogs && loginLogs.length === 0 ? (
+                                <div className="text-center py-10 text-slate-400">Loading...</div>
+                            ) : (
+                                <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
+                                    <table className="w-full text-left border-collapse whitespace-nowrap min-w-[860px]">
+                                        <thead>
+                                            <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
+                                                <th className="p-4 font-bold">Time</th>
+                                                <th className="p-4 font-bold">Status</th>
+                                                <th className="p-4 font-bold">Username</th>
+                                                <th className="p-4 font-bold">EmpCode</th>
+                                                <th className="p-4 font-bold">Name</th>
+                                                <th className="p-4 font-bold">Role</th>
+                                                <th className="p-4 font-bold">Reason</th>
+                                                <th className="p-4 font-bold">IP</th>
+                                                <th className="p-4 font-bold">Browser</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {rows.length > 0 ? rows.map(l => (
+                                                <tr key={l.ID} className="hover:bg-slate-50 transition-colors">
+                                                    <td className="p-4 text-slate-600 text-sm font-mono">{formatDbDate(l.LoginAt)}</td>
+                                                    <td className="p-4"><span className={`px-2 py-1 rounded-lg text-xs font-bold ${statusStyle[l.Status] || 'bg-slate-100 text-slate-600'}`}>{l.Status}</span></td>
+                                                    <td className="p-4 font-bold text-slate-700 text-sm">{l.Username || '-'}</td>
+                                                    <td className="p-4 text-slate-600 text-sm font-mono">{l.EmpCode || '-'}</td>
+                                                    <td className="p-4 text-slate-600 text-sm">{l.Name || '-'}</td>
+                                                    <td className="p-4 text-slate-600 text-sm">{l.Role || '-'}</td>
+                                                    <td className="p-4 text-slate-500 text-sm max-w-[240px] truncate" title={l.Reason || ''}>{l.Reason || '-'}</td>
+                                                    <td className="p-4 text-slate-600 text-sm font-mono">{l.IpAddress || '-'}</td>
+                                                    <td className="p-4 text-slate-500 text-sm" title={l.UserAgent || ''}>{browserOf(l.UserAgent || '')}</td>
+                                                </tr>
+                                            )) : (
+                                                <tr>
+                                                    <td colSpan="9" className="p-12 text-center text-slate-400">ไม่พบประวัติการ login</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })()}
 
                 {/* VENDORS TAB */}
                 {activeTab === 'vendors' && (
@@ -1308,39 +1405,6 @@ const handleFileSelect = (e) => {
 )}
             </div>
 
-            {/* MODALS - Admin */}
-            <AnimatePresence>
-                {isAddAdminOpen && (
-                    <Portal>
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
-                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden border border-white/20">
-                                <div className="p-5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <h3 className="font-black text-xl tracking-tight">{editingAdmin ? 'แก้ไขผู้ดูแล' : 'เพิ่มผู้ดูแลใหม่'}</h3>
-                                        </div>
-                                        <button onClick={() => { setIsAddAdminOpen(false); setEditingAdmin(null); setNewAdmin(''); setNewAdminEmpCode(''); }} className="p-2 hover:bg-white/10 rounded-full"><X size={20} /></button>
-                                    </div>
-                                </div>
-                                <form onSubmit={editingAdmin ? handleSaveEditAdmin : handleAddAdmin} className="p-5 space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-2">Username</label>
-                                        <input autoFocus type="text" placeholder="jdoe" className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-700" value={editingAdmin ? editAdminForm.Username : newAdmin} onChange={(e) => editingAdmin ? setEditAdminForm({...editAdminForm, Username: e.target.value}) : setNewAdmin(e.target.value)} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-2">EmpCode (optional)</label>
-                                        <input type="text" placeholder="E12345" className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-700 font-mono" value={editingAdmin ? editAdminForm.EmpCode : newAdminEmpCode} onChange={(e) => editingAdmin ? setEditAdminForm({...editAdminForm, EmpCode: e.target.value}) : setNewAdminEmpCode(e.target.value)} />
-                                    </div>
-                                    <div className="flex gap-3 pt-4">
-                                        <button type="button" onClick={() => { setIsAddAdminOpen(false); setEditingAdmin(null); setNewAdmin(''); setNewAdminEmpCode(''); }} className="flex-1 bg-white border border-slate-200 text-slate-600 font-bold py-2.5 rounded-lg hover:bg-slate-50">ยกเลิก</button>
-                                        <button type="submit" disabled={editingAdmin ? !editAdminForm.Username : !newAdmin} className="flex-[2] bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold py-2.5 rounded-lg hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50">บันทึก</button>
-                                    </div>
-                                </form>
-                            </motion.div>
-                        </motion.div>
-                    </Portal>
-                )}
-            </AnimatePresence>
 
             {/* MODAL - Vendor */}
             <AnimatePresence>

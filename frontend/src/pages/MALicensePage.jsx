@@ -651,7 +651,7 @@ const MAGridCard = ({ item, idx = 0, isAdmin, renderCell, onOpen, onEdit, onRene
 // ─── MAIN PAGE COMPONENT ─────────────────
 const MALicensePage = () => {
     const { user } = useAuth();
-    const isAdmin = user?.role === 'Staff';
+    const isAdmin = (user?.role === 'Staff' || user?.role === 'Admin');
 
     const [items, setItems] = useState([]);
     const [vendors, setVendors] = useState([]);

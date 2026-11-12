@@ -572,7 +572,7 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);   // ✅ เพิ่ม
   const [pendingWithdraw, setPendingWithdraw] = useState(null);
   const printRef = useRef();
-  const isAdmin = user?.role === 'Staff';
+  const isAdmin = (user?.role === 'Staff' || user?.role === 'Admin');
   const [gridSort, setGridSort] = useState('priority');
 
   const getIcon = (type) => {

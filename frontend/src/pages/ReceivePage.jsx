@@ -24,7 +24,7 @@ const ITEMS_PER_PAGE = 10;
 const ReceivePage = () => {
     const { purchaseOrders, invoices, products, vendors, transactions, refreshData, loading } = useData();
     const { user } = useAuth();
-    const isStaff = user?.role === 'Staff';
+    const isStaff = (user?.role === 'Staff' || user?.role === 'Admin');
 
     // ---------- Filter state ----------
     const defaultRange = useMemo(() => {

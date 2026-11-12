@@ -93,7 +93,7 @@ const PurchaseOrdersPage = () => {
     const { purchaseOrders, products, deviceTypes, vendors, refreshData } = useData();
     const { user } = useAuth();
     const navigate = useNavigate();
-    const isStaff = user?.role === 'Staff';
+    const isStaff = (user?.role === 'Staff' || user?.role === 'Admin');
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
