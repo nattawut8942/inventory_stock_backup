@@ -9,7 +9,8 @@ import fs from 'fs';
 import { pingAll, checkAll } from './src/controllers/soundDeviceController.js';
 
 // Config & Services
-import { connectDB } from './src/config/db.js';
+import { connectDB, getPool } from './src/config/db.js';
+import { sendIpAlertSummary } from './src/services/ipAlertService.js';
 import { connectDciDB } from './src/config/dciDb.js'
 import { connectHrmDB } from './src/config/hrmDb.js';;
 
@@ -270,7 +271,18 @@ const startServer = async () => {
             }
         }, { scheduled: true, timezone: 'Asia/Bangkok' });
 
-        cron.schedule('0 8,20 * * *', async () => {
+        // สรุปแจ้งเตือน IP (MAC ซ้ำ / ชื่อเครื่องซ้ำ) ทุกวัน 07:30 — ส่งเมื่อมีรายการและตั้ง IP_ALERT_RECIPIENTS เท่านั้น
+        cron.schedule('30 7 * * *', async () => {
+            try {
+                const r = await sendIpAlertSummary(getPool());
+                console.log('[Cron] IP alert summary:', r);
+            } catch (err) {
+                console.error('[Cron] IP alert summary failed:', err.message);
+            }
+        }, { scheduled: true, timezone: 'Asia/Bangkok' });
+
+        // ย้ายจาก 08:00 เป็น 06:00 เพื่อไม่ให้ traffic ของการสแกนชนช่วงเข้างาน
+        cron.schedule('0 6,20 * * *', async () => {
             console.log('[Cron] IP Auto Scan starting...');
             try {
                 await runAllSubnets();

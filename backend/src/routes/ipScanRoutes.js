@@ -23,6 +23,7 @@ import {
   getInactiveIPs,
   getSnapshots,
   getReservedIPs,
+  getAlerts,
 } from '../controllers/ipScanController.js';
 
 const router = express.Router();
@@ -74,5 +75,6 @@ router.get('/ip-scan/history',          verifyToken, getRecentHistory);
 router.get('/ip-scan/inactive',         verifyToken, getInactiveIPs);
 router.get('/ip-scan/snapshots',        verifyToken, getSnapshots);
 router.get('/ip-scan/reserved',         verifyToken, getReservedIPs);
+router.get('/ip-scan/alerts',           verifyToken, getAlerts);
 
 export default router;

@@ -4,7 +4,7 @@ import {
     Search, X, RefreshCw, LayoutGrid, List, AlertTriangle, CheckCircle,
     Network, FileDown, Copy, Check, Command, Monitor, Pencil, Shield, Clock, Layers
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, getAuthToken } from '../context/AuthContext';
 import Portal from '../components/Portal';
 import { API_BASE } from '../config/api';
 import * as XLSX from 'xlsx-js-style';
@@ -46,10 +46,8 @@ const resolveActor = (u) => {
 // JWT จาก login — ส่งกับ request ที่มี verifyToken
 const authHeaders = () => {
     const headers = { 'Content-Type': 'application/json' };
-    try {
-        const t = localStorage.getItem('it_stock_token');
-        if (t) headers.Authorization = `Bearer ${t}`;
-    } catch { /* storage ไม่พร้อม */ }
+    const t = getAuthToken();
+    if (t) headers.Authorization = `Bearer ${t}`;
     return headers;
 };
 
@@ -63,7 +61,7 @@ const responseError = async (r) => {
 // ── URL state: subnet / filter / view / q อยู่ใน query string ให้แชร์หรือกลับมาที่เดิมได้ ──
 const FILTER_KEYS = ['all', 'active', 'reserved', 'available', 'inactive'];
 // มุมมองหลัก: subnet (ค่าเริ่มต้น), ภาพรวม, ไทม์ไลน์, รายการ inactive
-const MAIN_VIEWS = ['subnet', 'overview', 'owners', 'timeline', 'inactive'];
+const MAIN_VIEWS = ['subnet', 'overview', 'owners', 'timeline', 'inactive', 'alerts'];
 const readUrl = () => {
     try {
         const p = new URLSearchParams(window.location.search);
@@ -319,7 +317,16 @@ const IPDrawer = ({ ip, data, api, onClose, onSave, onReserve, onRelease, actor,
                             <h3 className="font-mono text-lg font-black text-slate-900">{ip}</h3>
                             <CopyBtn k="ip" text={ip} />
                         </div>
-                        <p className="text-xs text-slate-500 mt-0.5 truncate">{hostname || 'ไม่มี hostname'}</p>
+                        {hostname ? (
+                            <div className="mt-2 inline-flex max-w-full items-center gap-2 px-2.5 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200">
+                                <Monitor size={14} className="text-indigo-600 shrink-0" />
+                                <span className="font-mono text-sm font-bold text-indigo-900 truncate" title={hostname}>{hostname}</span>
+                                <span className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide shrink-0">ชื่อเครื่องที่สแกนพบ</span>
+                                <CopyBtn k="host" text={hostname} />
+                            </div>
+                        ) : (
+                            <p className="mt-2 text-xs text-slate-400">ยังไม่พบชื่อเครื่องจากการสแกน</p>
+                        )}
                         <div className="mt-2"><StatusPill status={getDisplayStatus(data)} /></div>
                     </div>
                     <button onClick={requestClose} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label="ปิด">
@@ -864,6 +871,10 @@ const IPManagementPage = () => {
     const [filterStatus, setFilterStatus] = useState(() => urlInit.current.filter);
     const [mainView, setMainView] = useState(() => urlInit.current.v);
     const [panel, setPanel] = useState({ kind: '', rows: [], loading: false, err: '' });
+    // รายการแจ้งเตือน: MAC ซ้ำ / ชื่อเครื่องซ้ำ (โหลดตอนเปิดหน้า และตอนเข้าแท็บแจ้งเตือน)
+    const [alerts, setAlerts] = useState(null);
+    const [alertsErr, setAlertsErr] = useState('');
+    const [alertsLoading, setAlertsLoading] = useState(false);
     const [panelQuery, setPanelQuery] = useState('');
     const [tlFilter, setTlFilter] = useState({ sn: '', action: '' });
     const [openOwner, setOpenOwner] = useState('');
@@ -1093,6 +1104,25 @@ const IPManagementPage = () => {
     useEffect(() => {
         if (mainView === 'timeline' || mainView === 'inactive' || mainView === 'owners') loadPanel(mainView, tlFilter);
     }, [mainView, loadPanel]);
+
+    const loadAlerts = useCallback(async () => {
+        setAlertsLoading(true);
+        try {
+            const r = await fetch(`${API}/alerts`, { headers: authHeaders() });
+            const err = await responseError(r);
+            if (err) throw new Error(err);
+            setAlerts(await r.json());
+            setAlertsErr('');
+        } catch (e) {
+            setAlertsErr(e.message);
+        } finally {
+            setAlertsLoading(false);
+        }
+    }, [API]);
+
+    // โหลดครั้งแรกเพื่อแสดงจำนวนบนแท็บ และโหลดใหม่ทุกครั้งที่เปิดแท็บแจ้งเตือน
+    useEffect(() => { loadAlerts(); }, [loadAlerts]);
+    useEffect(() => { if (mainView === 'alerts') loadAlerts(); }, [mainView, loadAlerts]);
 
     // แนวโน้ม online ต่อ subnet (สแนปชอตรายวัน) สำหรับการ์ดภาพรวม
     useEffect(() => {
@@ -1519,7 +1549,9 @@ const IPManagementPage = () => {
     const TABLE_COLS = [
         { key: 'status', label: 'สถานะ', cell: d => <StatusPill status={getDisplayStatus(d)} /> },
         { key: 'inactive', label: 'ไม่ใช้งาน', cell: d => isInactive(d) ? <InactiveBadge days={d.inactive_days} /> : <span className="text-slate-300">—</span> },
-        { key: 'hostname', label: 'Hostname', cell: d => <span className="font-mono text-xs text-slate-600">{d.hostname && d.hostname !== '-' ? d.hostname : '—'}</span> },
+        { key: 'hostname', label: 'ชื่อเครื่อง (Hostname)', cell: d => d.hostname && d.hostname !== '-'
+            ? <span className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-md px-2 py-0.5 whitespace-nowrap"><Monitor size={12} className="text-indigo-500" />{d.hostname}</span>
+            : <span className="text-slate-300">—</span> },
         { key: 'owner', label: 'Owner', cell: d => <span className="text-slate-700">{fmtVal(d.owner_name)}</span> },
         { key: 'device', label: 'Device', cell: d => <span className="text-xs text-slate-600">{fmtVal(d.device)}</span> },
         { key: 'location', label: 'สถานที่', cell: d => <span className="text-xs text-slate-600">{fmtVal(d.location)}</span> },
@@ -1770,6 +1802,72 @@ const IPManagementPage = () => {
     };
 
     // ── มุมมอง inactive: IP ที่ไม่ออนไลน์เกินกำหนด เรียงนานที่สุดก่อน ─────────────────
+    const renderAlerts = () => {
+        const macGroups = alerts?.duplicateMac || [];
+        const hostGroups = alerts?.duplicateHostname || [];
+        const total = alerts?.total ?? 0;
+        const Section = ({ title, hint, children, count }) => (
+            <div className={`${cardClass} overflow-hidden`}>
+                <div className="px-4 py-3 border-b border-slate-100">
+                    <p className="font-bold text-slate-800">{title} <span className="text-slate-400 font-normal">({count})</span></p>
+                    <p className="text-xs text-slate-400">{hint}</p>
+                </div>
+                {children}
+            </div>
+        );
+        const IPLink = ({ ip, sub }) => (
+            <button onClick={() => openIPFromAnywhere(ip)} className="block text-left hover:underline">
+                <span className="font-mono font-bold text-indigo-600">{ip}</span>
+                {sub && <span className="ml-2 text-xs text-slate-500">{sub}</span>}
+            </button>
+        );
+        return (
+            <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-slate-500">
+                        {alertsLoading && !alerts ? 'กำลังตรวจสอบ…' : total === 0 ? 'ไม่พบรายการที่ต้องตรวจสอบ' : `พบ ${total} กลุ่มที่ควรตรวจสอบ`}
+                    </p>
+                    <button onClick={loadAlerts} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600">
+                        <RefreshCw size={12} className={alertsLoading ? 'animate-spin' : ''} /> รีเฟรช
+                    </button>
+                </div>
+                {alertsErr && <p className="text-sm text-red-500">โหลดไม่สำเร็จ: {alertsErr}</p>}
+
+                <Section title="MAC ซ้ำบนหลาย IP" count={macGroups.length}
+                    hint="MAC เดียวกันอยู่บน IP มากกว่า 1 — อาจเป็นการตั้ง IP เอง หรือเครื่องถูกย้ายโดยไม่ได้แจ้ง">
+                    {macGroups.length === 0 ? <p className="px-4 py-6 text-sm text-slate-400 text-center">ไม่มี</p> : (
+                        <div className="divide-y divide-slate-100">
+                            {macGroups.map(g => (
+                                <div key={g.mac} className="px-4 py-3">
+                                    <p className="font-mono text-xs font-semibold text-slate-700 mb-2">{g.mac}</p>
+                                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                                        {g.ips.map(i => <IPLink key={i.ip_address} ip={i.ip_address} sub={`${i.hostname && i.hostname !== '-' ? i.hostname : 'ไม่มีชื่อ'} · ${i.scan_result === 'Found' ? 'online' : 'offline'}`} />)}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </Section>
+
+                <Section title="ชื่อเครื่องซ้ำ (ที่ online)" count={hostGroups.length}
+                    hint="ชื่อเครื่องเดียวกันตอบ ping บนหลาย IP — อาจเป็นเครื่องเดียวกันที่มี IP หลายตัว หรือชื่อซ้ำกัน">
+                    {hostGroups.length === 0 ? <p className="px-4 py-6 text-sm text-slate-400 text-center">ไม่มี</p> : (
+                        <div className="divide-y divide-slate-100">
+                            {hostGroups.map(g => (
+                                <div key={g.hostname} className="px-4 py-3">
+                                    <p className="font-mono text-xs font-semibold text-slate-700 mb-2">{g.hostname}</p>
+                                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                                        {g.ips.map(i => <IPLink key={i.ip_address} ip={i.ip_address} sub={i.mac_address || ''} />)}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </Section>
+            </div>
+        );
+    };
+
     const renderInactive = () => {
         const isMine = panel.kind === 'inactive';
         const rows = isMine ? panel.rows : [];
@@ -1880,6 +1978,7 @@ const IPManagementPage = () => {
                     { key: 'owners', label: 'ตามผู้จอง', icon: Shield, count: capacity.reserved },
                     { key: 'timeline', label: 'ไทม์ไลน์', icon: Clock, count: null },
                     { key: 'inactive', label: `Inactive >${INACTIVE_THRESHOLD} วัน`, icon: AlertTriangle, count: capacity.inactive },
+                    { key: 'alerts', label: 'แจ้งเตือน', icon: AlertTriangle, count: alerts?.total ?? null },
                 ].map(t => {
                     const on = mainView === t.key;
                     return (
@@ -2020,6 +2119,7 @@ const IPManagementPage = () => {
             {mainView === 'timeline' && renderTimeline()}
             {mainView === 'owners' && renderOwners()}
             {mainView === 'inactive' && renderInactive()}
+            {mainView === 'alerts' && renderAlerts()}
 
             {/* แถบการทำงานหลายรายการ */}
             <AnimatePresence>

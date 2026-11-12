@@ -26,12 +26,9 @@ const LoginPage = () => {
             });
             const data = await res.json();
 
-            if (data.success) {
-                // เก็บ JWT ไว้ให้ request ที่ต้อง auth (เช่น IP Management) ใช้
-                try {
-                    if (data.token) localStorage.setItem('it_stock_token', data.token);
-                } catch { /* private mode */ }
-                login(data.user);
+            if (data.success && data.token) {
+                // user และ JWT เก็บผ่าน AuthContext ที่เดียว
+                login(data.user, data.token);
                 navigate('/');
             } else {
                 setError(data.message || 'Login failed');

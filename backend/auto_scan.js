@@ -16,7 +16,11 @@ const dnsReverse = promisify(dns.reverse);
 // CONFIG
 // =============================================
 const API_BASE   = process.env.IP_SCAN_API || 'http://localhost:3002/ITinventory/api';
-const CONCURRENCY = 50;   // ping พร้อมกันกี่ IP
+// ping พร้อมกันกี่ IP — ค่าต่ำเพื่อไม่ให้ ARP/ICMP พุ่งเป็นพืดบนเครือข่าย (ปรับด้วย env IP_SCAN_CONCURRENCY)
+const CONCURRENCY = Math.max(1, Number(process.env.IP_SCAN_CONCURRENCY) || 16);
+const BATCH_PAUSE_MS = Math.max(0, Number(process.env.IP_SCAN_BATCH_PAUSE_MS) ?? 200);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+let scanRunning = false;   // กันการสแกนซ้อน (cron กับการกดสแกนพร้อมกัน)
 // อ่าน env ตอนเรียกใช้ (ไม่ใช่ตอน import) เพราะ server.js import ไฟล์นี้
 const getScanKey = () => process.env.IP_SCAN_API_KEY;   // ต้องตรงกับ server (header x-scan-key)
 const OCTET       = '(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
@@ -47,12 +51,32 @@ async function getHostname(ip) {
   } catch { return null; }
 }
 
+// ─── MAC จาก ARP table (Windows เท่านั้น) ──
+// ต้อง ping ก่อนเพื่อให้ ARP cache มีรายการ; IP คนละ subnet จะไม่มีรายการ จึงไม่ได้ MAC ของ router
+function getMacFromArp(ip) {
+  return new Promise(resolve => {
+    if (!IP_RE.test(ip) || process.platform !== 'win32') return resolve(null);
+    execFile('arp', ['-a', ip], { timeout: 3000 }, (err, stdout) => {
+      if (err || !stdout) return resolve(null);
+      for (const line of stdout.split(/\r?\n/)) {
+        const m = line.trim().match(/^(\S+)\s+([0-9a-f]{2}(?:-[0-9a-f]{2}){5})\s+(dynamic|static)/i);
+        if (m && m[1] === ip) {
+          const mac = m[2].toUpperCase().replace(/-/g, ':');
+          return resolve(mac === 'FF:FF:FF:FF:FF:FF' ? null : mac);
+        }
+      }
+      resolve(null);
+    });
+  });
+}
+
 // ─── Scan single IP ────────────────────────
 async function scanIP(ip) {
   const now      = nowBKK();
   const alive    = await pingIP(ip);
   const hostname = alive ? ((await getHostname(ip)) || 'Unknown') : '-';
-  return { ip, status: alive ? 'Active' : 'Available', hostname, last_scan: now };
+  const mac      = alive ? await getMacFromArp(ip) : null;
+  return { ip, status: alive ? 'Active' : 'Available', hostname, mac, last_scan: now };
 }
 
 // ─── Scan subnet ───────────────────────────
@@ -64,6 +88,7 @@ async function scanSubnet(subnet) {
     const batch = await Promise.all(ips.slice(i, i + CONCURRENCY).map(scanIP));
     results.push(...batch);
     process.stdout.write(`\r  ${subnet}: ${Math.min(i + CONCURRENCY, 254)}/254`);
+    if (BATCH_PAUSE_MS && i + CONCURRENCY < ips.length) await sleep(BATCH_PAUSE_MS);
   }
   console.log();
   return results;
@@ -92,6 +117,19 @@ export async function runAllSubnets() {
     console.error('[IPScan] IP_SCAN_API_KEY is not set — ข้ามการสแกน');
     return;
   }
+  if (scanRunning) {
+    console.log('[IPScan] มีการสแกนที่ยังทำงานอยู่ — ข้ามรอบนี้');
+    return;
+  }
+  scanRunning = true;
+  try {
+    await runAllSubnetsInner();
+  } finally {
+    scanRunning = false;
+  }
+}
+
+async function runAllSubnetsInner() {
   const start   = Date.now();
   const ts      = new Date().toLocaleString('th-TH');
   console.log(`\n${'='.repeat(52)}`);
