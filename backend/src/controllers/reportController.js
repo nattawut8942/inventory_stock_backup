@@ -83,7 +83,7 @@ export const exportReport = async (req, res) => {
                AND t.RefInfo NOT LIKE '%Stock Count Adjust%'
            ), 0) AS Usage3Months
     FROM dbo.Stock_Products p
-    WHERE p.IsActive = 1 AND p.CurrentStock <= p.MinStock
+    WHERE p.IsActive = 1 AND p.MinStock > 0 AND p.CurrentStock <= p.MinStock
     ORDER BY p.business_priority ASC, p.CurrentStock ASC
 `);
                         data = lowStockResult.recordset.filter(keepCategory).map(row => {
@@ -365,7 +365,7 @@ export const exportReport = async (req, res) => {
                                 const end = new Date(row.EndDate); end.setHours(0, 0, 0, 0);
                                 const days = Math.ceil((end - today) / 86400000);
                                 if (days <= 0) return '❌ หมดอายุแล้ว';
-                                if (days <= 60) return '⚠️ ใกล้หมดอายุ';
+                                if (days <= 90) return '⚠️ ใกล้หมดอายุ';
                                 return '✅ ใช้งานอยู่';
                             })(),
                             'สถานะต่ออายุ': ({ QUOTATION: 'ขอใบเสนอราคา', PR_CREATED: 'เปิด PR แล้ว', WAITING_PO: 'รอ PO ออก', PO_ISSUED: 'ออก PO แล้ว' })[row.RenewalStatus] || '-',
@@ -481,7 +481,7 @@ export const exportReport = async (req, res) => {
                         data = expmaResult.recordset.map((row, idx) => ({
                             'ลำดับ': idx + 1,
                             'วันที่หมดอายุ': row.EndDate ? new Date(row.EndDate).toLocaleDateString('th-TH') : '-',
-                            'คนเหลือ (วัน)': row.DaysLeft >= 0 ? row.DaysLeft : 0,
+                            'คงเหลือ (วัน)': row.DaysLeft >= 0 ? row.DaysLeft : 0,
                             'ชื่อระบบ/อุปกรณ์': row.ItemName || '-',
                             'หมวดหมู่': row.Category || '-',
                             'ประเภท': row.SubType || '-',

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { FileSpreadsheet, Calendar, Download, CheckSquare, Square, Package, TrendingUp, TrendingDown, BarChart3, PieChart, FileText, Receipt, DollarSign, Clock, User, AlertCircle, Shield, SlidersHorizontal, X, Filter, Monitor } from 'lucide-react';
 import { BarChart, Bar, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, LabelList } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
+import { useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import AlertModal from '../components/AlertModal';
 import { getChartColor, getBadgeStyle } from '../utils/styleHelpers';
@@ -10,6 +11,14 @@ import { API_BASE, API_URL } from '../config/api';
 
 // ─── Helper: check if date falls in range ────────────────────────────────────
 const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+// หมวดหมู่ของหน้า Report — ภาพรวมเคลื่อนไหวเท่านั้น สถานะปัจจุบัน (Stock หมด / MA ใกล้หมดอายุ) อยู่ที่ Dashboard
+const REPORT_TABS = [
+    { id: 'overview', label: 'ภาพรวมการเคลื่อนไหว', icon: BarChart3 },
+    { id: 'stock', label: 'Stock & มูลค่า', icon: Package },
+    { id: 'usage', label: 'การเบิก', icon: User },
+    { id: 'procurement', label: 'จัดซื้อ', icon: Receipt },
+];
 
 // key รูปแบบ "YYYY-MM" ใช้แยกเดือนเดียวกันของคนละปีออกจากกัน
 const monthKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -60,44 +69,13 @@ const presetRange = (preset, customStart, customEnd) => {
     }
 };
 
+// ใช้ presetRange เป็นแหล่งเดียวของกฎช่วงวันที่ (หน้าจอและ Export ใช้กฎเดียวกัน)
 const isInDateRange = (dateStr, preset, customStart, customEnd) => {
     if (!dateStr) return true;
-    const d = new Date(dateStr);
-    const now = new Date();
-
-    // กำหนดวันเริ่มต้นปีงบประมาณ (1 เมษายน)
-    const getFiscalYearRange = () => {
-        const currentYear = now.getFullYear();
-        const isBeforeApril = now.getMonth() < 3;
-        const startYear = isBeforeApril ? currentYear - 1 : currentYear;
-        const startDate = new Date(startYear, 3, 1); // 1 เมษายน
-        const endDate = new Date(startYear + 1, 2, 31, 23, 59, 59); // 31 มีนาคม ปีถัดไป
-        return { startDate, endDate };
-    };
-
-    if (preset === 'thisMonth') {
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    }
-    if (preset === 'last3months') {
-        const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 3);
-        return d >= cutoff;
-    }
-    if (preset === 'thisQuarter') {
-        // ไตรมาสแบ่งเป็น: ม.ค.-มี.ค. (Q4), เม.ย.-มิ.ย. (Q1), ก.ค.-ก.ย. (Q2), ต.ค.-ธ.ค. (Q3)
-        // ซึ่ง boundaries ของวันจะตรงกับ standard quarter (ทุกๆ 3 เดือน)
-        const q = Math.floor(now.getMonth() / 3);
-        const qStart = new Date(now.getFullYear(), q * 3, 1);
-        const qEnd = new Date(now.getFullYear(), q * 3 + 3, 0, 23, 59, 59);
-        return d >= qStart && d <= qEnd;
-    }
-    if (preset === 'thisYear') {
-        const { startDate, endDate } = getFiscalYearRange();
-        return d >= startDate && d <= endDate;
-    }
-    if (preset === 'custom' && customStart && customEnd) {
-        return d >= new Date(customStart) && d <= new Date(customEnd + 'T23:59:59');
-    }
-    return true; // 'all'
+    const { start, end } = presetRange(preset, customStart, customEnd);
+    if (!start && !end) return true; // 'all' หรือ custom ที่ยังไม่กรอก
+    const key = toDateKey(new Date(dateStr));
+    return (!start || key >= start) && (!end || key <= end);
 };
 
 // StatCard Component
@@ -189,21 +167,37 @@ const ReportPage = () => {
         + filterCategories.length
         + (filterTransType !== 'all' ? 1 : 0);
 
+    const [maLoadError, setMaLoadError] = useState(false);
     useEffect(() => {
         fetch(`${API_BASE}/ma`)
-            .then(res => res.json())
-            .then(data => setMaItems(data))
-            .catch(err => console.error("Failed to load MA data in reports", err));
+            .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+            .then(data => { setMaItems(Array.isArray(data) ? data : []); setMaLoadError(false); })
+            .catch(err => { console.error('Failed to load MA data in reports', err); setMaLoadError(true); });
     }, []);
 
     const [forecastItems, setForecastItems] = useState([]);
-
+    const [forecastError, setForecastError] = useState(false);
     useEffect(() => {
         fetch(`${API_BASE}/forecast`)
-            .then(res => res.json())
-            .then(data => setForecastItems(data))
-            .catch(err => console.error('Failed to load forecast', err));
+            .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+            .then(data => { setForecastItems(Array.isArray(data) ? data : []); setForecastError(false); })
+            .catch(err => { console.error('Failed to load forecast', err); setForecastError(true); });
     }, []);
+
+    // ─── แท็บหมวดหมู่ (เก็บใน URL ?tab=...) ─────────────────────────────────
+    const [searchParams, setSearchParams] = useSearchParams();
+    const activeTab = REPORT_TABS.some(t => t.id === searchParams.get('tab')) ? searchParams.get('tab') : 'overview';
+    const setActiveTab = (id) => setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', id);
+        return next;
+    }, { replace: true });
+
+    // ค้นหาสินค้าจาก ProductID แบบ O(1) แทนการ .find() ซ้ำในทุกรอบ render
+    const productById = useMemo(
+        () => Object.fromEntries((products || []).map(p => [p.ProductID, p])),
+        [products]
+    );
     const usageMap = useMemo(() => {
         const map = {};
         const threeMonthsAgo = new Date();
@@ -258,7 +252,7 @@ const ReportPage = () => {
                 if (type !== filterTransType) return false;
             }
             if (filterCategories.length > 0) {
-                const product = products.find(p => p.ProductID === t.ProductID);
+                const product = productById[t.ProductID];
                 if (!filterCategories.includes(product?.DeviceType)) return false;
             }
             // ✅ เพิ่มตรงนี้
@@ -267,7 +261,7 @@ const ReportPage = () => {
             if (refInfo.includes('Stock Count Adjust')) return false;
             return true;
         });
-    }, [transactions, products, filterDateRange, filterCustomStart, filterCustomEnd, filterTransType, filterCategories]);
+    }, [transactions, products, productById, filterDateRange, filterCustomStart, filterCustomEnd, filterTransType, filterCategories]);
 
     const filteredProducts = useMemo(() => {
         if (filterCategories.length === 0) return products;
@@ -348,11 +342,6 @@ const ReportPage = () => {
             .sort((a, b) => (b.CurrentStock * (b.LastPrice || 0)) - (a.CurrentStock * (a.LastPrice || 0)));
     }, [transactions, filteredProducts]);
     const slowMovingItems = useMemo(() => deadStockAll.slice(0, 10), [deadStockAll]);
-    const outOfStockItems = useMemo(() => {
-        return products
-            .filter(p => p.CurrentStock === 0 && p.IsActive !== 0)
-            .sort((a, b) => (a.business_priority || 3) - (b.business_priority || 3));
-    }, [products]);
 
     // 2. สรุปมูลค่าเบิกใช้รายเดือน
     const monthlyConsumptionSummary = useMemo(() => {
@@ -524,7 +513,7 @@ const ReportPage = () => {
         filteredTransactions.forEach(t => {
             const type = (t.TransType || '').toUpperCase().trim();
             if (type === 'OUT' && isCountedMovement(t)) {
-                const product = products.find(p => p.ProductID === t.ProductID);
+                const product = productById[t.ProductID];
                 const category = product?.DeviceType || 'ไม่ระบุ';
                 if (!catMap[category]) {
                     catMap[category] = { name: category, label: typeLabel[category] ?? category, value: 0, transactionCount: 0 };
@@ -534,7 +523,7 @@ const ReportPage = () => {
             }
         });
         return Object.values(catMap).sort((a, b) => b.value - a.value);
-    }, [filteredTransactions, products, typeLabel]);
+    }, [filteredTransactions, productById, typeLabel]);
 
     // NEW: Stock Value by Category (Bubble-style)
     const stockValueByCategory = useMemo(() => {
@@ -583,7 +572,7 @@ const ReportPage = () => {
         { id: 'bycategory', label: '📂 เบิกตามประเภท', description: 'สรุปยอดเบิกแยกตามประเภทอุปกรณ์', icon: PieChart, color: 'from-emerald-500 to-emerald-600' },
         { id: 'pcinventory', label: '💻 PC Inventory ทั้งหมด', description: 'รายละเอียด PC/อุปกรณ์ IT ทั้งหมด', icon: Package, color: 'from-indigo-500 to-purple-600' },
         { id: 'moinventory', label: '🖥️ Monitor Inventory ทั้งหมด', description: 'รายละเอียด Monitor/อุปกรณ์ IT ทั้งหมด', icon: Monitor, color: 'from-teal-500 to-cyan-600' },
-        { id: 'expiringma', label: '⏰ สัญญาที่ใกล้หมดอายุ', description: 'MA & License ที่หมดอายุในอีก 30-90 วัน', icon: AlertCircle, color: 'from-red-500 to-orange-600' },
+        { id: 'expiringma', label: '⏰ สัญญาที่ใกล้หมดอายุ', description: 'MA & License ที่หมดอายุภายใน 90 วันข้างหน้า', icon: AlertCircle, color: 'from-red-500 to-orange-600' },
         { id: 'ma', label: '🛡️ สัญญาบริการ (MA & License) ทั้งหมด', description: 'ส่งออกข้อมูลสัญญา ค่าใช้จ่ายรายสัปดาห์/รายปี', icon: Shield, color: 'from-blue-600 to-indigo-600' }
     ];
 
@@ -777,6 +766,28 @@ const ReportPage = () => {
                 </div>
             </motion.div>
 
+            {/* ═══ แท็บหมวดหมู่ ═══ */}
+            <div role="tablist" className="flex gap-2 overflow-x-auto pb-1 px-1">
+                {REPORT_TABS.map(tab => {
+                    const Icon = tab.icon;
+                    const isActive = activeTab === tab.id;
+                    return (
+                        <button
+                            key={tab.id}
+                            role="tab"
+                            aria-selected={isActive}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap border transition-all ${isActive
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                                : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'}`}
+                        >
+                            <Icon className="w-4 h-4" />
+                            {tab.label}
+                        </button>
+                    );
+                })}
+            </div>
+            {activeTab === 'overview' && (<>
             {/* Stats Grid */}
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -825,9 +836,9 @@ const ReportPage = () => {
                 <StatCard
                     icon={Shield}
                     title="สัญญาบริการ (MA)"
-                    value={activeMACount}
-                    subtitle={expiringMACount > 0 ? `ใกล้หมดอายุ ${expiringMACount} รายการ` : `ข้อมูลลิขสิทธิ์ทั้งหมด`}
-                    color={expiringMACount > 0 ? "from-rose-500 to-rose-600" : "from-blue-500 to-indigo-600"}
+                    value={maLoadError ? '—' : activeMACount}
+                    subtitle={maLoadError ? 'โหลดข้อมูลไม่สำเร็จ' : (expiringMACount > 0 ? `ใกล้หมดอายุ ${expiringMACount} รายการ` : `ข้อมูลลิขสิทธิ์ทั้งหมด`)}
+                    color={expiringMACount > 0 && !maLoadError ? "from-rose-500 to-rose-600" : "from-blue-500 to-indigo-600"}
                 />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -841,6 +852,7 @@ const ReportPage = () => {
                     <div className="flex items-center gap-2 mb-4">
                         <BarChart3 className="w-4 h-4 text-indigo-500" />
                         <h3 className="font-bold text-slate-800 text-sm">สรุปการเคลื่อนไหวรายเดือน</h3>
+                        <span className="text-[10px] text-slate-400">(แสดง 3 เดือนล่าสุดเสมอ ไม่รับผลจากตัวกรองด้านบน)</span>
                     </div>
 
                     {/* ตัวเลขเดือนนี้ vs เดือนก่อน */}
@@ -949,7 +961,7 @@ const ReportPage = () => {
                                                                 {inItems.length === 0 ? (
                                                                     <p className="text-[10px] text-slate-400">ไม่มีรายการ</p>
                                                                 ) : inItems.map((t, idx) => {
-                                                                    const product = products.find(p => p.ProductID === t.ProductID);
+                                                                    const product = productById[t.ProductID];
                                                                     const val = Math.abs(t.Qty) * (priceMap[t.ProductID] || 0);
                                                                     return (
                                                                         <div key={idx} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
@@ -972,7 +984,7 @@ const ReportPage = () => {
                                                                 {outItems.length === 0 ? (
                                                                     <p className="text-[10px] text-slate-400">ไม่มีรายการ</p>
                                                                 ) : outItems.map((t, idx) => {
-                                                                    const product = products.find(p => p.ProductID === t.ProductID);
+                                                                    const product = productById[t.ProductID];
                                                                     const val = Math.abs(t.Qty) * (priceMap[t.ProductID] || 0);
                                                                     return (
                                                                         <div key={idx} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
@@ -1000,71 +1012,9 @@ const ReportPage = () => {
                     </table>
                 </motion.div>
 
-                {/* Stock = 0 */}
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-white rounded-2xl p-5 shadow-lg border border-red-100 overflow-hidden"
-                >
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg bg-red-500 flex items-center justify-center">
-                                <AlertCircle className="w-4 h-4 text-white" />
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-slate-800 text-sm">Stock หมดแล้ว</h3>
-                                <p className="text-[10px] text-slate-400">CurrentStock = 0</p>
-                            </div>
-                        </div>
-                        <span className="text-2xl font-black text-red-500">{outOfStockItems.length}</span>
-                    </div>
-
-                    {outOfStockItems.length === 0 ? (
-                        <div className="text-center py-6 text-slate-400">
-                            <Package className="w-8 h-8 mx-auto mb-1 opacity-30" />
-                            <p className="text-xs">ไม่มีรายการ 👍</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-1.5 max-h-[220px] overflow-y-auto">
-                            {outOfStockItems.map((item, idx) => {
-                                const priorityColor = {
-                                    1: 'bg-red-500', 2: 'bg-orange-500',
-                                    3: 'bg-yellow-500', 4: 'bg-green-500'
-                                }[item.business_priority] || 'bg-slate-400';
-                                const priorityLabel = {
-                                    1: 'CRITICAL', 2: 'HIGH', 3: 'MEDIUM', 4: 'LOW'
-                                }[item.business_priority] || 'MEDIUM';
-
-                                return (
-                                    <div key={item.ProductID}
-                                        className="flex items-center gap-2 p-2 rounded-lg bg-red-50 border border-red-100">
-
-                                        {/* ✅ รูปเพิ่มตรงนี้ */}
-                                        <div className="w-7 h-7 rounded-md overflow-hidden shrink-0 bg-gradient-to-br from-slate-300 to-slate-500 flex items-center justify-center">
-                                            {item.ImageURL ? (
-                                                <img
-                                                    src={`${API_URL}${item.ImageURL}`}
-                                                    alt=""
-                                                    className="w-full h-full object-cover"
-                                                />
-                                            ) : (
-                                                <Package size={11} className="text-white" />
-                                            )}
-                                        </div>
-
-                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityColor}`} />
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-[11px] font-bold text-slate-700 truncate">{item.ProductName}</p>
-                                            <p className="text-[9px] text-slate-400">{priorityLabel} • {item.DeviceType}</p>
-                                        </div>
-                                        <span className="text-[10px] font-black text-red-500 shrink-0">0</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </motion.div>
             </div>
+            </>)}
+            {activeTab === 'procurement' && (<>
             {/* ═══ Priority Order List ════════════════════════════════════════ */}
             {forecastItems.length > 0 && (
                 <motion.div
@@ -1209,6 +1159,13 @@ const ReportPage = () => {
                     </div>
                 </motion.div>
             )}
+                {forecastItems.length === 0 && (
+                    <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center text-sm text-slate-400">
+                        {forecastError ? '⚠️ โหลดรายการที่ต้องสั่งซื้อไม่สำเร็จ' : 'ไม่มีรายการที่ต้องสั่งซื้อ 👍'}
+                    </div>
+                )}
+            </>)}
+            {activeTab === 'overview' && (<>
             {/* Charts Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Stock Movement Chart (Quantity) */}
@@ -1279,10 +1236,12 @@ const ReportPage = () => {
                     </div>
                 </motion.div>
             </div>
+            </>)}
 
             {/* NEW: Stock Value by Category + Net Movement Trend */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Stock Value by Category */}
+            {activeTab === 'stock' && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1347,8 +1306,10 @@ const ReportPage = () => {
                         <p className="text-center py-8 text-slate-400 text-sm">ไม่มีข้อมูล</p>
                     )}
                 </motion.div>
+            )}
 
                 {/* Net Movement Trend */}
+            {activeTab === 'overview' && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1385,11 +1346,13 @@ const ReportPage = () => {
                         )}
                     </div>
                 </motion.div>
+            )}
             </div>
 
             {/* NEW: Analytics Insights Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Slow Moving Items (Dead Stock) */}
+                {activeTab === 'stock' && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1453,8 +1416,10 @@ const ReportPage = () => {
                         </table>
                     </div>
                 </motion.div>
+                )}
 
                 {/* Top Consumers */}
+                {activeTab === 'usage' && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1498,8 +1463,10 @@ const ReportPage = () => {
                         )}
                     </div>
                 </motion.div>
+                )}
             </div>
 
+            {activeTab === 'stock' && (<>
             {/* Category Distribution — Click to Filter */}
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -1614,7 +1581,9 @@ const ReportPage = () => {
                     </div>
                 )}
             </motion.div>
+            </>)}
 
+            {activeTab === 'usage' && (<>
             {/* NEW: Top Withdrawn Items & Withdrawals By Category */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Top Withdrawn Items */}
@@ -1756,72 +1725,8 @@ const ReportPage = () => {
                     )}
                 </motion.div>
             </div>
+            </>)}
 
-            {/* NEW: MA Expiry Alerts Full Width */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200 mt-6"
-            >
-                <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center">
-                        <Clock className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                        <h3 className="font-bold text-slate-800">สัญญาบริการ (MA & License) ที่ต้องดำเนินการ</h3>
-                        <p className="text-xs text-slate-500">หมดอายุแล้ว หรือ ใกล้หมดอายุภายใน 90 วัน</p>
-                    </div>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="border-b border-slate-200">
-                                <th className="text-left py-2 px-3 text-slate-500 font-medium">ระบบ/อุปกรณ์</th>
-                                <th className="text-left py-2 px-3 text-slate-500 font-medium">หมวดหมู่</th>
-                                <th className="text-left py-2 px-3 text-slate-500 font-medium">วันที่หมดอายุ</th>
-                                <th className="text-right py-2 px-3 text-slate-500 font-medium">สถานะ</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {maAlerts.length > 0 ? maAlerts.map((ma, idx) => {
-                                const isExpired = ma.daysRemaining <= 0;
-                                return (
-                                    <motion.tr
-                                        key={ma.ItemID}
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        transition={{ delay: idx * 0.05 }}
-                                        className="border-b border-slate-100 hover:bg-slate-50"
-                                    >
-                                        <td className="py-3 px-3">
-                                            <p className="font-medium text-slate-800">{ma.ItemName}</p>
-                                        </td>
-                                        <td className="py-3 px-3">
-                                            <span className="text-xs text-slate-500">{ma.Category}</span>
-                                        </td>
-                                        <td className="py-3 px-3">
-                                            <span className="text-sm font-mono text-slate-700">{formatThaiDateShort(ma.EndDate)}</span>
-                                        </td>
-                                        <td className="py-3 px-3 text-right">
-                                            <span className={`text-xs font-bold px-2.5 py-1 rounded-lg text-white ${isExpired ? 'bg-gradient-to-r from-red-500 to-red-600' : 'bg-gradient-to-r from-orange-400 to-amber-500'}`}>
-                                                {isExpired ? 'หมดอายุแล้ว' : `อีก ${ma.daysRemaining} วัน`}
-                                            </span>
-                                        </td>
-                                    </motion.tr>
-                                )
-                            }) : (
-                                <tr>
-                                    <td colSpan="4" className="py-8 text-center text-slate-400">
-                                        <Shield className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                                        ไม่มีสัญญาหมดอายุหรือใกล้หมดอายุ 👍
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </motion.div>
 
             {/* ═══ Compact Export Panel ════════════════════════════════════ */}
             <motion.div
