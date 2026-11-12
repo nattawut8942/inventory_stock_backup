@@ -670,6 +670,55 @@ const ReportPage = () => {
         };
     }, [purchaseOrders, invoices, filterDateRange, filterCustomStart, filterCustomEnd]);
 
+    // ─── MA Renewal: pipeline การต่ออายุ + พยากรณ์ค่าต่ออายุ 12 เดือน ───
+    // ค่า Price ถือเป็นมูลค่าของสัญญาหนึ่งรอบ (ตรงกับหน้า MA) และนับในเดือนที่ EndDate
+    const maRenewal = useMemo(() => {
+        const now = new Date();
+        const todayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const pipeline = { none: { count: 0, value: 0 }, QUOTATION: { count: 0, value: 0 }, PR_CREATED: { count: 0, value: 0 }, WAITING_PO: { count: 0, value: 0 }, PO_ISSUED: { count: 0, value: 0 } };
+        const overdue = { count: 0, value: 0 };   // หมดอายุแล้วและยังไม่ออก PO
+        const horizon = Array.from({ length: 12 }, (_, i) => {
+            const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+            return { key: monthKeyOf(d), label: `${MONTHS_TH[d.getMonth()]} ${String(d.getFullYear() + 543).slice(2)}`, count: 0, value: 0 };
+        });
+        const monthIndex = Object.fromEntries(horizon.map((h, i) => [h.key, i]));
+
+        (maItems || []).forEach(item => {
+            if (item.Status === 'Cancelled' || item.Status === 'Pending' || !item.EndDate) return;
+            const end = new Date(item.EndDate);
+            if (Number.isNaN(end.getTime())) return;
+            const endTs = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
+            const days = Math.round((endTs - todayTs) / DAY_MS);
+            const price = Number(item.Price) || 0;
+            const step = item.RenewalStatus && pipeline[item.RenewalStatus] ? item.RenewalStatus : 'none';
+
+            if (days <= 90) {
+                pipeline[step].count += 1;
+                pipeline[step].value += price;
+            }
+            if (days < 0 && step !== 'PO_ISSUED') {
+                overdue.count += 1;
+                overdue.value += price;
+            }
+            if (days >= 0 && days <= 365) {
+                const idx = monthIndex[monthKeyOf(end)];
+                if (idx !== undefined) {
+                    horizon[idx].count += 1;
+                    horizon[idx].value += price;
+                }
+            }
+        });
+
+        return {
+            pipeline,
+            pipelineCount: Object.values(pipeline).reduce((s, x) => s + x.count, 0),
+            overdue,
+            forecast: horizon,
+            forecastCount: horizon.reduce((s, h) => s + h.count, 0),
+            forecastValue: horizon.reduce((s, h) => s + h.value, 0),
+        };
+    }, [maItems]);
+
     // Calculate total dead stock value
     const deadStockValue = deadStockAll.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
 
@@ -1434,6 +1483,90 @@ const ReportPage = () => {
                         </div>
                     )}
                     <ToggleAllButton total={procurementAnalytics.vendorRows.length} limit={10} expanded={!!expandedLists.vendor} onToggle={() => toggleList('vendor')} />
+                </motion.div>
+            </div>
+
+            {/* ═══ MA Renewal Pipeline + พยากรณ์ค่าต่ออายุ 12 เดือน ═══ */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                    <div className="flex items-start justify-between mb-4">
+                        <div>
+                            <h3 className="font-bold text-slate-800">Renewal Pipeline (MA/License)</h3>
+                            <p className="text-xs text-slate-500">สัญญาที่หมดอายุภายใน 90 วัน (รวมที่หมดแล้ว) แยกตามขั้นต่ออายุ</p>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-lg font-black text-slate-800">{maRenewal.pipelineCount} รายการ</p>
+                        </div>
+                    </div>
+                    {maLoadError ? (
+                        <p className="text-sm text-rose-500 py-6 text-center">⚠️ โหลดข้อมูล MA ไม่สำเร็จ</p>
+                    ) : (
+                        <>
+                            {maRenewal.overdue.count > 0 && (
+                                <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                                    <strong>หมดอายุแล้ว {maRenewal.overdue.count} รายการ</strong> ยังไม่ออก PO มูลค่า ฿{Math.round(maRenewal.overdue.value).toLocaleString('th-TH')}
+                                </div>
+                            )}
+                            <div className="space-y-3">
+                                {[
+                                    { key: 'none', label: 'ยังไม่เริ่มต่ออายุ', tone: 'bg-rose-400' },
+                                    { key: 'QUOTATION', label: 'ขอใบเสนอราคา', tone: 'bg-sky-400' },
+                                    { key: 'PR_CREATED', label: 'เปิด PR แล้ว', tone: 'bg-blue-500' },
+                                    { key: 'WAITING_PO', label: 'รอ PO ออก', tone: 'bg-violet-500' },
+                                    { key: 'PO_ISSUED', label: 'ออก PO แล้ว', tone: 'bg-emerald-500' },
+                                ].map(s => {
+                                    const row = maRenewal.pipeline[s.key];
+                                    const pct = maRenewal.pipelineCount > 0 ? (row.count / maRenewal.pipelineCount) * 100 : 0;
+                                    return (
+                                        <div key={s.key}>
+                                            <div className="flex justify-between text-xs mb-1">
+                                                <span className="font-bold text-slate-700">{s.label}</span>
+                                                <span className="font-mono text-slate-600">{row.count} รายการ • ฿{Math.round(row.value).toLocaleString('th-TH')}</span>
+                                            </div>
+                                            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                                <div className={`h-full rounded-full ${s.tone}`} style={{ width: `${pct}%` }} />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    )}
+                </motion.div>
+
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
+                    <div className="flex items-start justify-between mb-4">
+                        <div>
+                            <h3 className="font-bold text-slate-800">พยากรณ์ค่าต่ออายุ 12 เดือน</h3>
+                            <p className="text-xs text-slate-500">มูลค่าสัญญาที่ EndDate ตกในแต่ละเดือน (อิงมูลค่า Price)</p>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-lg font-black text-indigo-600">฿{Math.round(maRenewal.forecastValue).toLocaleString('th-TH')}</p>
+                            <p className="text-[10px] text-slate-400">{maRenewal.forecastCount} สัญญา</p>
+                        </div>
+                    </div>
+                    {maLoadError ? (
+                        <p className="text-sm text-rose-500 py-6 text-center">⚠️ โหลดข้อมูล MA ไม่สำเร็จ</p>
+                    ) : maRenewal.forecastCount === 0 ? (
+                        <p className="text-sm text-slate-400 py-8 text-center">ไม่มีสัญญาที่หมดอายุใน 12 เดือนข้างหน้า</p>
+                    ) : (
+                        <div className="h-[220px] w-full">
+                            {isMounted && (
+                                <ResponsiveContainer width="100%" height={220} minWidth={0} minHeight={0} debounce={50}>
+                                    <BarChart data={maRenewal.forecast}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                        <XAxis dataKey="label" stroke="#64748b" tick={{ fontSize: 10 }} />
+                                        <YAxis stroke="#64748b" tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${Math.round(v / 1000)}K` : v} />
+                                        <Tooltip
+                                            formatter={(value) => `฿${Math.round(value).toLocaleString('th-TH')}`}
+                                            contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+                                        />
+                                        <Bar dataKey="value" fill="#6366f1" name="มูลค่าต่ออายุ" radius={[6, 6, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            )}
+                        </div>
+                    )}
                 </motion.div>
             </div>
 
