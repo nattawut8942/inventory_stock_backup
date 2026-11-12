@@ -11,6 +11,8 @@ const linePct = (item) => {
     return Math.min(100, Math.round((Number(item.QtyReceived || 0) / ordered) * 100));
 };
 
+const isLineDone = (item) => (Number(item?.QtyReceived || 0) >= Number(item?.QtyOrdered || 0));
+
 /**
  * ReceivePODetailModal - รายละเอียด PO ในหน้า Receive (สรุปยอด ความคืบหน้า ตารางรายการ)
  */
@@ -20,6 +22,12 @@ const ReceivePODetailModal = ({ po, products, contact, invoices, isStaff, onClos
     const overdueDays = getOverdue(po, today);
     const dueInDays = po.DueDate && !overdueDays && po.Status !== 'Completed' ? dayDiff(toDateKey(po.DueDate), today) : null;
     const items = Array.isArray(po.Items) ? po.Items : [];
+    // รายการที่ยังค้างรับขึ้นก่อน เพื่อให้เห็นงานที่ต้องทำก่อน
+    const sortedItems = [...items].sort((a, b) => Number(isLineDone(a)) - Number(isLineDone(b)));
+    // เบอร์แรกที่พบใน Contact Info ใช้สำหรับปุ่มโทรหาผู้ขาย
+    const phoneMatch = contact ? String(contact).match(/\+?\d[\d\- ]{6,}\d/) : null;
+    const vendorPhone = phoneMatch ? phoneMatch[0].replace(/[^\d+]/g, '') : '';
+    const showCall = !!vendorPhone && po.Status !== 'Completed';
     const remainingValue = items.reduce((s, it) => s + Math.max(0, Number(it.QtyOrdered || 0) - Number(it.QtyReceived || 0)) * Number(it.UnitCost || 0), 0);
     const poInvoices = (invoices || [])
         .filter(inv => inv && inv.PO_ID === po.PO_ID)
@@ -35,7 +43,7 @@ const ReceivePODetailModal = ({ po, products, contact, invoices, isStaff, onClos
     };
 
     return (
-        <BaseModal onClose={onClose} label={`ใบสั่งซื้อ ${po.PO_ID}`} maxWidth="max-w-2xl">
+        <BaseModal onClose={onClose} label={`ใบสั่งซื้อ ${po.PO_ID}`} maxWidth="max-w-3xl">
             <ModalHeader
                 icon={Package}
                 eyebrow="ใบสั่งซื้อ"
@@ -111,26 +119,61 @@ const ReceivePODetailModal = ({ po, products, contact, invoices, isStaff, onClos
                         <Package className="text-indigo-500" size={18} />
                         รายการอุปกรณ์ ({items.length})
                     </h4>
-                    <div className="bg-white rounded-2xl overflow-x-auto border border-slate-200 shadow-sm">
+                    {/* มือถือ: การ์ดรายการ (ไม่ต้องเลื่อนแนวนอน) */}
+                    <ul className="sm:hidden space-y-2">
+                        {sortedItems.map((item, idx) => {
+                            const prodName = item.ItemName || (products || []).find(p => p.ProductID === item.ProductID)?.ProductName || `Item #${idx + 1}`;
+                            const done = isLineDone(item);
+                            const remainingQty = Math.max(0, Number(item.QtyOrdered || 0) - Number(item.QtyReceived || 0));
+                            return (
+                                <li key={item.DetailID ?? idx} className={`bg-white rounded-xl border p-3 shadow-sm ${done ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200'}`}>
+                                    <div className="flex items-start justify-between gap-2">
+                                        <p className={`font-medium text-sm break-words min-w-0 ${done ? 'text-emerald-900' : 'text-slate-800'}`}>{prodName}</p>
+                                        {done ? (
+                                            <span className="shrink-0 inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[10px] font-bold border border-emerald-200"><Check size={10} /> รับแล้ว</span>
+                                        ) : (
+                                            <span className="shrink-0 inline-flex items-center gap-1 bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full text-[10px] font-bold border border-amber-100"><Clock size={10} /> ค้าง {remainingQty}</span>
+                                        )}
+                                    </div>
+                                    <div className="mt-2 flex items-center gap-2">
+                                        <span className="font-mono text-xs font-bold bg-slate-100 rounded-lg px-2 py-1">{item.QtyReceived || 0}/{item.QtyOrdered}</span>
+                                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={linePct(item)} aria-label={`ความคืบหน้า ${prodName}`}>
+                                            <div className={`h-full rounded-full ${done ? 'bg-emerald-500' : 'bg-indigo-400'}`} style={{ width: `${linePct(item)}%` }} />
+                                        </div>
+                                    </div>
+                                    <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-500">
+                                        <span className="font-mono">{money(item.UnitCost)} × {item.QtyOrdered}</span>
+                                        <span className="font-mono font-bold text-slate-800">{money(Number(item.QtyOrdered || 0) * Number(item.UnitCost || 0))}</span>
+                                    </div>
+                                    {item.BG_No && (
+                                        <span className="mt-2 inline-block text-[10px] font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">BG: {item.BG_No}</span>
+                                    )}
+                                </li>
+                            );
+                        })}
+                    </ul>
+
+                    {/* เดสก์ท็อป: ตาราง */}
+                    <div className="hidden sm:block bg-white rounded-2xl overflow-x-auto border border-slate-200 shadow-sm">
                         <table className="w-full text-sm min-w-[480px]">
                             <thead className="bg-slate-50 border-b border-slate-100">
                                 <tr>
-                                    <th className="text-left p-3 font-bold text-slate-500">รายการ</th>
-                                    <th className="text-left p-3 font-bold text-slate-500 w-24">BG No.</th>
-                                    <th className="text-center p-3 font-bold text-slate-500 w-28">รับแล้ว/สั่ง</th>
-                                    <th className="text-center p-3 font-bold text-slate-500 w-24">สถานะ</th>
-                                    <th className="text-right p-3 font-bold text-slate-500 w-32">ราคา/หน่วย</th>
-                                    <th className="text-right p-3 font-bold text-slate-500 w-32">รวม</th>
+                                    <th className="text-left p-3 font-bold text-slate-500 min-w-[200px]">รายการ</th>
+                                    <th className="text-left p-3 font-bold text-slate-500 whitespace-nowrap">BG No.</th>
+                                    <th className="text-center p-3 font-bold text-slate-500 whitespace-nowrap">รับแล้ว/สั่ง</th>
+                                    <th className="text-center p-3 font-bold text-slate-500 whitespace-nowrap">สถานะ</th>
+                                    <th className="text-right p-3 font-bold text-slate-500 whitespace-nowrap">ราคา/หน่วย</th>
+                                    <th className="text-right p-3 font-bold text-slate-500 whitespace-nowrap">รวม</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {items.map((item, idx) => {
+                                {sortedItems.map((item, idx) => {
                                     const prodName = item.ItemName || (products || []).find(p => p.ProductID === item.ProductID)?.ProductName || `Item #${idx + 1}`;
                                     const isFullyReceived = (item.QtyReceived || 0) >= item.QtyOrdered;
                                     const lineTotal = Number(item.QtyOrdered || 0) * Number(item.UnitCost || 0);
                                     return (
                                         <tr key={idx} className={`border-b border-slate-50 last:border-0 ${isFullyReceived ? 'bg-emerald-50' : ''}`}>
-                                            <td className={`p-2 font-medium ${isFullyReceived ? 'text-emerald-900' : 'text-slate-700'}`}>{prodName}</td>
+                                            <td className={`p-2 font-medium break-words ${isFullyReceived ? 'text-emerald-900' : 'text-slate-700'}`}>{prodName}</td>
                                             <td className="p-2">
                                                 {item.BG_No ? (
                                                     <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{item.BG_No}</span>
@@ -224,6 +267,14 @@ const ReceivePODetailModal = ({ po, products, contact, invoices, isStaff, onClos
                 >
                     ปิด
                 </button>
+                {showCall && (
+                    <a
+                        href={`tel:${vendorPhone}`}
+                        className="flex-1 bg-white border-2 border-indigo-100 text-indigo-600 font-bold py-2 text-sm rounded-lg hover:bg-indigo-50 transition-all flex items-center justify-center gap-2"
+                    >
+                        <Phone size={16} /> โทรผู้ขาย
+                    </a>
+                )}
                 {isStaff && (
                     <button
                         onClick={() => onReceive(po)}
