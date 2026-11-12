@@ -1,4 +1,5 @@
 import express from 'express';
+import { adminOnly } from '../middleware/authMiddleware.js';
 import {
     getAlbums, getHeroAlbums, getAlbumPhotos,
     createAlbum, updateAlbum, deleteAlbum, uploadActivityPhoto, deleteActivityPhoto, setFeaturedAlbum, setAlbumCover,
@@ -10,9 +11,9 @@ const router = express.Router();
 
 // Categories (master data)
 router.get('/activity-categories', getCategories);
-router.post('/activity-categories', createCategory);
-router.put('/activity-categories/:code', updateCategory);
-router.delete('/activity-categories/:code', deleteCategory);
+router.post('/activity-categories', ...adminOnly, createCategory);
+router.put('/activity-categories/:code', ...adminOnly, updateCategory);
+router.delete('/activity-categories/:code', ...adminOnly, deleteCategory);
 
 // Albums
 router.get('/albums/hero', getHeroAlbums);
@@ -21,13 +22,13 @@ router.get('/albums/:id/photos', getAlbumPhotos);
 router.get('/albums/:id/export/zip', exportAlbumZip);
 router.get('/albums/:id/export/pdf', exportAlbumPdf);
 router.post('/albums', createAlbum);
-router.put('/albums/:id', updateAlbum);
-router.delete('/albums/:id', deleteAlbum);
+router.put('/albums/:id', ...adminOnly, updateAlbum);
+router.delete('/albums/:id', ...adminOnly, deleteAlbum);
 router.patch('/albums/:id/feature', setFeaturedAlbum);
-router.patch('/albums/:id/cover', setAlbumCover);
+router.patch('/albums/:id/cover', ...adminOnly, setAlbumCover);
 
 // Photos
 router.post('/photos/upload', uploadActivityPhoto);
-router.delete('/photos/:id', deleteActivityPhoto);
+router.delete('/photos/:id', ...adminOnly, deleteActivityPhoto);
 
 export default router;

@@ -11,7 +11,7 @@ import ActivityViewerModal from '../components/ActivityViewerModal';
 
 const ActivityPage = () => {
     const { user } = useAuth();
-    const isAdmin = (user?.role === 'Staff' || user?.role === 'Admin');
+    const isAdmin = (user?.role === 'Admin');
 
     const [categories, setCategories] = useState([]);
     const [uploadOpen, setUploadOpen] = useState(false);

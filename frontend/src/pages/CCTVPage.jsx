@@ -243,10 +243,12 @@ const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilt
                                         </td>
                                         <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
                                             <div className="flex gap-1 justify-end">
-                                                <button onClick={() => setLocationModal(cam)} title="ตำแหน่ง"
-                                                    className={`p-1 rounded transition-colors ${!hasLoc ? 'text-amber-500 hover:bg-amber-50' : 'text-blue-400 hover:bg-blue-50'}`}>
-                                                    <MapPin size={12} />
-                                                </button>
+                                                {setLocationModal && (
+                                                    <button onClick={() => setLocationModal(cam)} title="ตำแหน่ง"
+                                                        className={`p-1 rounded transition-colors ${!hasLoc ? 'text-amber-500 hover:bg-amber-50' : 'text-blue-400 hover:bg-blue-50'}`}>
+                                                        <MapPin size={12} />
+                                                    </button>
+                                                )}
                                                 <button onClick={() => setCamModal({ mode: 'edit', data: cam })} title="แก้ไข"
                                                     className="p-1 rounded hover:bg-gray-100 text-gray-400">✏️</button>
                                             </div>
@@ -560,7 +562,7 @@ function GlobalSearchModal({ cameras, onSelect, onClose }) {
 
 function CCTVPage() {
     const { user } = useAuth();
-    const isStaff = (user?.role === 'Staff' || user?.role === 'Admin'); // ✅ ลากย้ายตำแหน่งกล้องได้เฉพาะ staff — ดูอย่างเดียวได้ทุกคน
+    const isStaff = (user?.role === 'Admin'); // ✅ ลากย้ายตำแหน่งกล้องได้เฉพาะ staff — ดูอย่างเดียวได้ทุกคน
     const isStaffRef = useRef(isStaff);
     useEffect(() => { isStaffRef.current = isStaff; }, [isStaff]);
     const [layouts, setLayouts] = useState([]);
@@ -1348,7 +1350,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                         selectedCam={selectedCam}
                         setSelectedCam={setSelectedCam}
                         setDetailModal={setDetailModal}
-                        setLocationModal={setLocationModal}
+                        setLocationModal={isStaff ? setLocationModal : null}
                         setCamModal={setCamModal}
                         fullUrl={fullUrl}
                         selectedLayout={selectedLayout}

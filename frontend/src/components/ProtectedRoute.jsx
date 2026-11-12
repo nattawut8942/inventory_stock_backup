@@ -9,7 +9,7 @@ const ProtectedRoute = ({ children, staffOnly = false }) => {
         return <Navigate to="/login" replace />;
     }
 
-    if (staffOnly && (user?.role !== 'Staff' && user?.role !== 'Admin')) {
+    if (staffOnly && user?.role !== 'Admin') {
         return <Navigate to="/" replace />;
     }
 

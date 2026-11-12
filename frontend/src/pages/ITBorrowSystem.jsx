@@ -139,7 +139,7 @@ const ITBorrowSystem = () => {
     navigate('/login', { replace: true });
     return true;
   };
-  const isAdmin = (user?.role === 'Staff' || user?.role === 'Admin'); // ✅ [validation #7] จำกัดสิทธิ์แก้ไข/เปลี่ยนสถานะเฉพาะ staff เหมือน InventoryPage
+  const isAdmin = (user?.role === 'Admin'); // ✅ [validation #7] จำกัดสิทธิ์แก้ไข/เปลี่ยนสถานะเฉพาะ staff เหมือน InventoryPage
 
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -563,7 +563,7 @@ const ITBorrowSystem = () => {
 
   // ── แก้ไขรายการ (เผื่อบันทึกผิด) ──────────────────────────────
   const openEditModal = (b) => {
-    // กันเบื้องต้นฝั่ง frontend — ตัวป้องกันจริงอยู่ที่ backend (PUT /borrowings/:id ใช้ requireRole('Staff'))
+    // กันเบื้องต้นฝั่ง frontend — ตัวป้องกันจริงอยู่ที่ backend (PUT /borrowings/:id ใช้ requireRole('Admin'))
     if (!isAdmin) return;
     setEditForm({
       brname: b.brname || '',

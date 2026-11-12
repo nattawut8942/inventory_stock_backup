@@ -28,3 +28,6 @@ export const requireRole = (role) => {
         next();
     };
 };
+
+// Shorthand for write endpoints that only Admin may call: router.put('/x', ...adminOnly, handler)
+export const adminOnly = [verifyToken, requireRole('Admin')];

@@ -29,9 +29,9 @@ const ACTIVITY_UPLOAD_DIR = process.env.ACTIVITY_UPLOAD_DIR
 const MAIN_MAX_DIMENSION = 1920;
 const THUMB_MAX_DIMENSION = 480;
 
-// เฉพาะ role นี้เท่านั้นที่ลบ/แก้ไขได้ (ตาม convention เดิมของระบบ — isAdmin = role 'Staff')
-const ADMIN_ROLE = 'Staff';
-const isAdminRole = (role) => role === ADMIN_ROLE || role === 'Admin';
+// Only Admin may edit/delete. Role comes from the verified JWT (req.user), never from the request body.
+const ADMIN_ROLE = 'Admin';
+const isAdminRole = (role) => role === ADMIN_ROLE;
 
 // ─── Helper: resize รูปเป็น main + thumbnail แล้วเซฟลง network share (ใช้ jimp — pure JS ไม่มี native binary) ───
 const saveResizedImage = async (fileBuffer) => {
@@ -268,7 +268,7 @@ export const updateAlbum = async (req, res) => {
     const { id } = req.params;
     const { Title, Category, Description, EventDate, Role } = req.body;
 
-    if (!isAdminRole(Role)) {
+    if (!isAdminRole(req.user?.role)) {
         return res.status(403).json({ error: 'ไม่มีสิทธิ์แก้ไขข้อมูลอัลบัม' });
     }
     if (!Title || !Category || !EventDate) {
@@ -415,7 +415,7 @@ export const setAlbumCover = async (req, res) => {
     const { id } = req.params;
     const { PhotoID, Role } = req.body;
 
-    if (!isAdminRole(Role)) {
+    if (!isAdminRole(req.user?.role)) {
         return res.status(403).json({ error: 'ไม่มีสิทธิ์ตั้งค่าปกอัลบัม' });
     }
     try {
@@ -572,9 +572,9 @@ export const exportAlbumPdf = async (req, res) => {
 // DELETE /api/albums/:id?role=Staff — soft delete: ซ่อนจากหน้าเว็บเฉยๆ ไม่ลบรูปในอัลบัม
 export const deleteAlbum = async (req, res) => {
     const { id } = req.params;
-    const role = req.query.role || req.body?.Role;
 
-    if (!isAdminRole(role)) {
+
+    if (!isAdminRole(req.user?.role)) {
         return res.status(403).json({ error: 'ไม่มีสิทธิ์ลบอัลบัม' });
     }
     try {
@@ -592,9 +592,9 @@ export const deleteAlbum = async (req, res) => {
 // DELETE /api/photos/:id?role=Staff — ลบจริง ทั้งไฟล์ (main+thumbnail) บน network share และ record ในฐานข้อมูล
 export const deleteActivityPhoto = async (req, res) => {
     const { id } = req.params;
-    const role = req.query.role || req.body?.Role;
 
-    if (!isAdminRole(role)) {
+
+    if (!isAdminRole(req.user?.role)) {
         return res.status(403).json({ error: 'ไม่มีสิทธิ์ลบรูป' });
     }
     try {

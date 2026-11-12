@@ -1,4 +1,5 @@
 import express from 'express';
+import { adminOnly } from '../middleware/authMiddleware.js';
 import {
     getPrinterHealth,
     getPrinterHistory,
@@ -15,7 +16,7 @@ const router = express.Router();
 
 router.get('/printer-health', getPrinterHealth);
 router.get('/printer-locations', getPrinterLocations);
-router.put('/printer-locations/:id', updatePrinterLocation);
+router.put('/printer-locations/:id', ...adminOnly, updatePrinterLocation);
 router.post('/printer-health', createPrinter);
 router.get('/printer-health/meta/factories', getFactoryOptions);
 router.put('/printer-health/:id', updatePrinter);

@@ -20,7 +20,7 @@ router.get('/', getBorrowings);
 router.post('/', createBorrowing);
 
 // ✅ แก้ไขข้อมูลรายการยืม (เผื่อบันทึกผิด เปลี่ยนสถานะเองได้ด้วย) — เฉพาะ Staff/Admin
-router.put('/:id', requireRole('Staff'), updateBorrowing);
+router.put('/:id', requireRole('Admin'), updateBorrowing);
 
 // รับคืนอุปกรณ์ (Update สถานะ)
 router.put('/:id/return', returnBorrowing);

@@ -508,6 +508,10 @@ export const deleteSession = async (req, res) => {
         }
 
         const session = sessionCheck.recordset[0];
+        // Anyone may cancel their own Draft count; deleting a Confirmed/Adjusted session is Admin only
+        if (session.Status !== 'Draft' && req.user?.role !== 'Admin') {
+            return res.status(403).json({ error: 'เฉพาะ Admin เท่านั้นที่ลบรอบนับที่ยืนยันแล้วได้' });
+        }
         // Confirmed sessions can only be deleted within 3 days
         if (session.Status === 'Confirmed' && session.DaysOld > 3) {
             return res.status(403).json({ error: 'Cannot delete: confirmed session is older than 3 days' });

@@ -60,11 +60,25 @@ if (typeof window !== 'undefined' && !window.__itStockFetchPatched) {
     window.__itStockFetchPatched = true;
     const originalFetch = window.fetch.bind(window);
     window.fetch = async (input, init) => {
-        const res = await originalFetch(input, init);
+        const url = typeof input === 'string' ? input : (input?.url || String(input || ''));
+        const isApi = url.includes('/ITinventory/api/') && !url.includes('/authen');
+        // แนบ token ให้อัตโนมัติทุก request ไปยัง API (backend ตรวจสิทธิ์ Admin จาก token)
+        let nextInit = init;
         try {
-            const url = typeof input === 'string' ? input : (input?.url || '');
-            if (res.status === 401 && url.includes('/ITinventory/api/') && !url.includes('/authen')) {
-                const headers = new Headers(init?.headers || (input && input.headers) || {});
+            if (isApi) {
+                const t = getAuthToken();
+                const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined) || {});
+                if (t && !headers.has('Authorization')) {
+                    headers.set('Authorization', `Bearer ${t}`);
+                    nextInit = { ...(init || {}), headers };
+                }
+            }
+        } catch { /* ไม่ให้การแนบ token ทำให้ request พัง */ }
+
+        const res = await originalFetch(input, nextInit);
+        try {
+            if (res.status === 401 && isApi) {
+                const headers = new Headers(nextInit?.headers || (input && input.headers) || {});
                 if (headers.get('Authorization')) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
             }
         } catch { /* ไม่ให้การดักทำให้ request พัง */ }

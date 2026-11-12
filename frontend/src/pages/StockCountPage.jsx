@@ -777,7 +777,7 @@ const StockCountPage = () => {
                                 </div>
 
                                 {/* Edit and Adjust buttons */}
-                                {(user?.role === 'Admin' || user?.role === 'Staff') && selectedSession.Status === 'Confirmed' && (
+                                {user?.role === 'Admin' && selectedSession.Status === 'Confirmed' && (
                                     <div className="flex items-center gap-3">
                                         {getDaysAgo(selectedSession.CountDate) <= 3 ? (
                                             !isEditing ? (
@@ -976,7 +976,7 @@ const StockCountPage = () => {
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-2 shrink-0">
-                                                        {!isLocked && (user?.role === 'Admin' || user?.role === 'Staff') && (
+                                                        {!isLocked && user?.role === 'Admin' && (
                                                             <button
                                                                 onClick={(e) => handleDeleteSession(session.SessionID, session.SessionCode, e)}
                                                                 disabled={isDeleting === session.SessionID}

@@ -161,7 +161,7 @@ const Sidebar = ({ isOpen, onClose }) => {
 
                     {/* 📦 INVENTORY & PROCUREMENT */}
                     <NavGroupHeader label="📦 Inventory & Procurement" collapsed={collapsed} />
-                    {(user?.role === 'Staff' || user?.role === 'Admin') ? (
+                    {(user?.role === 'Admin') ? (
                         <>
                             <NavItem icon={Database} label="STOCK INVENTORY" to="/inventory" onClose={onClose} collapsed={collapsed} />
                             <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" onClose={onClose} collapsed={collapsed} />
@@ -217,7 +217,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                     <NavItem icon={BookOpen} label="KNOWLEDGE BASE" to="/knowledge-base" onClose={onClose} collapsed={collapsed} />
 
                     {/* 👤 STAFF CONTROLS */}
-                    {(user?.role === 'Staff' || user?.role === 'Admin') && (
+                    {(user?.role === 'Admin') && (
                         <>
                             <Divider collapsed={collapsed} />
                             <NavGroupHeader label="👤 Staff Controls" collapsed={collapsed} />
