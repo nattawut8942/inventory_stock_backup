@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Camera, Images, Calendar, Star, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useCan } from '../context/PermissionContext';
 import { API_BASE, API_URL } from '../config/api';
 import { formatThaiDate } from '../utils/formatDate';
 import AlertModal from '../components/AlertModal';
@@ -11,7 +12,8 @@ import ActivityViewerModal from '../components/ActivityViewerModal';
 
 const ActivityPage = () => {
     const { user } = useAuth();
-    const isAdmin = (user?.role === 'Admin');
+    const isAdmin = useCan('activity', 'edit'); // edit album info / cover
+    const canDelete = useCan('activity', 'delete');
 
     const [categories, setCategories] = useState([]);
     const [uploadOpen, setUploadOpen] = useState(false);
@@ -298,7 +300,7 @@ const ActivityPage = () => {
                                 index={idx}
                                 onClick={setViewingAlbumId}
                                 onTogglePin={handleTogglePin}
-                                onDelete={isAdmin ? handleDeleteAlbum : null}
+                                onDelete={canDelete ? handleDeleteAlbum : null}
                                 setAlertModal={setAlertModal}
                             />
                         ))}
@@ -355,6 +357,7 @@ const ActivityPage = () => {
                     categories={categories}
                     setAlertModal={setAlertModal}
                     isAdmin={isAdmin}
+                    canDelete={canDelete}
                 />
             )}
 

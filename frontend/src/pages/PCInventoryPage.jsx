@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import { API_BASE, API_URL } from '../config/api';
 import MOInventoryPage from './MOInventoryPage';
 import LocationSelectorModal from './LocationSelectorModal';
+import { useCan } from '../context/PermissionContext';
 import MapViewTab from './MapViewTab';
 import Portal from '../components/Portal';
 import AlertModal from '../components/AlertModal';
@@ -223,6 +224,7 @@ const PCInventoryPage = () => {
   const [factoryLayouts, setFactoryLayouts] = useState([]);
   const [locationData, setLocationData] = useState(null);
   const [showLocationModal, setShowLocationModal] = useState(false);
+  const canEditLayout = useCan('devices-layout', 'edit'); // placing a device on the map
   const [locationLoading, setLocationLoading] = useState(false);
 
   const location = useLocation();
@@ -1358,10 +1360,10 @@ const sessionView = useMemo(() => {
     onClick={() => { setModalData({ hostname, assetInput: detailData.inv.fix_asset }); setShowAssetModal(true); }}
   >Edit Asset</button>
 
-  <button
+  {canEditLayout && <button
     className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors"
     onClick={() => setShowLocationModal(true)}
-  >📍 Edit Location</button>
+  >📍 Edit Location</button>}
 
   <button
     className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors"
@@ -1816,7 +1818,7 @@ const sessionView = useMemo(() => {
                                 hostname={hostname}
                                 locationData={locationData}
                                 detailData={detailData}
-                                onEditLocation={() => setShowLocationModal(true)}
+                                onEditLocation={canEditLayout ? () => setShowLocationModal(true) : undefined}
                                 onSelectPC={(selectedHostname) => {
                                   setHostname(selectedHostname);
                                   fetchPCLocation(selectedHostname);

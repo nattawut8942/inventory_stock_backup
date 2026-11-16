@@ -8,6 +8,7 @@ import {
     LayoutGrid
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { usePermissions } from '../context/PermissionContext';
 import logodaikin from '../../public/DAIKIN_logo.svg.png';
 import logodaikinn from '../../public/icon-daikin (Custom).png';
 
@@ -35,7 +36,9 @@ const Tooltip = ({ label, children, collapsed }) => {
 const NavItem = ({ icon: Icon, label, to, isSubItem = false, onClose, collapsed }) => {
     const location = useLocation();
     const navigate = useNavigate();
+    const { canRoute } = usePermissions();
     const isActive = location.pathname === to || location.pathname.startsWith(`${to}/`);
+    if (!canRoute(to)) return null; // no "view" permission for this page
 
     const handleNav = () => { navigate(to); if (onClose) onClose(); };
 
@@ -82,6 +85,9 @@ const Divider = ({ collapsed }) => (
 // ── SIDEBAR ────────────────────────────────────────────────────────────────
 const Sidebar = ({ isOpen, onClose }) => {
     const { user, logout } = useAuth();
+    const { isAdmin, can, canAnyView } = usePermissions();
+    const canSeeManualImport = isAdmin || can('manual-import', 'view');
+    const canSeeManagement = isAdmin || canAnyView('mgmt-');
     const navigate = useNavigate();
 
     // collapsed state — persist ใน localStorage
@@ -161,21 +167,11 @@ const Sidebar = ({ isOpen, onClose }) => {
 
                     {/* 📦 INVENTORY & PROCUREMENT */}
                     <NavGroupHeader label="📦 Inventory & Procurement" collapsed={collapsed} />
-                    {(user?.role === 'Admin') ? (
-                        <>
-                            <NavItem icon={Database} label="STOCK INVENTORY" to="/inventory" onClose={onClose} collapsed={collapsed} />
-                            <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" onClose={onClose} collapsed={collapsed} />
-                            <NavItem icon={Activity} label="PRINTER HEALTH" to="/printer-health" onClose={onClose} collapsed={collapsed} />
-                            <NavItem icon={ShoppingCart} label="PR & ORDERS" to="/purchase-orders"  onClose={onClose} collapsed={collapsed} />
-                            <NavItem icon={ArrowDownToLine} label="RECEIVE ITEMS" to="/receive" onClose={onClose} collapsed={collapsed} />
-                        </>
-                    ) : (
-                        <>
-                            <NavItem icon={Database} label="STOCK INVENTORY" to="/inventory" onClose={onClose} collapsed={collapsed} />
-                            <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" onClose={onClose} collapsed={collapsed} />
-                            <NavItem icon={Activity} label="PRINTER HEALTH" to="/printer-health" onClose={onClose} collapsed={collapsed} />
-                        </>
-                    )}
+                    <NavItem icon={Database} label="STOCK INVENTORY" to="/inventory" onClose={onClose} collapsed={collapsed} />
+                    <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" onClose={onClose} collapsed={collapsed} />
+                    <NavItem icon={Activity} label="PRINTER HEALTH" to="/printer-health" onClose={onClose} collapsed={collapsed} />
+                    <NavItem icon={ShoppingCart} label="PR & ORDERS" to="/purchase-orders"  onClose={onClose} collapsed={collapsed} />
+                    <NavItem icon={ArrowDownToLine} label="RECEIVE ITEMS" to="/receive" onClose={onClose} collapsed={collapsed} />
                     <NavItem icon={Briefcase} label="BORROWING SYSTEM" to="/borrowings" onClose={onClose} collapsed={collapsed} />
 
                     <Divider collapsed={collapsed} />
@@ -217,12 +213,12 @@ const Sidebar = ({ isOpen, onClose }) => {
                     <NavItem icon={BookOpen} label="KNOWLEDGE BASE" to="/knowledge-base" onClose={onClose} collapsed={collapsed} />
 
                     {/* 👤 STAFF CONTROLS */}
-                    {(user?.role === 'Admin') && (
+                    {(canSeeManualImport || canSeeManagement) && (
                         <>
                             <Divider collapsed={collapsed} />
                             <NavGroupHeader label="👤 Staff Controls" collapsed={collapsed} />
-                            <NavItem icon={Plus} label="MANUAL IMPORT" to="/manual-import" onClose={onClose} collapsed={collapsed} />
-                            <NavItem icon={Shield} label="MANAGEMENT" to="/management" onClose={onClose} collapsed={collapsed} />
+                            {canSeeManualImport && <NavItem icon={Plus} label="MANUAL IMPORT" to="/manual-import" onClose={onClose} collapsed={collapsed} />}
+                            {canSeeManagement && <NavItem icon={Shield} label="MANAGEMENT" to="/management" onClose={onClose} collapsed={collapsed} />}
                         </>
                     )}
                 </nav>

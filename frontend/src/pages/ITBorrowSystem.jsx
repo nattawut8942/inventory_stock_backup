@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, ArrowLeftRight, Search, Laptop, X, Loader2, AlertTriangle, PackageOpen, Minus, CheckCircle2, Info, Edit2, CalendarPlus, Clock } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useAuth, getAuthToken } from '../context/AuthContext';
+import { useCan } from '../context/PermissionContext';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config/api';
 
@@ -139,7 +140,7 @@ const ITBorrowSystem = () => {
     navigate('/login', { replace: true });
     return true;
   };
-  const isAdmin = (user?.role === 'Admin'); // ✅ [validation #7] จำกัดสิทธิ์แก้ไข/เปลี่ยนสถานะเฉพาะ staff เหมือน InventoryPage
+  const isAdmin = useCan('borrowings', 'edit'); // ✅ [validation #7] จำกัดสิทธิ์แก้ไข/เปลี่ยนสถานะเฉพาะ staff เหมือน InventoryPage
 
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);

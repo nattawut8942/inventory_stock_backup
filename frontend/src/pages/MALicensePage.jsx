@@ -8,6 +8,7 @@ import {
     ChevronUp, ArrowUpDown, User, List, LayoutGrid, Layers, Copy, Paperclip, Upload, MoreHorizontal
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useCan } from '../context/PermissionContext';
 import AlertModal from '../components/AlertModal';
 import Portal from '../components/Portal';
 import { API_BASE } from '../config/api';
@@ -727,7 +728,10 @@ const MATVCard = ({ item, idx = 0 }) => {
 // ─── MAIN PAGE COMPONENT ─────────────────
 const MALicensePage = () => {
     const { user } = useAuth();
-    const isAdmin = (user?.role === 'Admin');
+    const canCreate = useCan('ma-license', 'create');
+    const canEdit = useCan('ma-license', 'edit');
+    const canDelete = useCan('ma-license', 'delete');
+    const isAdmin = canEdit; // legacy name: may edit / change status / renew
 
     const [items, setItems] = useState([]);
     const [vendors, setVendors] = useState([]);
@@ -1260,7 +1264,7 @@ const MALicensePage = () => {
                         className="h-[36px] flex items-center gap-1.5 px-3 rounded-lg font-bold text-xs text-white bg-slate-800 hover:bg-slate-700 shadow-sm transition-colors">
                         📺 TV Mode
                     </button>
-                    {isAdmin && activeTab !== 'ALL' && (
+                    {canCreate && activeTab !== 'ALL' && (
                         <button onClick={() => setFormModal({ isOpen: true, item: null })} className={`h-[36px] flex items-center gap-1.5 px-3 rounded-lg font-bold text-xs text-white bg-gradient-to-r ${activeCat?.color} shadow-sm hover:shadow-md transition-all`}>
                             <Plus size={14} />
                             <span className="hidden sm:inline">เพิ่มรายการ</span>
@@ -1411,6 +1415,7 @@ const MALicensePage = () => {
                 <MADetailModal
                     item={detailItem}
                     isAdmin={isAdmin}
+                    canDelete={canDelete}
                     onClose={() => setDetailItem(null)}
                     onEdit={() => { setDetailItem(null); setFormModal({ isOpen: true, item: detailItem }); }}
                     onStatusChange={handleStatusChange}
@@ -1702,7 +1707,7 @@ const MAHistoryList = ({ history }) => {
     );
 };
 
-const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenewalChange, onComplete, onDelete }) => {
+const MADetailModal = ({ item, isAdmin, canDelete, onClose, onEdit, onStatusChange, onRenewalChange, onComplete, onDelete }) => {
     const cat = CATEGORIES.find(c => c.key === item.Category) || CATEGORIES[1];
     const CatIcon = cat.icon;
     const status = getEffectiveStatus(item);
@@ -1847,15 +1852,15 @@ const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenew
                     </motion.div>
 
                     {/* ACTIONS */}
-                    {isAdmin && (
+                    {(isAdmin || canDelete) && (
                         <div ref={menuRef} className="p-3 bg-white border-t border-slate-100 flex flex-wrap items-center gap-2 shrink-0">
-                            <ActionBtn icon={Edit2} tone="indigo" onClick={onEdit}>แก้ไข</ActionBtn>
+                            {isAdmin && <ActionBtn icon={Edit2} tone="indigo" onClick={onEdit}>แก้ไข</ActionBtn>}
 
-                            <ActionBtn icon={CheckCircle} tone={renewal?.value === 'PO_ISSUED' ? 'emeraldSolid' : 'emerald'} onClick={onComplete}>
+                            {isAdmin && <ActionBtn icon={CheckCircle} tone={renewal?.value === 'PO_ISSUED' ? 'emeraldSolid' : 'emerald'} onClick={onComplete}>
                                 ต่ออายุเสร็จ
-                            </ActionBtn>
+                            </ActionBtn>}
 
-                            <div className="relative ml-auto">
+                            {canDelete && <div className="relative ml-auto">
                                 <ActionBtn icon={MoreHorizontal} tone="plain" onClick={() => setMenu(m => m === 'more' ? null : 'more')}>
                                     เพิ่มเติม
                                 </ActionBtn>
@@ -1870,7 +1875,7 @@ const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenew
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
-                            </div>
+                            </div>}
                         </div>
                     )}
                 </motion.div>

@@ -6,29 +6,51 @@ import {
 } from '../services/permissionService.js';
 
 // Guard a route with a page-level permission:
-//   router.put('/ma/:id', requirePerm('ma-license', 'edit'), handler)
+//   router.put('/ma/:id', requirePerm('ma-license', 'edit', { strict: true }), handler)
 //
 // - Admin always passes (role is read from the database, not the token).
 // - mode "off"     : does nothing.
 // - mode "log"     : lets the request through but records what would have been denied
 //                    (visible at GET /permissions/log-summary and in the server log).
 // - mode "enforce" : 401 when there is no valid token, 403 when the permission is missing.
+//
+// { strict: true } is for routes that were ALREADY locked (Admin only) before the permission
+// system existed. They stay enforced even in "log" mode, so converting them never opens anything.
+// In "off" mode (the emergency switch) strict routes fall back to the old rule: token role Admin.
+//
 // A wrong page/action name throws when the route file is loaded, so typos fail at startup.
-export const requirePerm = (page, action) => {
+// The returned middleware carries .permMeta so tests can audit the whole route table.
+
+const identify = (req) => {
+    let user = req.user || null;
+    if (!user) {
+        try {
+            const raw = req.headers['authorization'];
+            if (raw) user = jwt.verify(raw.startsWith('Bearer ') ? raw.slice(7) : raw, getJwtSecret());
+        } catch { user = null; }
+    }
+    return user;
+};
+
+export const requirePerm = (page, action, options = {}) => {
     assertPermission(page, action);
+    const strict = !!options.strict;
 
-    return async (req, res, next) => {
-        const mode = getPermissionMode();
-        if (mode === 'off') return next();
+    const middleware = async (req, res, next) => {
+        const configured = getPermissionMode();
+        const user = identify(req);
 
-        // Identify the caller (works whether or not verifyToken already ran on this route).
-        let user = req.user || null;
-        if (!user) {
-            try {
-                const raw = req.headers['authorization'];
-                if (raw) user = jwt.verify(raw.startsWith('Bearer ') ? raw.slice(7) : raw, getJwtSecret());
-            } catch { user = null; }
+        // Emergency switch on an already-locked route: old behaviour (token role Admin only).
+        if (strict && configured === 'off') {
+            if (!user) return res.status(401).json({ success: false, error: 'กรุณาเข้าสู่ระบบ', code: 'UNAUTHORIZED' });
+            if (user.role !== 'Admin') {
+                return res.status(403).json({ success: false, error: 'คุณไม่มีสิทธิ์ดำเนินการนี้ กรุณาติดต่อ Admin', code: 'PERMISSION_DENIED', page, action });
+            }
+            return next();
         }
+
+        const mode = strict ? 'enforce' : configured;
+        if (mode === 'off') return next();
 
         let allowed = false;
         let reason = '';
@@ -47,7 +69,10 @@ export const requirePerm = (page, action) => {
             }
         }
 
-        if (allowed) return next();
+        if (allowed) {
+            req.perm = { page, action };
+            return next();
+        }
 
         if (mode === 'log') {
             recordWouldDeny({ empCode: user?.empcode, page, action, reason });
@@ -70,6 +95,24 @@ export const requirePerm = (page, action) => {
             action,
         });
     };
+
+    middleware.permMeta = { page, action, strict };
+    return middleware;
+};
+
+// For controllers that need an extra, conditional check (e.g. "deleting a confirmed stock count
+// needs stock-count:delete, but cancelling your own draft does not"). Same rules as strict routes.
+export const hasPermission = async (req, page, action) => {
+    assertPermission(page, action);
+    const user = identify(req);
+    if (!user?.empcode) return false;
+    if (getPermissionMode() === 'off') return user.role === 'Admin'; // emergency switch: old rule
+    try {
+        return userCan(await loadUserAccess(user.empcode), page, action);
+    } catch (err) {
+        console.error('[perm] lookup failed:', err.message);
+        return false;
+    }
 };
 
 // Admin check that reads the role from the database (not the token), so demoting an Admin

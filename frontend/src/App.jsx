@@ -89,7 +89,7 @@ const AppRoutes = () => {
                 <Route
                     path="manual-import"
                     element={
-                        <ProtectedRoute staffOnly>
+                        <ProtectedRoute perm={['manual-import', 'view']}>
                             <ManualImportPage />
                         </ProtectedRoute>
                     }
@@ -97,7 +97,7 @@ const AppRoutes = () => {
                 <Route
                     path="management"
                     element={
-                        <ProtectedRoute staffOnly>
+                        <ProtectedRoute anyView="mgmt-">
                             <ManagementPage />
                         </ProtectedRoute>
                     }

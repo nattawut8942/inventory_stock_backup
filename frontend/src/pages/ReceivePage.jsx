@@ -3,6 +3,7 @@ import { FileText, Search, Calendar, Eye, X, Package, Check, ShoppingCart, Clock
 import { motion, AnimatePresence } from 'motion/react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
+import { useCan } from '../context/PermissionContext';
 import StatCard from '../components/StatCard';
 
 import { formatThaiDate } from '../utils/formatDate';
@@ -24,7 +25,8 @@ const ITEMS_PER_PAGE = 10;
 const ReceivePage = () => {
     const { purchaseOrders, invoices, products, vendors, transactions, refreshData, loading } = useData();
     const { user } = useAuth();
-    const isStaff = (user?.role === 'Admin');
+    const canReceive = useCan('receive', 'receive');
+    const canCancel = useCan('receive', 'cancel');
 
     // ---------- Filter state ----------
     const defaultRange = useMemo(() => {
@@ -500,7 +502,7 @@ const ReceivePage = () => {
                                             >
                                                 <Eye size={14} /> รายละเอียด
                                             </button>
-                                            {isStaff && (
+                                            {canReceive && (
                                                 <button
                                                     onClick={() => openReceive(po)}
                                                     className="bg-emerald-600 text-white font-bold py-2 rounded-xl text-xs hover:bg-emerald-500 hover:shadow-lg hover:shadow-emerald-200 transition-all flex items-center justify-center gap-1"
@@ -635,7 +637,7 @@ const ReceivePage = () => {
                                                 >
                                                     <Eye size={14} /> ดูรายละเอียด
                                                 </button>
-                                                {isStaff && !cancelled && (
+                                                {canCancel && !cancelled && (
                                                     <button
                                                         onClick={() => setCancelConfirm({ isOpen: true, invoiceNo: inv.InvoiceNo })}
                                                         className="flex items-center gap-1 px-2 py-1 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-200"
@@ -672,7 +674,7 @@ const ReceivePage = () => {
                         products={products}
                         contact={(vendors || []).find(v => v.VendorName === selectedPO.VendorName)?.ContactInfo}
                         invoices={invoices}
-                        isStaff={isStaff}
+                        isStaff={canReceive} /* shows the receive button */
                         onClose={() => setSelectedPO(null)}
                         onReceive={openReceive}
                         onOpenInvoice={(inv) => { setSelectedPO(null); setSelectedInvoice(inv); }}
@@ -690,7 +692,7 @@ const ReceivePage = () => {
                         totalValue={invDetail.totalValue}
                         vendor={invDetail.vendor}
                         contact={invDetail.contact}
-                        isStaff={isStaff}
+                        isStaff={canCancel} /* shows the cancel button */
                         onClose={() => setSelectedInvoice(null)}
                         onCancelRequest={requestCancelInvoice}
                         onViewPO={poById.get(selectedInvoice.PO_ID) ? () => { setSelectedInvoice(null); setSelectedPO(poById.get(selectedInvoice.PO_ID)); } : undefined}

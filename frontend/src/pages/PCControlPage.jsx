@@ -4,6 +4,7 @@ import { LayoutGrid, Monitor, Laptop2, Printer, X, Loader2, MapPin, Search } fro
 import { API_BASE, API_URL } from '../config/api';
 import Portal from '../components/Portal';
 import { useAuth } from '../context/AuthContext';
+import { useCan } from '../context/PermissionContext';
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 const getPcIcon = (computerType) => {
@@ -151,7 +152,7 @@ const GlobalSearchModal = ({ devices, loading, onSelect, onClose }) => {
 const PCControlPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isAdmin = (user?.role === 'Admin'); // ✅ ลาก/ย้ายตำแหน่งได้เฉพาะ staff — ดูอย่างเดียวได้ทุกคน
+  const isAdmin = useCan('devices-layout', 'edit'); // ✅ ลาก/ย้ายตำแหน่งได้เฉพาะ staff — ดูอย่างเดียวได้ทุกคน
   // ⚠️ นี่เป็นแค่การกันเบื้องต้นฝั่ง frontend เท่านั้น — endpoint PUT /pc-location/:hostname
   // และ /mo-location/:hostname ฝั่ง backend ควรมี auth middleware เช็ค role อีกชั้นด้วย
   // เพราะใครก็ยิง API ตรงๆ ข้าม UI นี้ได้

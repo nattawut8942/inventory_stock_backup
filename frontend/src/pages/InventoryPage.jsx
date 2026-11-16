@@ -5,6 +5,7 @@ import Barcode from 'react-barcode';
 import { motion, AnimatePresence, animate } from 'motion/react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
+import { useCan } from '../context/PermissionContext';
 import AlertModal from '../components/AlertModal';
 import Portal from '../components/Portal';
 import { getBadgeStyle, getColorGradient, getChartColor, getDeviceTypeColor } from '../utils/styleHelpers';
@@ -572,7 +573,9 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);   // ✅ เพิ่ม
   const [pendingWithdraw, setPendingWithdraw] = useState(null);
   const printRef = useRef();
-  const isAdmin = (user?.role === 'Admin');
+  const canEdit = useCan('inventory', 'edit');
+  const canDelete = useCan('inventory', 'delete');
+  const isAdmin = canEdit || canDelete; // the "manage" column shows if either applies
   const [gridSort, setGridSort] = useState('priority');
 
   const getIcon = (type) => {
@@ -1008,8 +1011,8 @@ const handleFileUpload = async (file) => {
                       {isAdmin && (
                         <td className="p-4">
                           <div className="flex justify-center gap-2">
-                            <button onClick={() => setEditItem(p)} aria-label={`แก้ไข ${p.ProductName}`} title="แก้ไข" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>
-                            <button onClick={() => handleDelete(p.ProductID)} aria-label={`ลบ ${p.ProductName}`} title="ลบ" className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                            {canEdit && <button onClick={() => setEditItem(p)} aria-label={`แก้ไข ${p.ProductName}`} title="แก้ไข" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
+                            {canDelete && <button onClick={() => handleDelete(p.ProductID)} aria-label={`ลบ ${p.ProductName}`} title="ลบ" className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
                           </div>
                         </td>
                       )}
@@ -1061,8 +1064,8 @@ const handleFileUpload = async (file) => {
                     <button onClick={() => setBarcodeItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-emerald-600 rounded-full shadow-sm hover:bg-emerald-50" title="พิมพ์บาร์โค้ด" aria-label="พิมพ์บาร์โค้ด"><Printer size={14} /></button>
                     {isAdmin && (
                       <>
-                        <button onClick={() => setEditItem(p)} aria-label={`แก้ไข ${p.ProductName}`} title="แก้ไข" className="p-1.5 bg-white/90 backdrop-blur text-amber-500 rounded-full shadow-sm hover:bg-amber-50"><Edit2 size={14} /></button>
-                        <button onClick={() => handleDelete(p.ProductID)} aria-label={`ลบ ${p.ProductName}`} title="ลบ" className="p-1.5 bg-white/90 backdrop-blur text-red-500 rounded-full shadow-sm hover:bg-red-50"><Trash2 size={14} /></button>
+                        {canEdit && <button onClick={() => setEditItem(p)} aria-label={`แก้ไข ${p.ProductName}`} title="แก้ไข" className="p-1.5 bg-white/90 backdrop-blur text-amber-500 rounded-full shadow-sm hover:bg-amber-50"><Edit2 size={14} /></button>}
+                        {canDelete && <button onClick={() => handleDelete(p.ProductID)} aria-label={`ลบ ${p.ProductName}`} title="ลบ" className="p-1.5 bg-white/90 backdrop-blur text-red-500 rounded-full shadow-sm hover:bg-red-50"><Trash2 size={14} /></button>}
                       </>
                     )}
                   </div>

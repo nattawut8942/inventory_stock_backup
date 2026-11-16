@@ -1,5 +1,6 @@
 import express from 'express';
-import { adminOnly, verifyToken } from '../middleware/authMiddleware.js';
+import { verifyToken } from '../middleware/authMiddleware.js';
+import { requirePerm } from '../middleware/permissionMiddleware.js';
 import {
     getSessions, getSessionDetail, createSession,
     addItem, updateItem, deleteItem,
@@ -23,7 +24,7 @@ router.delete('/stock-count/sessions/:id/items/:itemId', deleteItem);
 // Confirm & Edit & Delete & Adjust
 router.post('/stock-count/sessions/:id/confirm', confirmSession);
 router.post('/stock-count/sessions/:id/adjust', applyStockAdjustment);
-router.put('/stock-count/sessions/:id', ...adminOnly, editConfirmedSession);
+router.put('/stock-count/sessions/:id', requirePerm('stock-count', 'edit', { strict: true }), editConfirmedSession);
 router.delete('/stock-count/sessions/:id', verifyToken, deleteSession); // Draft: any user; Confirmed: Admin only (checked in controller)
 
 // Product search (for scan/type-to-search)

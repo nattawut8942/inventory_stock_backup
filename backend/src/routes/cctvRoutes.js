@@ -1,5 +1,5 @@
 import express from 'express';
-import { adminOnly } from '../middleware/authMiddleware.js';
+import { requirePerm } from '../middleware/permissionMiddleware.js';
 import {
     getRacks, getRacksByLayout, createRack, updateRack, deleteRack,
     getSwitches, getSwitchesByRack, createSwitch, updateSwitch, deleteSwitch,
@@ -33,7 +33,7 @@ router.get   ('/cctv/cameras/layout/:layout_id',getCamerasByLayout);
 router.post  ('/cctv/cameras',                  createCamera);
 router.put   ('/cctv/cameras/:id',              updateCamera);
 router.patch ('/cctv/cameras/:id/status',       updateCameraStatus);
-router.patch ('/cctv/cameras/:id/location', ...adminOnly,     updateCameraLocation);
+router.patch ('/cctv/cameras/:id/location', requirePerm('cctv', 'edit', { strict: true }),     updateCameraLocation);
 router.delete('/cctv/cameras/:id',              deleteCamera);
 
 // ─── Ping ──────────────────────────────────────────────────────────────────
@@ -52,9 +52,9 @@ router.delete('/cctv/maintenance-logs/:id',     deleteMaintenanceLog);
 
 // ─── Record Servers ────────────────────────────────────────────────────────
 router.get   ('/cctv/record-servers',      getRecordServers);
-router.post  ('/cctv/record-servers', ...adminOnly,      createRecordServer);
-router.put   ('/cctv/record-servers/:id', ...adminOnly,  updateRecordServer);
-router.delete('/cctv/record-servers/:id', ...adminOnly,  deleteRecordServer);
+router.post  ('/cctv/record-servers', requirePerm('mgmt-record-servers', 'create', { strict: true }),      createRecordServer);
+router.put   ('/cctv/record-servers/:id', requirePerm('mgmt-record-servers', 'edit', { strict: true }),  updateRecordServer);
+router.delete('/cctv/record-servers/:id', requirePerm('mgmt-record-servers', 'delete', { strict: true }),  deleteRecordServer);
 
 router.post('/cctv/capture/trigger', async (req, res) => {
     // ป้องกันคนอื่นสุ่มยิง endpoint นี้เล่น

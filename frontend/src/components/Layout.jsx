@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import ProtectedRoute from './ProtectedRoute';
 
 const Layout = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -39,7 +40,7 @@ const Layout = () => {
 
                     {/* ✅ ขยายจาก max-w-[95%] เป็น max-w-full เต็มพื้นที่ที่มี เผื่อหน้าที่มีตารางหลาย column (เช่น ระบบยืม-คืน IT) ไม่ต้องบีบ/scroll เยอะเกินจำเป็น */}
                     <div className="max-w-full mx-auto w-full">
-                        <Outlet/>
+                        <ProtectedRoute byRoute><Outlet/></ProtectedRoute>
                     </div>
                 </div>
             </main>

@@ -1,4 +1,5 @@
 import { sql, getPool } from '../config/db.js';
+import { hasPermission } from '../middleware/permissionMiddleware.js';
 
 // Generate session code: STK-YYYYMMDD-XXX
 const generateSessionCode = async (pool) => {
@@ -509,8 +510,8 @@ export const deleteSession = async (req, res) => {
 
         const session = sessionCheck.recordset[0];
         // Anyone may cancel their own Draft count; deleting a Confirmed/Adjusted session is Admin only
-        if (session.Status !== 'Draft' && req.user?.role !== 'Admin') {
-            return res.status(403).json({ error: 'เฉพาะ Admin เท่านั้นที่ลบรอบนับที่ยืนยันแล้วได้' });
+        if (session.Status !== 'Draft' && !(await hasPermission(req, 'stock-count', 'delete'))) {
+            return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบรอบนับที่ยืนยันแล้ว (ต้องมีสิทธิ์ "ลบ" ของหน้า Stock Count)', code: 'PERMISSION_DENIED', page: 'stock-count', action: 'delete' });
         }
         // Confirmed sessions can only be deleted within 3 days
         if (session.Status === 'Confirmed' && session.DaysOld > 3) {

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { MapPin, Plus, RefreshCw, Server, Network, Camera, Wifi, WifiOff, ChevronDown, X, Search } from 'lucide-react';
 import { API_BASE, API_URL } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import { useCan } from '../context/PermissionContext';
 import CCTVFormModal from '../components/cctv/CCTVFormModal';
 import RackFormModal from '../components/cctv/RackFormModal';
 import SwitchFormModal from '../components/cctv/SwitchFormModal';
@@ -562,7 +563,7 @@ function GlobalSearchModal({ cameras, onSelect, onClose }) {
 
 function CCTVPage() {
     const { user } = useAuth();
-    const isStaff = (user?.role === 'Admin'); // ✅ ลากย้ายตำแหน่งกล้องได้เฉพาะ staff — ดูอย่างเดียวได้ทุกคน
+    const isStaff = useCan('cctv', 'edit'); // ✅ ลากย้ายตำแหน่งกล้องได้เฉพาะ staff — ดูอย่างเดียวได้ทุกคน
     const isStaffRef = useRef(isStaff);
     useEffect(() => { isStaffRef.current = isStaff; }, [isStaff]);
     const [layouts, setLayouts] = useState([]);

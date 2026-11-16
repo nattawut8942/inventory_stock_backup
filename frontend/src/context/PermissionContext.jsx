@@ -3,16 +3,24 @@ import { useAuth } from './AuthContext';
 import { API_BASE } from '../config/api';
 
 // Page-level permissions for the logged-in user, loaded from GET /me/permissions.
-//   can('inventory', 'edit')  -> true/false      (Admin is always true)
-//   can('inventory')          -> same as 'view'
-// Until the permissions have loaded, can() is false, so edit buttons are never shown to someone
-// who might not have the right. The backend is always the real gatekeeper; this only hides UI.
+//   can('inventory', 'edit')   -> true/false      (Admin is always true)
+//   can('inventory')           -> same as 'view'
+//   canRoute('/inventory')     -> may this user open that menu/route? (true for paths not in the catalog)
+//   canAnyView('mgmt-')        -> has "view" on at least one page whose key starts with the prefix
+//
+// Until the permissions have loaded, can() is false, so edit buttons are never shown to someone who
+// might not have the right. Viewing is not a secret, so menus/routes stay open until the answer is
+// known (and if loading fails). The backend is always the real gatekeeper; this only hides UI.
 
-const EMPTY = { ready: false, isAdmin: false, mode: 'log', perms: new Set() };
+const EMPTY = { ready: false, failed: false, isAdmin: false, mode: 'log', perms: new Set(), routes: [] };
 
 const PermissionContext = createContext({
     ...EMPTY,
+    settled: false,
     can: () => false,
+    canRoute: () => true,
+    canAnyView: () => false,
+    firstAllowedRoute: () => null,
     refresh: async () => {},
 });
 
@@ -39,15 +47,19 @@ export const PermissionProvider = ({ children }) => {
                 const d = await res.json();
                 setState({
                     ready: true,
+                    failed: false,
                     isAdmin: !!d.isAdmin,
                     mode: d.mode || 'log',
                     perms: new Set(Array.isArray(d.permissions) ? d.permissions : []),
+                    routes: Array.isArray(d.routes) ? d.routes : [],
                 });
                 lastFetchAt.current = Date.now();
+            } else {
+                // Keep whatever we had; only mark "failed" if we never had an answer, so the app can still open.
+                setState((prev) => (prev.ready ? prev : { ...prev, failed: true }));
             }
-            // On error keep whatever we had: a failed refresh must not wipe or grant anything.
         } catch {
-            /* network error: keep previous state */
+            setState((prev) => (prev.ready ? prev : { ...prev, failed: true }));
         } finally {
             inflight.current = false;
         }
@@ -72,13 +84,41 @@ export const PermissionProvider = ({ children }) => {
         };
     }, [isAuthenticated, refresh]);
 
-    const value = useMemo(() => ({
-        ready: state.ready,
-        isAdmin: state.isAdmin,
-        mode: state.mode,
-        can: (page, action = 'view') => state.isAdmin || state.perms.has(`${page}:${action}`),
-        refresh,
-    }), [state, refresh]);
+    const value = useMemo(() => {
+        const can = (page, action = 'view') => state.isAdmin || state.perms.has(`${page}:${action}`);
+
+        // longest route first so '/ad-explorer/user/x' matches '/ad-explorer'
+        const byLength = [...state.routes].sort((a, b) => b.route.length - a.route.length);
+        const pageForPath = (path) => {
+            const hit = byLength.find((r) => path === r.route || path.startsWith(`${r.route}/`));
+            return hit ? hit.page : null;
+        };
+        // Not ready / failed: viewing stays open (the backend decides what actually happens).
+        const canRoute = (path) => {
+            if (!state.ready) return true;
+            const page = pageForPath(path);
+            return !page || can(page, 'view');
+        };
+        const canAnyView = (prefix) =>
+            state.isAdmin || [...state.perms].some((k) => k.startsWith(prefix) && k.endsWith(':view'));
+        const firstAllowedRoute = () => {
+            const hit = state.routes.find((r) => can(r.page, 'view'));
+            return hit ? hit.route : null;
+        };
+
+        return {
+            ready: state.ready,
+            failed: state.failed,
+            settled: state.ready || state.failed,
+            isAdmin: state.isAdmin,
+            mode: state.mode,
+            can,
+            canRoute,
+            canAnyView,
+            firstAllowedRoute,
+            refresh,
+        };
+    }, [state, refresh]);
 
     return <PermissionContext.Provider value={value}>{children}</PermissionContext.Provider>;
 };

@@ -6,7 +6,7 @@ import { API_BASE, API_URL } from '../config/api';
 import { formatThaiDate } from '../utils/formatDate';
 import { useAuth } from '../context/AuthContext';
 
-const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], setAlertModal, isAdmin = false }) => {
+const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], setAlertModal, isAdmin = false, canDelete = false }) => {
     const { user } = useAuth();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -140,7 +140,7 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
     };
 
     const handleDeletePhoto = async (photoId) => {
-        if (!isAdmin) return;
+        if (!canDelete) return;
         const doDelete = async () => {
             try {
                 const res = await fetch(`${API_BASE}/photos/${photoId}?role=${encodeURIComponent(user?.role || '')}`, { method: 'DELETE' });
@@ -347,7 +347,7 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
                                                             <Star size={12} fill={isCover ? 'currentColor' : 'none'} />
                                                         </button>
                                                     )}
-                                                    {isAdmin && (
+                                                    {canDelete && (
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handleDeletePhoto(photo.PhotoID); }}
                                                             className="w-7 h-7 rounded-full bg-black/60 backdrop-blur text-white opacity-0 group-hover:opacity-100 hover:bg-red-500 transition-all flex items-center justify-center ml-auto"

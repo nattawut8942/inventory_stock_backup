@@ -6,6 +6,7 @@ import { useLocation } from 'react-router-dom';
 import { API_BASE } from '../config/api';
 import Portal from '../components/Portal';
 import LocationSelectorModal from './LocationSelectorModal';
+import { useCan } from '../context/PermissionContext';
 import MapViewTab from './MapViewTab';
 import AlertModal from '../components/AlertModal';
 
@@ -246,6 +247,7 @@ const MOInventoryPage = () => {
   const [factoryLayouts, setFactoryLayouts] = useState([]);
   const [locationData, setLocationData] = useState(null);
   const [showLocationModal, setShowLocationModal] = useState(false);
+  const canEditLayout = useCan('devices-layout', 'edit'); // placing a device on the map
   const [locationLoading, setLocationLoading] = useState(false);
 
   // ── NEW: History & Shutdown Events ───────────────────────────────────────
@@ -1049,10 +1051,10 @@ const MOInventoryPage = () => {
                       onClick={() => { setModalData({ hostname, assetInput: detailData.inv.fix_asset }); setShowAssetModal(true); }}
                     >Edit Asset</button>
 
-                    <button
+                    {canEditLayout && <button
                       className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors"
                       onClick={() => setShowLocationModal(true)}
-                    >📍 Edit Location</button>
+                    >📍 Edit Location</button>}
 
                     <button
                       className="bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
@@ -1346,7 +1348,7 @@ const MOInventoryPage = () => {
                           <MapViewTab
                             hostname={hostname}
                             locationData={locationData}
-                            onEditLocation={() => setShowLocationModal(true)}
+                            onEditLocation={canEditLayout ? () => setShowLocationModal(true) : undefined}
                             onSelectPC={(hn) => { setHostname(hn); fetchMOLocation(hn); fetchDetail(hn); }}
                             locationApiBase="mo-location"
                             labelMode="hostname"

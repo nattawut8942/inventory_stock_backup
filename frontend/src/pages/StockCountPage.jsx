@@ -6,12 +6,16 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
+import { useCan } from '../context/PermissionContext';
 import AlertModal from '../components/AlertModal';
 import Portal from '../components/Portal';
 import { API_BASE, API_URL } from '../config/api';
 
 const StockCountPage = () => {
     const { user } = useAuth();
+    const canEditSC = useCan('stock-count', 'edit');
+    const canAdjustSC = useCan('stock-count', 'adjust');
+    const canDeleteSC = useCan('stock-count', 'delete');
 
     // View state
     const [currentView, setCurrentView] = useState('counting'); // counting | history
@@ -777,9 +781,9 @@ const StockCountPage = () => {
                                 </div>
 
                                 {/* Edit and Adjust buttons */}
-                                {user?.role === 'Admin' && selectedSession.Status === 'Confirmed' && (
+                                {(canEditSC || canAdjustSC) && selectedSession.Status === 'Confirmed' && (
                                     <div className="flex items-center gap-3">
-                                        {getDaysAgo(selectedSession.CountDate) <= 3 ? (
+                                        {!canEditSC ? null : getDaysAgo(selectedSession.CountDate) <= 3 ? (
                                             !isEditing ? (
                                                 <button
                                                     onClick={startEditing}
@@ -811,7 +815,7 @@ const StockCountPage = () => {
                                             </div>
                                         )}
 
-                                        {!isEditing && (
+                                        {canAdjustSC && !isEditing && (
                                             <button
                                                 onClick={handleAdjustStock}
                                                 disabled={isAdjusting}
@@ -976,7 +980,7 @@ const StockCountPage = () => {
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-2 shrink-0">
-                                                        {!isLocked && user?.role === 'Admin' && (
+                                                        {!isLocked && canDeleteSC && (
                                                             <button
                                                                 onClick={(e) => handleDeleteSession(session.SessionID, session.SessionCode, e)}
                                                                 disabled={isDeleting === session.SessionID}

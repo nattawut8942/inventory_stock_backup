@@ -173,12 +173,12 @@ const MapViewTab = ({ hostname, locationData, detailData, onEditLocation, onSele
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
                 <div className="text-[14px] text-amber-700 font-medium mb-2">📍 No location set</div>
                 <p className="text-[13px] text-amber-600 mb-4">This computer doesn't have a location assigned yet.</p>
-                <button
+                {onEditLocation && <button
                     onClick={() => onEditLocation?.()}
                     className="px-4 py-2 rounded-lg bg-amber-600 text-white text-[12px] font-semibold hover:bg-amber-700 transition-colors"
                 >
                     Set Location on Map
-                </button>
+                </button>}
             </div>
         );
     }
@@ -200,13 +200,13 @@ const MapViewTab = ({ hostname, locationData, detailData, onEditLocation, onSele
                             <span className="ml-2 text-gray-400">{allPCsInLayout.length} PCs in layout</span>
                         </div>
                     </div>
-                    <button
+                    {onEditLocation && <button
                         onClick={() => onEditLocation?.()}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-blue-200 text-[12px] font-semibold text-blue-600 hover:bg-blue-50 transition-colors"
                     >
                         <Pencil size={13} />
                         Edit
-                    </button>
+                    </button>}
                 </div>
             </div>
 

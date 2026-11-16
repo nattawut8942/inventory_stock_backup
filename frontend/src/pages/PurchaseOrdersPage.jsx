@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { motion } from 'motion/react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
+import { useCan } from '../context/PermissionContext';
 import AlertModal from '../components/AlertModal';
 import EmptyState from '../components/EmptyState';
 import Pagination from '../components/Pagination';
@@ -93,7 +94,9 @@ const PurchaseOrdersPage = () => {
     const { purchaseOrders, products, deviceTypes, vendors, refreshData } = useData();
     const { user } = useAuth();
     const navigate = useNavigate();
-    const isStaff = (user?.role === 'Admin');
+    const canCreatePO = useCan('purchase-orders', 'create');
+    const canEditPO = useCan('purchase-orders', 'edit');
+    const canDeletePO = useCan('purchase-orders', 'delete');
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
@@ -343,7 +346,7 @@ const PurchaseOrdersPage = () => {
         const open = isOpenStatus(po.Status);
         const { ordered, received } = poProgress(po);
         const canReceive = open && received < ordered;
-        const canEdit = isStaff && (po.Status === 'Open' || po.Status === 'Pending');
+        const statusEditable = (po.Status === 'Open' || po.Status === 'Pending');
         const size = compact ? 14 : 16;
         const btn = compact ? 'p-1.5' : 'p-1.5';
         return (
@@ -356,17 +359,17 @@ const PurchaseOrdersPage = () => {
                         <Truck size={size} />
                     </button>
                 )}
-                {isStaff && canEdit && (
+                {statusEditable && (canEditPO || canDeletePO) && (
                     <>
-                        <button onClick={() => handleEditPO(po)} className={`${btn} text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all`} title="แก้ไข">
+                        {canEditPO && <button onClick={() => handleEditPO(po)} className={`${btn} text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all`} title="แก้ไข">
                             <Pencil size={size} />
-                        </button>
-                        <button onClick={() => handleDeletePO(po)} className={`${btn} text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all`} title="ลบ">
+                        </button>}
+                        {canDeletePO && <button onClick={() => handleDeletePO(po)} className={`${btn} text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all`} title="ลบ">
                             <Trash2 size={size} />
-                        </button>
+                        </button>}
                     </>
                 )}
-                {isStaff && !canEdit && (
+                {(canEditPO || canDeletePO) && !statusEditable && (
                     <span className={`${btn} text-slate-300`} title="แก้ไข/ลบไม่ได้ เพราะใบนี้ดำเนินการไปแล้ว">
                         <Lock size={size} />
                     </span>
@@ -423,7 +426,7 @@ const PurchaseOrdersPage = () => {
             ) : (
                 <div className="space-y-5">
                     <div className="flex justify-end">
-                        {isStaff && (
+                        {canCreatePO && (
                             <button
                                 onClick={handleOpenCreateModal}
                                 className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-3 rounded-xl transition-all shadow-lg shadow-indigo-200"

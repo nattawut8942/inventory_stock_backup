@@ -1,5 +1,5 @@
 import express from 'express';
-import { adminOnly } from '../middleware/authMiddleware.js';
+import { requirePerm } from '../middleware/permissionMiddleware.js';
 import {
   getInventory, getInventoryByHostname,
   getActiveUsers, getActiveUsersByHostname,
@@ -18,7 +18,7 @@ router.get('/mo-inventory/search',                 searchInventory);
 router.get('/mo-active-users',                     getActiveUsers);
 router.get('/mo-location/layout/:layout_id',       getMOsByLayout);
 router.get('/mo-location/:hostname',               getMOLocation);
-router.put('/mo-location/:hostname', ...adminOnly,               updateMOLocation);
+router.put('/mo-location/:hostname', requirePerm('devices-layout', 'edit', { strict: true }),               updateMOLocation);
 router.get('/mo-inventory/by-fix-asset/:code',     getInventoryByFixAsset);
 router.get('/mo-inventory/:hostname/history',      getHistory);
 router.get('/mo-inventory/:hostname',              getInventoryByHostname);

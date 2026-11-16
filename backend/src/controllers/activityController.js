@@ -29,9 +29,7 @@ const ACTIVITY_UPLOAD_DIR = process.env.ACTIVITY_UPLOAD_DIR
 const MAIN_MAX_DIMENSION = 1920;
 const THUMB_MAX_DIMENSION = 480;
 
-// Only Admin may edit/delete. Role comes from the verified JWT (req.user), never from the request body.
-const ADMIN_ROLE = 'Admin';
-const isAdminRole = (role) => role === ADMIN_ROLE;
+// Who may edit/delete is decided by the route: requirePerm('activity', 'edit' | 'delete') in activityRoutes.js
 
 // ─── Helper: resize รูปเป็น main + thumbnail แล้วเซฟลง network share (ใช้ jimp — pure JS ไม่มี native binary) ───
 const saveResizedImage = async (fileBuffer) => {
@@ -268,9 +266,6 @@ export const updateAlbum = async (req, res) => {
     const { id } = req.params;
     const { Title, Category, Description, EventDate, Role } = req.body;
 
-    if (!isAdminRole(req.user?.role)) {
-        return res.status(403).json({ error: 'ไม่มีสิทธิ์แก้ไขข้อมูลอัลบัม' });
-    }
     if (!Title || !Category || !EventDate) {
         return res.status(400).json({ error: 'Title, Category และ EventDate จำเป็นต้องระบุ' });
     }
@@ -415,9 +410,6 @@ export const setAlbumCover = async (req, res) => {
     const { id } = req.params;
     const { PhotoID, Role } = req.body;
 
-    if (!isAdminRole(req.user?.role)) {
-        return res.status(403).json({ error: 'ไม่มีสิทธิ์ตั้งค่าปกอัลบัม' });
-    }
     try {
         const pool = getPool();
         const photoResult = await pool.request()
@@ -574,9 +566,6 @@ export const deleteAlbum = async (req, res) => {
     const { id } = req.params;
 
 
-    if (!isAdminRole(req.user?.role)) {
-        return res.status(403).json({ error: 'ไม่มีสิทธิ์ลบอัลบัม' });
-    }
     try {
         const pool = getPool();
         await pool.request()
@@ -594,9 +583,6 @@ export const deleteActivityPhoto = async (req, res) => {
     const { id } = req.params;
 
 
-    if (!isAdminRole(req.user?.role)) {
-        return res.status(403).json({ error: 'ไม่มีสิทธิ์ลบรูป' });
-    }
     try {
         const pool = getPool();
         const photoResult = await pool.request()

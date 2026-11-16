@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
+import { usePermissions } from '../context/PermissionContext';
 import { useData } from '../context/DataContext';
 import Portal from '../components/Portal';
 import AlertModal from '../components/AlertModal';
@@ -44,7 +45,43 @@ const ManagementPage = () => {
     // Permission editor: undefined = closed, null = default permissions for new users, object = that user
     const [permTarget, setPermTarget] = useState(undefined);
     const [showPermLog, setShowPermLog] = useState(false);
-    const isAdminUser = user?.role === 'Admin';
+    // Role and per-tab permissions come from the server (database); fall back to the token role only if
+    // the permission lookup failed, so the page can still open (the backend decides every action anyway).
+    const { ready: permReady, isAdmin: permIsAdmin, can } = usePermissions();
+    const isAdminUser = permReady ? permIsAdmin : user?.role === 'Admin';
+    const mgmtFlags = (page) => ({
+        view: permReady ? can(page, 'view') : isAdminUser,
+        create: permReady ? can(page, 'create') : isAdminUser,
+        edit: permReady ? can(page, 'edit') : isAdminUser,
+        del: permReady ? can(page, 'delete') : isAdminUser,
+    });
+    const pVendors = mgmtFlags('mgmt-vendors');
+    const pLocations = mgmtFlags('mgmt-locations');
+    const pReasons = mgmtFlags('mgmt-reasons');
+    const pMATypes = mgmtFlags('mgmt-ma-types');
+    const pBudgets = mgmtFlags('mgmt-budgets');
+    const pFactoryLayouts = mgmtFlags('mgmt-factory-layouts');
+    const pRecordServers = mgmtFlags('mgmt-record-servers');
+    const pActivityCategories = mgmtFlags('mgmt-activity-categories');
+    // Users and Login Log can never be granted to anyone but Admin
+    const visibleTabs = [
+        isAdminUser && { id: 'admin', label: 'Users', icon: Users },
+        pVendors.view && { id: 'vendors', label: 'Vendors', icon: Truck },
+        pLocations.view && { id: 'locations', label: 'Locations', icon: Archive },
+        pReasons.view && { id: 'reasons', label: 'Reasons', icon: MessageSquare },
+        pMATypes.view && { id: 'ma-types', label: 'MA Types', icon: FileKey },
+        pBudgets.view && { id: 'budgets', label: 'Budgets', icon: DollarSign },
+        pFactoryLayouts.view && { id: 'factory-layouts', label: 'Maps', icon: Map },
+        pRecordServers.view && { id: 'record-servers', label: 'Record Servers', icon: Server },
+        pActivityCategories.view && { id: 'activity-categories', label: 'Activity Categories', icon: Camera },
+        isAdminUser && { id: 'login-logs', label: 'Login Log', icon: History },
+    ].filter(Boolean);
+    const visibleTabKey = visibleTabs.map((t) => t.id).join(',');
+    // land on the first tab this person may see
+    useEffect(() => {
+        if (visibleTabs.length > 0 && !visibleTabs.some((t) => t.id === activeTab)) setActiveTab(visibleTabs[0].id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visibleTabKey]);
     const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
     // Login Log State (Admin only)
@@ -273,6 +310,7 @@ const ManagementPage = () => {
     };
 
     useEffect(() => {
+        if (!visibleTabs.some((t) => t.id === activeTab)) return;
         if (activeTab === 'admin') fetchStockUsers();
         if (activeTab === 'locations') fetchLocations();
         if (activeTab === 'reasons') fetchReasons();
@@ -282,7 +320,8 @@ const ManagementPage = () => {
         if (activeTab === 'record-servers') fetchRecordServers();
         if (activeTab === 'activity-categories') fetchActivityCategories();
         setSearchTerm('');
-    }, [activeTab]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, visibleTabKey]);
 
     // --- User Role Functions ---
     const handleChangeRole = (target, newRole) => {
@@ -766,18 +805,7 @@ const handleFileSelect = (e) => {
 
                 {/* Tabs */}
                 <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto custom-scrollbar w-full md:w-auto">
-                    {[
-                        { id: 'admin', label: 'Users', icon: Users },
-                        { id: 'vendors', label: 'Vendors', icon: Truck },
-                        { id: 'locations', label: 'Locations', icon: Archive },
-                        { id: 'reasons', label: 'Reasons', icon: MessageSquare },
-                        { id: 'ma-types', label: 'MA Types', icon: FileKey },
-                        { id: 'budgets', label: 'Budgets', icon: DollarSign },
-                        { id: 'factory-layouts', label: 'Maps', icon: Map },
-                        { id: 'record-servers', label: 'Record Servers', icon: Server },
-                        { id: 'activity-categories', label: 'Activity Categories', icon: Camera },
-                        ...(isAdminUser ? [{ id: 'login-logs', label: 'Login Log', icon: History }] : [])
-                    ].map(tab => (
+                    {visibleTabs.map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
@@ -805,7 +833,7 @@ const handleFileSelect = (e) => {
             {/* Content Area */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 min-h-[400px]">
                 {/* ADMIN TAB */}
-                {activeTab === 'admin' && (
+                {activeTab === 'admin' && isAdminUser && (
                     <div className="space-y-6 animate-in fade-in duration-300">
                         <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
                             <div>
@@ -1018,13 +1046,13 @@ const handleFileSelect = (e) => {
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">VENDORS</h3>
                                 <p className="text-slate-500 text-xs">จัดการข้อมูลผู้จัดหา</p>
                             </div>
-                            <button
+                            {pVendors.create && <button
                                 onClick={() => { setEditingVendor(null); setVendorForm({ VendorName: '', ContactInfo: '' }); setIsAddVendorOpen(true); }}
                                 className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"
                             >
                                 <Plus size={18} />
                                 เพิ่ม Vendor
-                            </button>
+                            </button>}
                         </div>
 
                         <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
@@ -1046,18 +1074,18 @@ const handleFileSelect = (e) => {
                                                 <td className="p-4 text-slate-600 text-sm max-w-xs truncate">{vendor.ContactInfo || '-'}</td>
                                                 <td className="p-4 text-right">
                                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <button
+                                                        {pVendors.edit && <button
                                                             onClick={() => { setEditingVendor(vendor); setVendorForm(vendor); setIsAddVendorOpen(true); }}
                                                             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
                                                         >
                                                             <Edit2 size={16} />
-                                                        </button>
-                                                        <button
+                                                        </button>}
+                                                        {pVendors.del && <button
                                                             onClick={() => handleDeleteVendor(vendor.VendorID)}
                                                             className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
                                                         >
                                                             <Trash2 size={16} />
-                                                        </button>
+                                                        </button>}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1081,13 +1109,13 @@ const handleFileSelect = (e) => {
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">LOCATIONS</h3>
                                 <p className="text-slate-500 text-xs">จัดการสถานที่เก็บอุปกรณ์</p>
                             </div>
-                            <button
+                            {pLocations.create && <button
                                 onClick={() => { setEditingLocation(null); setLocationForm({ Name: '' }); setIsAddLocationOpen(true); }}
                                 className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"
                             >
                                 <Plus size={18} />
                                 เพิ่มสถานที่
-                            </button>
+                            </button>}
                         </div>
 
                         <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
@@ -1107,8 +1135,8 @@ const handleFileSelect = (e) => {
                                                 <td className="p-4 font-bold text-slate-700 flex items-center gap-2"><Archive size={16} className="text-teal-600" />{loc.Name}</td>
                                                 <td className="p-4 text-right">
                                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <button onClick={() => { setEditingLocation(loc); setLocationForm({ Name: loc.Name }); setIsAddLocationOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>
-                                                        <button onClick={() => handleDeleteLocation(loc.LocationID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                                                        {pLocations.edit && <button onClick={() => { setEditingLocation(loc); setLocationForm({ Name: loc.Name }); setIsAddLocationOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
+                                                        {pLocations.del && <button onClick={() => handleDeleteLocation(loc.LocationID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1132,7 +1160,7 @@ const handleFileSelect = (e) => {
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">WITHDRAWAL REASONS</h3>
                                 <p className="text-slate-500 text-xs">จัดการเหตุผลการเบิก</p>
                             </div>
-                            <button onClick={() => setIsAddReasonOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่มเหตุผล</button>
+                            {pReasons.create && <button onClick={() => setIsAddReasonOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่มเหตุผล</button>}
                         </div>
 
                         <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
@@ -1154,8 +1182,8 @@ const handleFileSelect = (e) => {
                                                 <td className="p-4"><span className="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-600">{reason.TypeId || '-'}</span></td>
                                                 <td className="p-4 text-right">
                                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <button onClick={() => { setEditingReason(reason); setReasonForm({ Label: reason.Label, TypeId: reason.TypeId || '' }); setIsAddReasonOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>
-                                                        <button onClick={() => handleDeleteReason(reason.ReasonID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                                                        {pReasons.edit && <button onClick={() => { setEditingReason(reason); setReasonForm({ Label: reason.Label, TypeId: reason.TypeId || '' }); setIsAddReasonOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
+                                                        {pReasons.del && <button onClick={() => handleDeleteReason(reason.ReasonID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1179,7 +1207,7 @@ const handleFileSelect = (e) => {
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">MA TYPES</h3>
                                 <p className="text-slate-500 text-xs">จัดการประเภท MA</p>
                             </div>
-                            <button onClick={() => { setEditingMAType(null); setMaTypeForm({ Category: 'HARDWARE', TypeName: '' }); setIsAddMATypeOpen(true); }} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่มประเภท</button>
+                            {pMATypes.create && <button onClick={() => { setEditingMAType(null); setMaTypeForm({ Category: 'HARDWARE', TypeName: '' }); setIsAddMATypeOpen(true); }} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่มประเภท</button>}
                         </div>
 
                         <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
@@ -1201,8 +1229,8 @@ const handleFileSelect = (e) => {
                                                 <td className="p-4"><span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">{t.Category}</span></td>
                                                 <td className="p-4 text-right">
                                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <button onClick={() => { setEditingMAType(t); setMaTypeForm({ Category: t.Category, TypeName: t.TypeName }); setIsAddMATypeOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>
-                                                        <button onClick={() => handleDeleteMAType(t.TypeID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                                                        {pMATypes.edit && <button onClick={() => { setEditingMAType(t); setMaTypeForm({ Category: t.Category, TypeName: t.TypeName }); setIsAddMATypeOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
+                                                        {pMATypes.del && <button onClick={() => handleDeleteMAType(t.TypeID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1226,7 +1254,7 @@ const handleFileSelect = (e) => {
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">BUDGETS</h3>
                                 <p className="text-slate-500 text-xs">จัดการหมวดหมู่งบประมาณ</p>
                             </div>
-                            <button onClick={() => { setEditingBudget(null); setBudgetForm({ CategoryCode: '', CategoryLabel: '', BudgetFormat: '', IsActive: true, AllowedDeviceTypes: [] }); setIsAddBudgetOpen(true); }} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่มหมวดหมู่</button>
+                            {pBudgets.create && <button onClick={() => { setEditingBudget(null); setBudgetForm({ CategoryCode: '', CategoryLabel: '', BudgetFormat: '', IsActive: true, AllowedDeviceTypes: [] }); setIsAddBudgetOpen(true); }} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่มหมวดหมู่</button>}
                         </div>
 
                         <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
@@ -1250,8 +1278,8 @@ const handleFileSelect = (e) => {
                                                 <td className="p-4"><span className={`px-2 py-1 rounded-full text-xs font-bold ${b.IsActive === false ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>{b.IsActive === false ? 'Inactive' : 'Active'}</span></td>
                                                 <td className="p-4 text-right">
                                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <button onClick={() => { setEditingBudget(b); setBudgetForm({ CategoryCode: b.CategoryCode, CategoryLabel: b.CategoryLabel, BudgetFormat: b.BudgetFormat || '', IsActive: b.IsActive !== false, AllowedDeviceTypes: (b.AllowedDeviceTypes || []).map(t => t.TypeId) }); setIsAddBudgetOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>
-                                                        <button onClick={() => handleDeleteBudget(b.CategoryID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                                                        {pBudgets.edit && <button onClick={() => { setEditingBudget(b); setBudgetForm({ CategoryCode: b.CategoryCode, CategoryLabel: b.CategoryLabel, BudgetFormat: b.BudgetFormat || '', IsActive: b.IsActive !== false, AllowedDeviceTypes: (b.AllowedDeviceTypes || []).map(t => t.TypeId) }); setIsAddBudgetOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
+                                                        {pBudgets.del && <button onClick={() => handleDeleteBudget(b.CategoryID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1275,7 +1303,7 @@ const handleFileSelect = (e) => {
                 <h3 className="text-lg font-bold text-slate-800 mb-2">FACTORY LAYOUTS</h3>
                 <p className="text-slate-500 text-xs">จัดการแผนที่โรงงาน</p>
             </div>
-            <button onClick={() => { setEditingFactoryLayout(null); setFactoryLayoutForm({ name: '', image_url: '', width: 1920, height: 1080 }); setSelectedFile(null); setIsAddFactoryLayoutOpen(true); }} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่ม Layout</button>
+            {pFactoryLayouts.create && <button onClick={() => { setEditingFactoryLayout(null); setFactoryLayoutForm({ name: '', image_url: '', width: 1920, height: 1080 }); setSelectedFile(null); setIsAddFactoryLayoutOpen(true); }} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่ม Layout</button>}
         </div>
  
         <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
@@ -1316,8 +1344,8 @@ const handleFileSelect = (e) => {
                                 <td className="p-4 text-slate-600 text-sm font-mono">{layout.width}x{layout.height}</td>
                                 <td className="p-4 text-right">
                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button onClick={() => { setEditingFactoryLayout(layout); setFactoryLayoutForm({ name: layout.name, image_url: layout.image_url, width: layout.width || 1920, height: layout.height || 1080 }); setSelectedFile(null); setIsAddFactoryLayoutOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>
-                                        <button onClick={() => handleDeleteFactoryLayout(layout.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                                        {pFactoryLayouts.edit && <button onClick={() => { setEditingFactoryLayout(layout); setFactoryLayoutForm({ name: layout.name, image_url: layout.image_url, width: layout.width || 1920, height: layout.height || 1080 }); setSelectedFile(null); setIsAddFactoryLayoutOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
+                                        {pFactoryLayouts.del && <button onClick={() => handleDeleteFactoryLayout(layout.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
                                     </div>
                                 </td>
                             </tr>
@@ -1341,12 +1369,12 @@ const handleFileSelect = (e) => {
                 <h3 className="font-black text-lg text-slate-800">CCTV Record Servers</h3>
                 <p className="text-sm text-slate-500">รายชื่อ Server ที่ใช้บันทึกภาพกล้อง (สำหรับผูกกับกล้องแต่ละตัว)</p>
             </div>
-            <button
+            {pRecordServers.create && <button
                 onClick={() => { setEditingRecordServer(null); setRecordServerForm({ name: '', ip_address: '' }); setIsRecordServerFormOpen(true); }}
                 className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 transition-all"
             >
                 <Plus size={16} /> เพิ่ม Record Server
-            </button>
+            </button>}
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
@@ -1378,8 +1406,8 @@ const handleFileSelect = (e) => {
                                 <td className="p-4 text-slate-500 text-sm">{server.created_at ? new Date(server.created_at).toLocaleDateString('th-TH') : '—'}</td>
                                 <td className="p-4 text-right">
                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button onClick={() => { setEditingRecordServer(server); setRecordServerForm({ name: server.name, ip_address: server.ip_address || '' }); setIsRecordServerFormOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>
-                                        <button onClick={() => handleDeleteRecordServer(server.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                                        {pRecordServers.edit && <button onClick={() => { setEditingRecordServer(server); setRecordServerForm({ name: server.name, ip_address: server.ip_address || '' }); setIsRecordServerFormOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
+                                        {pRecordServers.del && <button onClick={() => handleDeleteRecordServer(server.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
                                     </div>
                                 </td>
                             </tr>
@@ -1403,13 +1431,13 @@ const handleFileSelect = (e) => {
                 <h3 className="text-lg font-bold text-slate-800 mb-2">ACTIVITY CATEGORIES</h3>
                 <p className="text-slate-500 text-xs">จัดการหมวดหมู่สำหรับ Activity Gallery (ใช้ในฟอร์มอัปโหลดรูปกิจกรรม)</p>
             </div>
-            <button
+            {pActivityCategories.create && <button
                 onClick={() => { setEditingActivityCategory(null); setActivityCategoryForm({ CategoryCode: '', Label: '', ColorHex: '#64748B', SortOrder: activityCategories.length + 1 }); setIsAddActivityCategoryOpen(true); }}
                 className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"
             >
                 <Plus size={18} />
                 เพิ่มหมวดหมู่
-            </button>
+            </button>}
         </div>
 
         <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
@@ -1435,18 +1463,18 @@ const handleFileSelect = (e) => {
                                 <td className="p-4 text-slate-500 text-sm">{cat.SortOrder}</td>
                                 <td className="p-4 text-right">
                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button
+                                        {pActivityCategories.edit && <button
                                             onClick={() => { setEditingActivityCategory(cat); setActivityCategoryForm({ CategoryCode: cat.CategoryCode, Label: cat.Label, ColorHex: cat.ColorHex, SortOrder: cat.SortOrder }); setIsAddActivityCategoryOpen(true); }}
                                             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
                                         >
                                             <Edit2 size={16} />
-                                        </button>
-                                        <button
+                                        </button>}
+                                        {pActivityCategories.del && <button
                                             onClick={() => handleDeleteActivityCategory(cat.CategoryCode)}
                                             className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
                                         >
                                             <Trash2 size={16} />
-                                        </button>
+                                        </button>}
                                     </div>
                                 </td>
                             </tr>
