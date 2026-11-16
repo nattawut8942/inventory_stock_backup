@@ -1840,8 +1840,8 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                             <RefreshCw size={11} className={pingingId === detailModal.id ? 'animate-spin' : ''} />
                                             {pingingId === detailModal.id ? 'กำลัง Ping...' : 'Ping กล้องนี้'}
                                         </button>
-                                        {/* เปลี่ยนสถานะด้วยตัวเอง */}
-                                        <div className="pt-1 border-t border-gray-200">
+                                        {/* เปลี่ยนสถานะด้วยตัวเอง (manual status gated by cctv:edit) */}
+                                        {canEditCctv && <div className="pt-1 border-t border-gray-200">
                                             <div className="text-[10px] text-gray-400 mb-1.5">เปลี่ยนสถานะ:</div>
                                             <div className="flex gap-1.5 flex-wrap">
                                                 {[
@@ -1867,7 +1867,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                                     </button>
                                                 ))}
                                             </div>
-                                        </div>
+                                        </div>}
                                     </div>
                                 </div>
 

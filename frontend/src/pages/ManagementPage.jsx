@@ -1322,7 +1322,7 @@ const handleFileSelect = (e) => {
                     {factoryLayouts.filter(l => l.name.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
                         factoryLayouts.filter(l => l.name.toLowerCase().includes(searchTerm.toLowerCase())).map((layout, index, arr) => (
                             <tr key={layout.id}
-                                draggable
+                                draggable={pFactoryLayouts.edit}
                                 onDragStart={() => handleDragStart(index)}
                                 onDragOver={(e) => handleDragOver(e, index)}
                                 onDragLeave={handleDragLeave}

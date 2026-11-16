@@ -189,20 +189,85 @@ export const getAuditLog = async (empCode, limit = 100) => {
     return r.recordset;
 };
 
-// ─── "Would deny" tally for log mode (in memory; resets when the server restarts) ─────
-const wouldDeny = new Map(); // "empCode|page|action|reason" -> { count, last }
+// ─── "Would deny" report for log mode ─────────────────────────────────────────────────
+// Counted in memory and written to Stock_PermissionDenyLog in batches (about every 30 s), so the review
+// period survives restarts. Reading the report flushes first, so it is always current.
+const wouldDeny = new Map(); // "empCode|page|action|reason" -> { count, first, last }
+
 export const recordWouldDeny = ({ empCode, page, action, reason }) => {
-    const k = `${empCode || '-'}|${page}|${action}|${reason}`;
-    const cur = wouldDeny.get(k) || { count: 0, last: null };
+    const k = `${String(empCode || '-').slice(0, 20)}|${page}|${action}|${reason}`;
+    const now = new Date();
+    const cur = wouldDeny.get(k) || { count: 0, first: now, last: now };
     cur.count += 1;
-    cur.last = new Date().toISOString();
+    cur.last = now;
     wouldDeny.set(k, cur);
 };
-export const getWouldDenySummary = () =>
+
+// Entries not written yet (used by tests; does not touch the database)
+export const peekPendingWouldDeny = () =>
     [...wouldDeny.entries()].map(([k, v]) => {
         const [empCode, page, action, reason] = k.split('|');
         return { empCode, page, action, reason, count: v.count, last: v.last };
-    }).sort((a, b) => b.count - a.count);
+    });
+
+let flushing = false;
+export const flushWouldDeny = async () => {
+    if (flushing || wouldDeny.size === 0) return;
+    flushing = true;
+    const batch = [...wouldDeny.entries()];
+    wouldDeny.clear();
+    const failed = [];
+    try {
+        const pool = getPool();
+        for (const [k, v] of batch) {
+            const [empCode, page, action, reason] = k.split('|');
+            try {
+                await pool.request()
+                    .input('e', sql.NVarChar, empCode).input('p', sql.NVarChar, page)
+                    .input('a', sql.NVarChar, action).input('r', sql.NVarChar, reason)
+                    .input('n', sql.Int, v.count).input('first', sql.DateTime, v.first).input('last', sql.DateTime, v.last)
+                    .query(`
+                        MERGE dbo.Stock_PermissionDenyLog AS t
+                        USING (SELECT @e AS EmpCode, @p AS PageKey, @a AS Action, @r AS Reason) AS s
+                        ON t.EmpCode = s.EmpCode AND t.PageKey = s.PageKey AND t.Action = s.Action AND t.Reason = s.Reason
+                        WHEN MATCHED THEN UPDATE SET Hits = t.Hits + @n, LastAt = @last
+                        WHEN NOT MATCHED THEN INSERT (EmpCode, PageKey, Action, Reason, Hits, FirstAt, LastAt)
+                                              VALUES (@e, @p, @a, @r, @n, @first, @last);
+                    `);
+            } catch (err) {
+                failed.push([k, v]);
+                console.error('[perm] deny-log write failed:', err.message);
+            }
+        }
+    } finally {
+        // keep what could not be written so the next flush retries it
+        for (const [k, v] of failed) {
+            const cur = wouldDeny.get(k);
+            if (cur) { cur.count += v.count; if (v.first < cur.first) cur.first = v.first; } else wouldDeny.set(k, v);
+        }
+        flushing = false;
+    }
+};
+
+export const startWouldDenyFlusher = () => {
+    const timer = setInterval(() => { flushWouldDeny().catch(() => {}); }, 30 * 1000);
+    if (timer.unref) timer.unref();
+};
+
+export const getWouldDenySummary = async () => {
+    await flushWouldDeny();
+    const r = await getPool().request().query(
+        'SELECT EmpCode, PageKey, Action, Reason, Hits, FirstAt, LastAt FROM dbo.Stock_PermissionDenyLog ORDER BY Hits DESC, LastAt DESC');
+    return r.recordset.map((x) => ({
+        empCode: x.EmpCode, page: x.PageKey, action: x.Action, reason: x.Reason,
+        count: x.Hits, first: x.FirstAt, last: x.LastAt,
+    }));
+};
+
+export const clearWouldDenySummary = async () => {
+    wouldDeny.clear();
+    await getPool().request().query('DELETE FROM dbo.Stock_PermissionDenyLog');
+};
 
 export { defaultPermissionKeys };
 

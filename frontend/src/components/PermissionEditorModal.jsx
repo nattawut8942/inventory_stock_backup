@@ -444,32 +444,61 @@ const PermissionEditorModal = ({ target, users = [], avatar = null, onClose, onS
 // ── What "log" mode would have blocked (helps decide when it is safe to switch to enforce) ──
 export const PermissionLogModal = ({ onClose }) => {
     const [data, setData] = useState(null);
+    const [catalog, setCatalog] = useState(null);
     const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
 
-    useEffect(() => {
-        let alive = true;
-        getJson('/permissions/log-summary')
-            .then((d) => { if (alive) setData(d); })
-            .catch((e) => { if (alive) setError(e.message); });
-        return () => { alive = false; };
+    const load = useCallback(async () => {
+        setError('');
+        try {
+            const [d, cat] = await Promise.all([getJson('/permissions/log-summary'), loadCatalog().catch(() => null)]);
+            setData(d);
+            if (cat) setCatalog(cat);
+        } catch (e) {
+            setError(e.message);
+        }
     }, []);
 
-    const reasonText = { 'no-permission': 'ไม่มีสิทธิ์', 'no-token': 'ไม่ได้ login/ไม่มี token', 'user-not-found': 'ไม่พบผู้ใช้', 'lookup-failed': 'ตรวจสิทธิ์ไม่สำเร็จ' };
+    useEffect(() => { load(); }, [load]);
+
+    const clearAll = async () => {
+        if (!window.confirm('ล้างรายงานทั้งหมดและเริ่มนับใหม่ใช่หรือไม่? (ใช้หลังแก้สิทธิ์แล้ว เพื่อดูว่ายังมีอะไรถูกบล็อกอีกไหม)')) return;
+        setBusy(true);
+        try {
+            const res = await fetch(API_BASE + '/permissions/log-summary', { method: 'DELETE' });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(d.error || d.message || 'HTTP ' + res.status);
+            await load();
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const reasonText = { 'no-permission': 'ไม่มีสิทธิ์', 'no-token': 'ไม่ได้ login / ไม่มี token', 'user-not-found': 'ไม่พบผู้ใช้', 'lookup-failed': 'ตรวจสิทธิ์ไม่สำเร็จ' };
+    const pageLabel = (key) => (catalog && catalog.pages.find((p) => p.key === key)?.label) || key;
+    const actionLabel = (key) => (catalog && catalog.actionLabels && catalog.actionLabels[key]) || key;
 
     return (
         <ModalShell onBackdrop={onClose}>
             <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
-                className="w-full max-w-3xl max-h-[88vh] flex flex-col bg-white rounded-2xl shadow-xl overflow-hidden border border-white/20"
+                className="w-full max-w-4xl max-h-[88vh] flex flex-col bg-white rounded-2xl shadow-xl overflow-hidden border border-white/20"
                 role="dialog" aria-modal="true" aria-label="รายงานการตรวจสิทธิ์">
                 <div className="p-5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white flex items-start justify-between">
                     <div>
                         <h3 className="font-black text-xl tracking-tight">รายงานการตรวจสิทธิ์</h3>
                         <p className="text-white/80 text-xs mt-0.5">
-                            โหมดปัจจุบัน: <b>{data?.mode || '...'}</b> · นับตั้งแต่ server เริ่มทำงานล่าสุด
+                            โหมดปัจจุบัน: <b>{data?.mode || '...'}</b>
+                            {data?.since ? ' · สะสมตั้งแต่ ' + fmtTime(data.since) + ' (เก็บในฐานข้อมูล ไม่หายเมื่อรีสตาร์ท)' : ''}
                             {data?.mode === 'log' && ' · โหมด log ยังไม่บล็อกใคร แค่บันทึกว่า "ถ้าบังคับจริงจะบล็อกอะไร"'}
                         </p>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full" aria-label="ปิด"><X size={20} /></button>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <button onClick={load} disabled={busy} className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold disabled:opacity-50">รีเฟรช</button>
+                        <button onClick={clearAll} disabled={busy || !data || data.items.length === 0} className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold disabled:opacity-50">ล้างรายงาน</button>
+                        <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full" aria-label="ปิด"><X size={20} /></button>
+                    </div>
                 </div>
                 <div className="flex-1 overflow-auto p-5">
                     {error ? <div className="text-rose-600 text-sm">{error}</div>
@@ -479,16 +508,17 @@ export const PermissionLogModal = ({ onClose }) => {
                                     <table className="w-full text-left text-sm">
                                         <thead>
                                             <tr className="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-200">
-                                                <th className="py-2 pr-3">ผู้ใช้</th><th className="py-2 pr-3">ต้องมีสิทธิ์</th><th className="py-2 pr-3">สาเหตุ</th><th className="py-2 pr-3 text-right">ครั้ง</th><th className="py-2">ล่าสุด</th>
+                                                <th className="py-2 pr-3">ผู้ใช้</th><th className="py-2 pr-3">ต้องมีสิทธิ์</th><th className="py-2 pr-3">สาเหตุ</th><th className="py-2 pr-3 text-right">ครั้ง</th><th className="py-2 pr-3">ครั้งแรก</th><th className="py-2">ล่าสุด</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {data.items.map((r, i) => (
                                                 <tr key={i} className="border-b border-slate-100">
-                                                    <td className="py-2 pr-3 font-mono text-xs">{r.empCode}</td>
-                                                    <td className="py-2 pr-3 font-bold text-slate-700">{r.page}:{r.action}</td>
+                                                    <td className="py-2 pr-3"><div className="text-sm font-bold text-slate-700">{r.name || (r.empCode === '-' ? '(ไม่ได้ login)' : '-')}</div><div className="font-mono text-[11px] text-slate-400">{r.empCode}</div></td>
+                                                    <td className="py-2 pr-3"><div className="font-bold text-slate-700">{pageLabel(r.page)} · {actionLabel(r.action)}</div><div className="font-mono text-[11px] text-slate-400">{r.page}:{r.action}</div></td>
                                                     <td className="py-2 pr-3 text-slate-600">{reasonText[r.reason] || r.reason}</td>
                                                     <td className="py-2 pr-3 text-right font-bold">{r.count}</td>
+                                                    <td className="py-2 pr-3 font-mono text-xs text-slate-400">{fmtTime(r.first)}</td>
                                                     <td className="py-2 font-mono text-xs text-slate-400">{fmtTime(r.last)}</td>
                                                 </tr>
                                             ))}

@@ -6,7 +6,7 @@ import { API_BASE, API_URL } from '../config/api';
 import { formatThaiDate } from '../utils/formatDate';
 import { useAuth } from '../context/AuthContext';
 
-const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], setAlertModal, isAdmin = false, canDelete = false }) => {
+const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], setAlertModal, isAdmin = false, canDelete = false, canAddPhoto = false }) => {
     const { user } = useAuth();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -275,7 +275,7 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
                         ) : (
                             <>
                                 {/* เพิ่มรูป */}
-                                {!addingPhoto ? (
+                                {!canAddPhoto ? null : !addingPhoto ? (
                                     <button
                                         onClick={() => setAddingPhoto(true)}
                                         className="mb-6 flex items-center gap-2 bg-white border border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/30 text-slate-500 hover:text-indigo-600 px-4 py-3 rounded-xl transition-all text-sm font-medium"

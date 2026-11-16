@@ -5,6 +5,7 @@ import {
     Network, FileDown, Copy, Check, Command, Monitor, Pencil, Shield, Clock, Layers
 } from 'lucide-react';
 import { useAuth, getAuthToken } from '../context/AuthContext';
+import { useCanAct } from '../context/PermissionContext';
 import Portal from '../components/Portal';
 import { API_BASE } from '../config/api';
 import * as XLSX from 'xlsx-js-style';
@@ -229,6 +230,7 @@ const IPHistory = ({ ip, api, refreshKey }) => {
 
 // ─── DRAWER: รายละเอียด IP (แทน modal เดิม — grid ยังมองเห็นอยู่) ──────────────
 const IPDrawer = ({ ip, data, api, onClose, onSave, onReserve, onRelease, actor, refreshKey }) => {
+    const canIpEdit = useCanAct('ip-management', 'edit');
     const reserved = isReserved(data);
     const initial = Object.fromEntries(DRAWER_FIELDS.map(f => [f.k, data?.[f.api] || '']));
     const [form, setForm] = useState(initial);
@@ -349,7 +351,7 @@ const IPDrawer = ({ ip, data, api, onClose, onSave, onReserve, onRelease, actor,
                             <>
                                 <p className="text-xs text-amber-800">จองโดย <strong className="font-mono">{data?.reserveby || '—'}</strong></p>
                                 {!confirmRelease ? (
-                                    <button onClick={() => setConfirmRelease(true)} disabled={busy}
+                                    canIpEdit && <button onClick={() => setConfirmRelease(true)} disabled={busy}
                                         className="mt-3 w-full py-2 text-sm font-bold text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50">
                                         ยกเลิกการจอง
                                     </button>
@@ -369,10 +371,10 @@ const IPDrawer = ({ ip, data, api, onClose, onSave, onReserve, onRelease, actor,
                         ) : (
                             <>
                                 <p className="text-xs text-emerald-800">IP นี้ยังว่าง — ระบุ Owner แล้วจองได้เลย</p>
-                                <button onClick={handleReserve} disabled={!form.owner.trim() || !!macError || busy}
+                                {canIpEdit && <button onClick={handleReserve} disabled={!form.owner.trim() || !!macError || busy}
                                     className="mt-3 w-full py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
                                     {busy ? 'กำลังจอง…' : 'จอง IP นี้'}
-                                </button>
+                                </button>}
                             </>
                         )}
                     </section>
@@ -484,10 +486,10 @@ const IPDrawer = ({ ip, data, api, onClose, onSave, onReserve, onRelease, actor,
                 {/* Footer */}
                 <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
                     <span className={`text-xs ${dirty ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>{dirty ? 'มีการแก้ไขที่ยังไม่บันทึก' : 'บันทึกแล้ว'}</span>
-                    <button onClick={handleSave} disabled={!dirty || !!macError || busy}
+                    {canIpEdit && <button onClick={handleSave} disabled={!dirty || !!macError || busy}
                         className="px-5 py-2 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-indigo-200">
                         {busy ? 'กำลังบันทึก…' : 'บันทึก'}
-                    </button>
+                    </button>}
                 </div>
             </motion.aside>
         </Portal>
@@ -562,7 +564,7 @@ const SubnetList = ({ subnets, currentSN, onSelect, query, setQuery, onAdd }) =>
             <div className="p-3 border-b border-slate-100 space-y-2.5">
                 <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Subnets</span>
-                    <button onClick={onAdd} className="px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100">+ เพิ่ม</button>
+                    {onAdd && <button onClick={onAdd} className="px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100">+ เพิ่ม</button>}
                 </div>
                 <div className="relative">
                     <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -893,6 +895,8 @@ const buildSheet = (data) => {
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 const IPManagementPage = () => {
     const { user } = useAuth();
+    const canIpEdit = useCanAct('ip-management', 'edit');
+    const canIpManage = useCanAct('ip-management', 'manage');
     const API = `${API_BASE}/ip-scan`;
     const actor = resolveActor(user);
     const isMobile = () => typeof window !== 'undefined' && window.innerWidth < 768;
@@ -1931,7 +1935,7 @@ const IPManagementPage = () => {
                     <input value={panelQuery} onChange={e => setPanelQuery(e.target.value)} placeholder="กรอง IP, owner, ผู้จอง, device…"
                         className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg w-60 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400" />
                     {inactiveSel.size > 0 && (
-                        <button onClick={() => setInactiveReleaseOpen(true)} disabled={!inactiveReleaseTargets.length}
+                        canIpEdit && <button onClick={() => setInactiveReleaseOpen(true)} disabled={!inactiveReleaseTargets.length}
                             className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-40">
                             ยกเลิกการจองที่เลือก ({inactiveReleaseTargets.length})
                         </button>
@@ -2042,7 +2046,7 @@ const IPManagementPage = () => {
                 {/* Sidebar (desktop) */}
                 <aside className={`hidden md:flex w-64 shrink-0 flex-col ${cardClass} self-start`}>
                     <SubnetList subnets={subnets} currentSN={currentSN} onSelect={selectSubnet}
-                        query={subnetQuery} setQuery={setSubnetQuery} onAdd={() => setAddSubnet(true)} />
+                        query={subnetQuery} setQuery={setSubnetQuery} onAdd={canIpManage ? () => setAddSubnet(true) : undefined} />
                 </aside>
 
                 <section className="flex-1 min-w-0 space-y-4">
@@ -2052,7 +2056,7 @@ const IPManagementPage = () => {
                             className="flex-1 px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono font-bold text-slate-700">
                             {subnets.map(s => <option key={s.subnet} value={s.subnet}>{s.subnet}.x — {s.active_count || 0} online</option>)}
                         </select>
-                        <button onClick={() => setAddSubnet(true)} className="px-3 py-2.5 text-sm font-bold text-indigo-600 bg-indigo-50 rounded-xl">+</button>
+                        {canIpManage && <button onClick={() => setAddSubnet(true)} className="px-3 py-2.5 text-sm font-bold text-indigo-600 bg-indigo-50 rounded-xl">+</button>}
                     </div>
 
                     {/* หัว subnet + การกระทำ */}
@@ -2064,11 +2068,11 @@ const IPManagementPage = () => {
                                 {lastRefresh && <span className="text-[11px] text-slate-400">· อัปเดต {lastRefresh}</span>}
                             </div>
                         </div>
-                        <button onClick={handleTriggerScan} disabled={!currentSN || scanning}
+                        {canIpManage && <button onClick={handleTriggerScan} disabled={!currentSN || scanning}
                             className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
                             <RefreshCw size={14} className={scanning ? 'animate-spin' : ''} />
                             {scanning ? 'กำลังสแกน…' : 'Scan Now'}
-                        </button>
+                        </button>}
                         <button onClick={() => { setSelectMode(v => !v); setSelected(new Set()); }}
                             className={`px-3 py-2 rounded-xl text-sm font-semibold border ${selectMode ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                             {selectMode ? 'เลิกเลือก' : 'เลือกหลายรายการ'}
@@ -2172,10 +2176,10 @@ const IPManagementPage = () => {
                         className="fixed bottom-4 left-0 right-0 mx-auto z-40 w-[calc(100%-2rem)] max-w-3xl flex flex-wrap items-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-2xl shadow-2xl">
                         <span className="text-sm font-bold mr-auto">เลือกแล้ว {selected.size} รายการ</span>
                         <button onClick={() => setSelected(new Set(filtered.map(d => d.ip_address)))} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/10 hover:bg-white/20">เลือกทั้งหมดที่แสดง</button>
-                        <button onClick={() => setBulkDialog('reserve')} disabled={!selectedFreeIPs.length || !!bulkProgress}
-                            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed">จอง ({selectedFreeIPs.length})</button>
-                        <button onClick={() => setBulkDialog('release')} disabled={!selectedReservedIPs.length || !!bulkProgress}
-                            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-500 hover:bg-red-400 disabled:opacity-40 disabled:cursor-not-allowed">ยกเลิกจอง ({selectedReservedIPs.length})</button>
+                        {canIpEdit && <button onClick={() => setBulkDialog('reserve')} disabled={!selectedFreeIPs.length || !!bulkProgress}
+                            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed">จอง ({selectedFreeIPs.length})</button>}
+                        {canIpEdit && <button onClick={() => setBulkDialog('release')} disabled={!selectedReservedIPs.length || !!bulkProgress}
+                            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-500 hover:bg-red-400 disabled:opacity-40 disabled:cursor-not-allowed">ยกเลิกจอง ({selectedReservedIPs.length})</button>}
                         <button onClick={exportSelected} disabled={!selected.size} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40">Export</button>
                         <button onClick={() => { setSelectMode(false); setSelected(new Set()); }} className="p-1.5 rounded-lg hover:bg-white/10" aria-label="ปิด"><X size={16} /></button>
                     </motion.div>

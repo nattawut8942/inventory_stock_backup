@@ -27,7 +27,7 @@ import transactionRoutes from './src/routes/transactionRoutes.js';
 import reportRoutes from './src/routes/reportRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
 import pagePermissionRoutes from './src/routes/pagePermissionRoutes.js';
-import { backfillUninitialisedUsers } from './src/services/permissionService.js';
+import { backfillUninitialisedUsers, startWouldDenyFlusher } from './src/services/permissionService.js';
 import locationRoutes from './src/routes/locationRoutes.js';
 import reasonRoutes from './src/routes/reasonRoutes.js';
 import maRoutes from './src/routes/maRoutes.js';
@@ -144,6 +144,7 @@ const startServer = async () => {
     try {
         await connectWithRetry(connectDB, 'Main DB');
         await backfillUninitialisedUsers(); // give any user without starting permissions the defaults (never throws)
+        startWouldDenyFlusher(); // persist the would-deny report every ~30 s
         await connectWithRetry(connectDciDB, 'DCI DB');
         await connectWithRetry(connectItRequestDB, 'IT Request DB');
         await connectWithRetry(connectHrmDB, 'HRM DB');

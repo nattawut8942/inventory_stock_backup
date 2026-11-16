@@ -3,7 +3,7 @@ import { allPermissionKeys, catalogForClient, PAGES, ACTION_LABELS } from '../co
 import {
     getPermissionMode, loadUserAccess, getUserPermissionList, getDefaultPermissionList,
     normalisePermissionInput, setUserPermissions, setDefaultPermissions, getAuditLog,
-    getWouldDenySummary,
+    getWouldDenySummary, clearWouldDenySummary,
 } from '../services/permissionService.js';
 
 // GET /permissions/catalog — pages, actions and labels (single source: permissions.config.js)
@@ -105,6 +105,31 @@ export const putDefaults = async (req, res) => {
 };
 
 // GET /permissions/log-summary (Admin) — requests that WOULD have been denied while in "log" mode
-export const getLogSummary = (req, res) => {
-    res.json({ mode: getPermissionMode(), since: 'server start', items: getWouldDenySummary() });
+export const getLogSummary = async (req, res) => {
+    try {
+        const items = await getWouldDenySummary();
+        // add the person's name next to the employee code
+        const names = new Map();
+        const r = await getPool().request().query('SELECT EmpCode, Name, Username FROM dbo.Stock_Users');
+        r.recordset.forEach((u) => names.set(String(u.EmpCode), u.Name || u.Username || ''));
+        res.json({
+            mode: getPermissionMode(),
+            since: items.length ? items.reduce((m, i) => (i.first && i.first < m ? i.first : m), items[0].first) : null,
+            items: items.map((i) => ({ ...i, name: names.get(String(i.empCode)) || '' })),
+        });
+    } catch (err) {
+        console.error('Get log summary error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// DELETE /permissions/log-summary (Admin) — start a fresh review period
+export const clearLogSummary = async (req, res) => {
+    try {
+        await clearWouldDenySummary();
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Clear log summary error:', err);
+        res.status(500).json({ error: err.message });
+    }
 };

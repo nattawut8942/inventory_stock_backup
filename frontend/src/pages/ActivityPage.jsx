@@ -360,6 +360,7 @@ const ActivityPage = () => {
                     setAlertModal={setAlertModal}
                     isAdmin={isAdmin}
                     canDelete={canDelete}
+                    canAddPhoto={canCreateAlbum}
                 />
             )}
 
