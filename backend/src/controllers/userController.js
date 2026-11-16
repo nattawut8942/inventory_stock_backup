@@ -1,4 +1,5 @@
 import { sql, getPool } from '../config/db.js';
+import { invalidateUser } from '../services/permissionService.js';
 
 // ===== Stock_Users (auto-registered on login) =====
 const VALID_ROLES = ['Staff', 'Admin'];
@@ -7,7 +8,8 @@ const VALID_ROLES = ['Staff', 'Admin'];
 export const getStockUsers = async (req, res) => {
     try {
         const result = await getPool().request().query(`
-            SELECT ID, EmpCode, Username, Name, Sect, CostCenter, EmpPic, Role, FirstLoginAt, LastLoginAt
+            SELECT ID, EmpCode, Username, Name, Sect, CostCenter, EmpPic, Role, FirstLoginAt, LastLoginAt,
+                   (SELECT COUNT(*) FROM dbo.Stock_PagePermissions p WHERE p.EmpCode = dbo.Stock_Users.EmpCode) AS PermCount
             FROM dbo.Stock_Users
             ORDER BY CASE WHEN Role = 'Admin' THEN 0 ELSE 1 END, LastLoginAt DESC
         `);
@@ -50,6 +52,7 @@ export const updateStockUserRole = async (req, res) => {
             .input('id', sql.Int, id)
             .input('role', sql.NVarChar, Role)
             .query('UPDATE dbo.Stock_Users SET Role = @role WHERE ID = @id');
+        invalidateUser(target.EmpCode); // role is cached for permission checks; apply the change immediately
 
         res.json({ success: true, message: 'อัปเดตสิทธิ์สำเร็จ (มีผลเมื่อผู้ใช้ login ครั้งถัดไป)' });
     } catch (err) {

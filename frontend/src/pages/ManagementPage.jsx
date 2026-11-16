@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw } from 'lucide-react';
+import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import Portal from '../components/Portal';
 import AlertModal from '../components/AlertModal';
+import PermissionEditorModal, { PermissionLogModal } from '../components/PermissionEditorModal';
 import { API_BASE, API_URL } from '../config/api';
 import { getBadgeStyle, getDeviceTypeColor, getChartColor } from '../utils/styleHelpers';
 
@@ -40,6 +41,9 @@ const ManagementPage = () => {
     const [stockUsers, setStockUsers] = useState([]);
     const [isLoadingUsers, setIsLoadingUsers] = useState(false);
     const [savingRoleId, setSavingRoleId] = useState(null);
+    // Permission editor: undefined = closed, null = default permissions for new users, object = that user
+    const [permTarget, setPermTarget] = useState(undefined);
+    const [showPermLog, setShowPermLog] = useState(false);
     const isAdminUser = user?.role === 'Admin';
     const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -810,9 +814,21 @@ const handleFileSelect = (e) => {
                                     ผู้ใช้ถูกบันทึกอัตโนมัติเมื่อ login ครั้งแรก (ได้สิทธิ์ Staff) · {isAdminUser ? 'คุณเปลี่ยนสิทธิ์ได้ในคอลัมน์ Role' : 'เฉพาะ Admin เท่านั้นที่เปลี่ยนสิทธิ์ได้'}
                                 </p>
                             </div>
-                            <div className="text-right text-xs text-slate-500 shrink-0">
-                                <div><span className="font-bold text-slate-700">{stockUsers.length}</span> users</div>
-                                <div><span className="font-bold text-violet-600">{stockUsers.filter(u => u.Role === 'Admin').length}</span> admins</div>
+                            <div className="flex items-center gap-3 shrink-0">
+                                {isAdminUser && (
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => setPermTarget(null)} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50" title="สิทธิ์ที่ผู้ใช้ใหม่จะได้ตอน login ครั้งแรก">
+                                            <KeyRound size={14} /> สิทธิ์ตั้งต้นผู้ใช้ใหม่
+                                        </button>
+                                        <button onClick={() => setShowPermLog(true)} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50" title="ดูว่าถ้าเปิดบังคับสิทธิ์จริง จะมีอะไรถูกบล็อก">
+                                            <ListChecks size={14} /> รายงานตรวจสิทธิ์
+                                        </button>
+                                    </div>
+                                )}
+                                <div className="text-right text-xs text-slate-500">
+                                    <div><span className="font-bold text-slate-700">{stockUsers.length}</span> users</div>
+                                    <div><span className="font-bold text-violet-600">{stockUsers.filter(u => u.Role === 'Admin').length}</span> admins</div>
+                                </div>
                             </div>
                         </div>
 
@@ -825,7 +841,7 @@ const handleFileSelect = (e) => {
                             );
                             return (
                                 <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-                                    <table className="w-full text-left border-collapse whitespace-nowrap min-w-[760px]">
+                                    <table className="w-full text-left border-collapse whitespace-nowrap min-w-[860px]">
                                         <thead>
                                             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
                                                 <th className="p-4 font-bold">EmpCode</th>
@@ -833,6 +849,7 @@ const handleFileSelect = (e) => {
                                                 <th className="p-4 font-bold">Username</th>
                                                 <th className="p-4 font-bold">Sect</th>
                                                 <th className="p-4 font-bold">Role</th>
+                                                <th className="p-4 font-bold">Permissions</th>
                                                 <th className="p-4 font-bold">Last Login</th>
                                                 <th className="p-4 font-bold">First Login</th>
                                             </tr>
@@ -871,13 +888,24 @@ const handleFileSelect = (e) => {
                                                                 </span>
                                                             )}
                                                         </td>
+                                                        <td className="p-4">
+                                                            {u.Role === 'Admin' ? (
+                                                                <span className="text-xs font-bold text-violet-600">ทุกสิทธิ์</span>
+                                                            ) : isAdminUser ? (
+                                                                <button onClick={() => setPermTarget(u)} className="flex items-center gap-1.5 px-2.5 py-1 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                                                                    <KeyRound size={12} /> ตั้งสิทธิ์ <span className="text-slate-400 font-medium">({u.PermCount ?? 0})</span>
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-xs text-slate-500">{u.PermCount ?? 0} สิทธิ์</span>
+                                                            )}
+                                                        </td>
                                                         <td className="p-4 text-slate-600 text-sm font-mono">{formatDbDate(u.LastLoginAt)}</td>
                                                         <td className="p-4 text-slate-400 text-sm font-mono">{formatDbDate(u.FirstLoginAt)}</td>
                                                     </tr>
                                                 );
                                             }) : (
                                                 <tr>
-                                                    <td colSpan="7" className="p-12 text-center text-slate-400">ไม่พบผู้ใช้</td>
+                                                    <td colSpan="8" className="p-12 text-center text-slate-400">ไม่พบผู้ใช้</td>
                                                 </tr>
                                             )}
                                         </tbody>
@@ -1805,6 +1833,20 @@ const handleFileSelect = (e) => {
                 )}
             </AnimatePresence>
 
+            {permTarget !== undefined && isAdminUser && (
+                <PermissionEditorModal
+                    key={permTarget ? permTarget.EmpCode : 'defaults'}
+                    target={permTarget}
+                    users={stockUsers}
+                    avatar={permTarget ? <UserAvatar pic={permTarget.EmpPic} empCode={permTarget.EmpCode} name={permTarget.Name || permTarget.Username} size={44} /> : null}
+                    onClose={() => setPermTarget(undefined)}
+                    onSaved={(message) => {
+                        setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message });
+                        fetchStockUsers();
+                    }}
+                />
+            )}
+            {showPermLog && isAdminUser && <PermissionLogModal onClose={() => setShowPermLog(false)} />}
             <AlertModal
                 isOpen={alertModal.isOpen}
                 type={alertModal.type}

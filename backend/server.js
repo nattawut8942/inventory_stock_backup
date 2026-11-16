@@ -26,6 +26,8 @@ import poRoutes from './src/routes/poRoutes.js';
 import transactionRoutes from './src/routes/transactionRoutes.js';
 import reportRoutes from './src/routes/reportRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
+import pagePermissionRoutes from './src/routes/pagePermissionRoutes.js';
+import { backfillUninitialisedUsers } from './src/services/permissionService.js';
 import locationRoutes from './src/routes/locationRoutes.js';
 import reasonRoutes from './src/routes/reasonRoutes.js';
 import maRoutes from './src/routes/maRoutes.js';
@@ -141,6 +143,7 @@ const connectWithRetry = async (fn, name, retries = 5) => {
 const startServer = async () => {
     try {
         await connectWithRetry(connectDB, 'Main DB');
+        await backfillUninitialisedUsers(); // give any user without starting permissions the defaults (never throws)
         await connectWithRetry(connectDciDB, 'DCI DB');
         await connectWithRetry(connectItRequestDB, 'IT Request DB');
         await connectWithRetry(connectHrmDB, 'HRM DB');
@@ -157,6 +160,7 @@ const startServer = async () => {
         app.use('/ITinventory/api', transactionRoutes);
         app.use('/ITinventory/api', reportRoutes);
         app.use('/ITinventory/api', userRoutes);
+        app.use('/ITinventory/api', pagePermissionRoutes);
         app.use('/ITinventory/api', locationRoutes);
         app.use('/ITinventory/api', reasonRoutes);
         app.use('/ITinventory/api', maRoutes);

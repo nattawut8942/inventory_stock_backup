@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { PermissionProvider } from './context/PermissionContext';
 import { DataProvider } from './context/DataContext';
 import { QuotaJobProvider } from './context/QuotaJobContext';
 
@@ -113,11 +114,13 @@ const App = () => {
     return (
         <BrowserRouter basename={import.meta.env.BASE_URL}>
             <AuthProvider>
+                <PermissionProvider>
                 <DataProvider>
                     <QuotaJobProvider>
                         <AppRoutes />
                     </QuotaJobProvider>
                 </DataProvider>
+                </PermissionProvider>
             </AuthProvider>
         </BrowserRouter>
     );

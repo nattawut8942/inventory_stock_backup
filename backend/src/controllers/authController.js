@@ -2,6 +2,7 @@ import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import { sql, getPool } from '../config/db.js';
 import { getJwtSecret } from '../config/jwtSecret.js';
+import { ensureUserPermissions } from '../services/permissionService.js';
 
 // Record one login attempt in Stock_LoginLog. Never stores the password.
 // Failures here are logged only, so logging can never block a login.
@@ -117,6 +118,9 @@ export const login = async (req, res) => {
                 `);
 
             const role = upsert.recordset[0].Role;
+
+            // First login: copy the default page permissions (never throws, never blocks login)
+            await ensureUserPermissions(empCode);
 
             // Generate JWT
             const token = jwt.sign(
