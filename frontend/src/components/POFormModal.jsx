@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ShoppingCart, Plus, X, Eye, Search, Calendar, Filter, Check, Building2, Upload, FileText, Loader2, RefreshCw, AlertTriangle, Phone, Trash2, Pencil } from 'lucide-react';
+import { ShoppingCart, Plus, X, Eye, Search, Calendar, Filter, Check, Building2, Upload, FileText, Loader2, RefreshCw, AlertTriangle, Phone, Trash2, Pencil, Paperclip } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Portal from './Portal';
 import ProductCombobox from './ProductCombobox';
@@ -46,6 +46,8 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
     const sectionRef = useRef(null);
     const [activeItemIndex, setActiveItemIndex] = useState(0);
     const [confirmState, setConfirmState] = useState({ isOpen: false, validation: null });
+    const [poFile, setPoFile] = useState(null); // ไฟล์ PO ที่แนบ (บังคับตอนสร้าง)
+    const MAX_PO_FILE_BYTES = 10 * 1024 * 1024;
 
     // อุปกรณ์ที่กำลังสั่ง (อยู่ใน PO ที่ยังค้างรับ) รวมตามชื่อ เพื่อเลือกซ้ำแทนการสร้างรายการใหม่
     const orderingItems = useMemo(() => {
@@ -126,6 +128,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                 setOcrFile(null);
                 setOcrProgress({ step: '', percent: 0 });
                 setOcrDebugText('');
+                setPoFile(null);
             }
         }
     }, [isOpen, isEditMode, initialData, user, vendors]);
@@ -484,6 +487,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
         const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
 
         if (!String(newPO.PO_ID || '').trim()) errors.push('กรุณาระบุเลข PO Number');
+        if (!isEditMode && !poFile) errors.push('กรุณาแนบไฟล์ PO ก่อนสร้างใบสั่งซื้อ');
 
         const vendorName = (selectedVendor.VendorName || '').trim();
         if (!vendorName) {
@@ -580,7 +584,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
         const v = confirmState.validation;
         setConfirmState({ isOpen: false, validation: null });
         if (!v) return;
-        await onSuccess({ ...newPO, VendorName: selectedVendor.VendorName.trim(), Items: v.items });
+        await onSuccess({ ...newPO, VendorName: selectedVendor.VendorName.trim(), Items: v.items }, poFile);
     };
 
     if (!isOpen) return null;
@@ -688,6 +692,41 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                                     />
                                 </div>
                             <form onSubmit={handleFormSubmit} className="order-1 md:order-2 p-4 md:p-5 space-y-4 md:h-[74vh] md:overflow-y-auto">
+                                {/* ไฟล์ PO (บังคับตอนสร้าง) */}
+                                <div className={`rounded-xl border-2 border-dashed p-3 flex items-center gap-3 ${poFile ? 'border-emerald-300 bg-emerald-50/60' : isEditMode ? 'border-slate-200 bg-slate-50' : 'border-amber-300 bg-amber-50/50'}`}>
+                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${poFile ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
+                                        <Paperclip size={16} />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-bold text-slate-700">
+                                            ไฟล์ PO {isEditMode ? <span className="font-normal text-slate-400">(แนบเพิ่มได้ ไม่บังคับ)</span> : <span className="text-red-500">* จำเป็น</span>}
+                                        </p>
+                                        {poFile ? (
+                                            <p className="text-[11px] text-emerald-700 truncate">{poFile.name} · {(poFile.size / 1024).toFixed(0)} KB</p>
+                                        ) : (
+                                            <p className="text-[11px] text-slate-500">PDF, รูปภาพ, Excel, Word · ไม่เกิน 10 MB</p>
+                                        )}
+                                    </div>
+                                    <label className="shrink-0 cursor-pointer px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-indigo-600 hover:bg-indigo-50">
+                                        {poFile ? 'เปลี่ยนไฟล์' : 'เลือกไฟล์'}
+                                        <input
+                                            type="file"
+                                            accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.docx,.doc"
+                                            className="hidden"
+                                            onChange={(e) => {
+                                                const f = e.target.files?.[0];
+                                                e.target.value = '';
+                                                if (!f) return;
+                                                if (f.size > MAX_PO_FILE_BYTES) {
+                                                    setResultModal({ isOpen: true, type: 'error', title: 'ไฟล์ใหญ่เกินไป', message: 'ไฟล์ PO ต้องไม่เกิน 10 MB' });
+                                                    return;
+                                                }
+                                                setPoFile(f);
+                                            }}
+                                        />
+                                    </label>
+                                </div>
+
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider">PO Number</label>

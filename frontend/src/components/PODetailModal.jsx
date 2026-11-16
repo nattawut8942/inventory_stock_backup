@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo } from 'react';
-import { ShoppingCart, X, Check, Phone, Calendar, Clock, Package, User, Building2, Hash, MapPin, FileText } from 'lucide-react';
+import { ShoppingCart, X, Check, Phone, Calendar, Clock, Package, User, Building2, Hash, MapPin, FileText, Paperclip, Eye, Download } from 'lucide-react';
 import Portal from './Portal';
 import { formatThaiDate } from '../utils/formatDate';
+import { API_BASE } from '../config/api';
 
 const STATUS_STYLE = {
     Completed: { label: 'Completed', chip: 'bg-emerald-100 text-emerald-700 border-emerald-200', bar: 'from-emerald-400 to-green-500' },
@@ -210,6 +211,46 @@ const PODetailModal = ({ po, vendors = [], onClose }) => {
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+
+                        {/* ไฟล์ PO */}
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 md:p-5">
+                            <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Paperclip size={14} /> ไฟล์ PO ({(po.Attachments || []).length})</h4>
+                            {(po.Attachments || []).length === 0 ? (
+                                <p className="text-sm text-slate-400">ไม่มีไฟล์แนบ</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {po.Attachments.map(a => (
+                                        <div key={a.AttachmentID} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/60">
+                                            <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-500 flex items-center justify-center shrink-0">
+                                                <FileText size={16} />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-bold text-slate-800 truncate" title={a.FileName}>{a.FileName}</p>
+                                                <p className="text-[11px] text-slate-400">
+                                                    {a.FileSize ? `${(a.FileSize / 1024).toFixed(0)} KB · ` : ''}
+                                                    {a.UploadedBy ? `โดย ${a.UploadedBy} · ` : ''}
+                                                    {a.UploadedAt ? formatThaiDate(a.UploadedAt) : ''}
+                                                </p>
+                                            </div>
+                                            <a
+                                                href={`${API_BASE}/po-attachments/${a.AttachmentID}/file`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-indigo-600 hover:bg-indigo-50"
+                                            >
+                                                <Eye size={13} /> เปิดดู
+                                            </a>
+                                            <a
+                                                href={`${API_BASE}/po-attachments/${a.AttachmentID}/file?download=1`}
+                                                className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                                            >
+                                                <Download size={13} />
+                                            </a>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         {/* Remark */}

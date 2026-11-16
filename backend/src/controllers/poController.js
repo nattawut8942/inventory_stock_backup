@@ -1,44 +1,8 @@
 import { sql, getPool } from '../config/db.js';
-
-// GET POs
-export const getPOs = async (req, res) => {
-    try {
-        const pool = getPool();
-        const { status } = req.query;
-
-        let query = `SELECT PO_ID, PR_No, VendorName, RequestDate, DueDate, RequestedBy, Section, Status, Remark, BudgetNo, DeliveryTo FROM dbo.Stock_PurchaseOrders`;
-
-        const request = pool.request();
-        if (status) {
-            request.input('Status', sql.NVarChar, status);
-            query += ` WHERE Status = @Status`;
-        }
-        query += ' ORDER BY RequestDate DESC';
-
-        const posResult = await request.query(query);
-
-        const pos = await Promise.all(posResult.recordset.map(async (po) => {
-            const detailsResult = await pool.request()
-                .input('PO_ID', sql.NVarChar, po.PO_ID)
-                .query(`
-                    SELECT d.DetailID, d.ProductID, d.ItemName, p.ProductName,
-                           d.QtyOrdered, d.QtyReceived, d.UnitCost, d.BG_No
-                    FROM dbo.Stock_PODetails d
-                    LEFT JOIN dbo.Stock_Products p ON d.ProductID = p.ProductID
-                    WHERE d.PO_ID = @PO_ID
-                `);
-            return { ...po, Items: detailsResult.recordset };
-        }));
-
-        res.json(pos);
-    } catch (err) {
-        console.error('Get POs Error:', err);
-        res.status(500).json({ error: 'Database error' });
-    }
-};
+import { storePOFile, removeStoredPOFiles, insertPOAttachment, fetchPOAttachments } from './poAttachmentController.js';
 
 // หา/สร้างอุปกรณ์ให้รายการที่ยังไม่มี ProductID
-// สร้างเป็น IsActive = 0 เพื่อให้ซ่อนจากหน้าคลัง/Master จนกว่าจะรับของเข้า (ตอนรับจะเปิด IsActive = 1)
+// สร้างเป็น IsActive = 0 เพื่อให้ซ่อนจากหน้าคลัง/Master จนกว่าจะรับของ (ตอนรับจะเปิด IsActive = 1)
 // ค้นด้วยชื่อแบบเดียวกับตอนรับของ เพื่อไม่ให้เกิดรายการซ้ำ
 const resolveProductIdForItem = async (transaction, item) => {
     if (item.ProductID) return item.ProductID;
@@ -68,11 +32,66 @@ const resolveProductIdForItem = async (transaction, item) => {
     return created.recordset[0].NewID;
 };
 
-// CREATE PO
-export const createPO = async (req, res) => {
-    const { PO_ID, VendorName, DueDate, RequestedBy, Section, Remark, Items, BudgetNo, PR_No, DeliveryTo } = req.body;
+// อ่าน payload: ถ้าส่งมาแบบ multipart ข้อมูลอยู่ในฟิลด์ payload (JSON) ถ้าเป็น JSON ปกติใช้ body ตรงๆ
+const readPayload = (req) => {
+    if (req.body && req.body.payload) return JSON.parse(req.body.payload);
+    return req.body || {};
+};
 
+// GET POs
+export const getPOs = async (req, res) => {
     try {
+        const pool = getPool();
+        const { status } = req.query;
+
+        let query = `SELECT PO_ID, PR_No, VendorName, RequestDate, DueDate, RequestedBy, Section, Status, Remark, BudgetNo, DeliveryTo FROM dbo.Stock_PurchaseOrders`;
+
+        const request = pool.request();
+        if (status) {
+            request.input('Status', sql.NVarChar, status);
+            query += ` WHERE Status = @Status`;
+        }
+        query += ' ORDER BY RequestDate DESC';
+
+        const posResult = await request.query(query);
+
+        const pos = await Promise.all(posResult.recordset.map(async (po) => {
+            const detailsResult = await pool.request()
+                .input('PO_ID', sql.NVarChar, po.PO_ID)
+                .query(`
+                    SELECT d.DetailID, d.ProductID, d.ItemName, p.ProductName,
+                           d.QtyOrdered, d.QtyReceived, d.UnitCost, d.BG_No
+                    FROM dbo.Stock_PODetails d
+                    LEFT JOIN dbo.Stock_Products p ON d.ProductID = p.ProductID
+                    WHERE d.PO_ID = @PO_ID
+                `);
+            const attachments = await fetchPOAttachments(po.PO_ID);
+            return { ...po, Items: detailsResult.recordset, Attachments: attachments };
+        }));
+
+        res.json(pos);
+    } catch (err) {
+        console.error('Get POs Error:', err);
+        res.status(500).json({ error: 'Database error' });
+    }
+};
+
+// CREATE PO (ต้องแนบไฟล์ PO เสมอ)
+export const createPO = async (req, res) => {
+    let body;
+    try {
+        body = readPayload(req);
+    } catch (err) {
+        return res.status(400).json({ error: 'ข้อมูล PO ไม่ถูกต้อง' });
+    }
+    const { PO_ID, VendorName, DueDate, RequestedBy, Section, Remark, Items, BudgetNo, PR_No, DeliveryTo } = body;
+
+    const file = req.files?.file;
+    if (!file) return res.status(400).json({ error: 'กรุณาแนบไฟล์ PO' });
+
+    let stored = null;
+    try {
+        stored = await storePOFile(file);
         const pool = getPool();
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
@@ -96,7 +115,7 @@ export const createPO = async (req, res) => {
                         (@PO_ID, @PR_No, @VendorName, @DueDate, @RequestedBy, @Section, @Remark, 'Open', @BudgetNo, @DeliveryTo)
                 `);
 
-            // ✅ Insert PO Details พร้อม BG_No
+            // Insert PO Details (ผูกอุปกรณ์ให้ทุกรายการ)
             for (const item of Items) {
                 const productId = await resolveProductIdForItem(transaction, item);
                 await new sql.Request(transaction)
@@ -114,10 +133,14 @@ export const createPO = async (req, res) => {
                     `);
             }
 
+            // ไฟล์ PO
+            await insertPOAttachment(transaction, { poId: PO_ID, file, stored, actor: RequestedBy });
+
             await transaction.commit();
             res.json({ success: true, PO_ID });
         } catch (err) {
             await transaction.rollback();
+            removeStoredPOFiles([stored]);
             console.error('Create PO Transaction Error:', err);
             if (err.number === 2627 || err.message.includes('PRIMARY KEY')) {
                 return res.status(409).json({ error: 'Duplicate PO ID', code: 'DUPLICATE_PO_ID' });
@@ -125,17 +148,33 @@ export const createPO = async (req, res) => {
             res.status(500).json({ error: 'Failed to create PO', details: err.message });
         }
     } catch (err) {
+        if (stored) removeStoredPOFiles([stored]);
         console.error('Create PO Connection Error:', err);
         res.status(500).json({ error: 'Database connection error' });
     }
 };
 
-// UPDATE PO
+// UPDATE PO (แนบไฟล์เพิ่มได้ ไม่บังคับ)
 export const updatePO = async (req, res) => {
     const { id } = req.params;
-    const { VendorName, DueDate, RequestedBy, Section, Remark, Items, BudgetNo, PR_No, DeliveryTo } = req.body;
+    let body;
+    try {
+        body = readPayload(req);
+    } catch (err) {
+        return res.status(400).json({ error: 'ข้อมูล PO ไม่ถูกต้อง' });
+    }
+    const { VendorName, DueDate, RequestedBy, Section, Remark, Items, BudgetNo, PR_No, DeliveryTo } = body;
+    const file = req.files?.file;
+
+    let stored = null;
+    const fail = (status, payload) => {
+        if (stored) removeStoredPOFiles([stored]);
+        return res.status(status).json(payload);
+    };
 
     try {
+        if (file) stored = await storePOFile(file);
+
         const pool = getPool();
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
@@ -148,13 +187,13 @@ export const updatePO = async (req, res) => {
 
             if (checkRes.recordset.length === 0) {
                 await transaction.rollback();
-                return res.status(404).json({ error: 'PO not found' });
+                return fail(404, { error: 'PO not found' });
             }
 
             const status = checkRes.recordset[0].Status;
             if (status !== 'Open' && status !== 'Pending') {
                 await transaction.rollback();
-                return res.status(400).json({ error: 'Cannot edit PO that is already processed (Partial/Completed/Cancelled)' });
+                return fail(400, { error: 'Cannot edit PO that is already processed (Partial/Completed/Cancelled)' });
             }
 
             // 2. Update Header
@@ -186,7 +225,6 @@ export const updatePO = async (req, res) => {
                 .input('PO_ID', sql.NVarChar, id)
                 .query('DELETE FROM dbo.Stock_PODetails WHERE PO_ID = @PO_ID');
 
-            // ✅ Re-insert พร้อม BG_No
             for (const item of Items) {
                 const productId = await resolveProductIdForItem(transaction, item);
                 await new sql.Request(transaction)
@@ -204,6 +242,11 @@ export const updatePO = async (req, res) => {
                     `);
             }
 
+            // 4. ไฟล์แนบใหม่ (ถ้ามี)
+            if (file) {
+                await insertPOAttachment(transaction, { poId: id, file, stored, actor: RequestedBy });
+            }
+
             await transaction.commit();
             res.json({ success: true, message: 'PO updated successfully' });
 
@@ -213,6 +256,7 @@ export const updatePO = async (req, res) => {
         }
     } catch (err) {
         console.error('Update PO Error:', err);
+        if (stored) removeStoredPOFiles([stored]);
         res.status(500).json({ error: err.message });
     }
 };
@@ -226,6 +270,7 @@ export const deletePO = async (req, res) => {
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
 
+        let attachedFiles = [];
         try {
             // 1. Check for Invoices
             const checkUsage = await new sql.Request(transaction)
@@ -237,17 +282,27 @@ export const deletePO = async (req, res) => {
                 return res.status(400).json({ error: 'Cannot delete PO because goods have already been received (Invoices exist). Please Cancel instead.' });
             }
 
-            // 2. Delete Details
+            // 2. Collect & delete attachment rows
+            const files = await new sql.Request(transaction)
+                .input('PO_ID', sql.NVarChar, id)
+                .query('SELECT StoredName FROM dbo.Stock_PO_Attachments WHERE PO_ID = @PO_ID');
+            attachedFiles = files.recordset.map(r => r.StoredName);
+            await new sql.Request(transaction)
+                .input('PO_ID', sql.NVarChar, id)
+                .query('DELETE FROM dbo.Stock_PO_Attachments WHERE PO_ID = @PO_ID');
+
+            // 3. Delete Details
             await new sql.Request(transaction)
                 .input('PO_ID', sql.NVarChar, id)
                 .query('DELETE FROM dbo.Stock_PODetails WHERE PO_ID = @PO_ID');
 
-            // 3. Delete Header
+            // 4. Delete Header
             await new sql.Request(transaction)
                 .input('PO_ID', sql.NVarChar, id)
                 .query('DELETE FROM dbo.Stock_PurchaseOrders WHERE PO_ID = @PO_ID');
 
             await transaction.commit();
+            removeStoredPOFiles(attachedFiles);
             res.json({ success: true, message: 'PO deleted successfully' });
 
         } catch (err) {

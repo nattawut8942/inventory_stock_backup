@@ -170,15 +170,24 @@ const PurchaseOrdersPage = () => {
         });
     };
 
-    const handleModalSuccess = async (formData) => {
+    const handleModalSuccess = async (formData, file) => {
         try {
             const url = isEditMode ? `${API_BASE}/pos/${formData.PO_ID}` : `${API_BASE}/pos`;
             const method = isEditMode ? 'PUT' : 'POST';
-            const res = await fetch(url, {
-                method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData)
-            });
+
+            // มีไฟล์แนบ -> ส่งแบบ multipart (ข้อมูล PO อยู่ในฟิลด์ payload, ไฟล์ในฟิลด์ file)
+            let body;
+            let headers = {};
+            if (file) {
+                body = new FormData();
+                body.append('payload', JSON.stringify(formData));
+                body.append('file', file);
+            } else {
+                body = JSON.stringify(formData);
+                headers = { 'Content-Type': 'application/json' };
+            }
+
+            const res = await fetch(url, { method, headers, body });
             const data = await res.json();
             if (res.ok) {
                 setResultModal({
