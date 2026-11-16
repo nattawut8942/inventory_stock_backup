@@ -7,6 +7,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { API_BASE, API_URL } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import { useCanAct } from '../context/PermissionContext';
 import Portal from '../components/Portal';
 import AlertModal from '../components/AlertModal';
 
@@ -126,20 +127,20 @@ const ArticleCard = ({ article, onView, onEdit, onDelete, typeColor, index }) =>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <button
+          {onEdit && <button
             onClick={() => onEdit(article)}
             className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
             title="แก้ไข"
           >
             <Edit2 size={14} />
-          </button>
-          <button
+          </button>}
+          {onDelete && <button
             onClick={() => onDelete(article.ArticleID)}
             className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
             title="ลบ"
           >
             <Trash2 size={14} />
-          </button>
+          </button>}
           <button
             onClick={() => onView(article.Slug)}
             className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-bold transition-colors shadow-sm shadow-indigo-200"
@@ -155,6 +156,9 @@ const ArticleCard = ({ article, onView, onEdit, onDelete, typeColor, index }) =>
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────────
 const KnowledgeBasePage = () => {
   const { user } = useAuth();
+  const canCreateKB = useCanAct('knowledge-base', 'create');
+  const canEditKB = useCanAct('knowledge-base', 'edit');
+  const canDeleteKB = useCanAct('knowledge-base', 'delete');
   const [articles, setArticles] = useState([]);
   const [problemTypes, setProblemTypes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -389,12 +393,12 @@ const KnowledgeBasePage = () => {
                 </button>
               )}
             </div>
-            <button
+            {canCreateKB && <button
               onClick={openCreate}
               className="flex items-center gap-2 bg-white text-indigo-700 font-bold px-5 py-3 rounded-xl hover:bg-indigo-50 transition-colors shadow-lg text-sm"
             >
               <Plus size={16} /> เพิ่มบทความ
-            </button>
+            </button>}
             <button
               onClick={fetchData}
               className="w-12 h-12 bg-white/15 hover:bg-white/25 border border-white/20 rounded-xl flex items-center justify-center text-white transition-colors"
@@ -479,8 +483,8 @@ const KnowledgeBasePage = () => {
                 article={article}
                 index={i}
                 onView={handleViewDetail}
-                onEdit={openEdit}
-                onDelete={handleDelete}
+                onEdit={canEditKB ? openEdit : undefined}
+                onDelete={canDeleteKB ? handleDelete : undefined}
                 typeColor={getTypeColor(article.ProblemTypeID || 1)}
               />
           ))}
@@ -620,12 +624,12 @@ const KnowledgeBasePage = () => {
                           >
                             <ExternalLink size={14} /> เปิด PDF
                           </a>
-                          <button
+                          {canEditKB && <button
                             onClick={() => handleDeletePdf(selectedArticle.ArticleID)}
                             className="flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-500 font-bold px-4 py-2 rounded-lg text-sm transition-colors border border-red-200"
                           >
                             <Trash2 size={14} /> ลบ PDF
-                          </button>
+                          </button>}
                         </div>
                       </div>
                     )}
@@ -633,18 +637,18 @@ const KnowledgeBasePage = () => {
 
                   {/* Footer */}
                   <div className="p-4 border-t border-slate-100 flex gap-3">
-                    <button
+                    {canEditKB && <button
                       onClick={() => { openEdit(selectedArticle); setSelectedArticle(null); }}
                       className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-sm hover:bg-indigo-100 transition-colors"
                     >
                       <Edit2 size={14} /> แก้ไข
-                    </button>
-                    <button
+                    </button>}
+                    {canDeleteKB && <button
                       onClick={() => handleDelete(selectedArticle.ArticleID)}
                       className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-500 rounded-xl font-bold text-sm hover:bg-red-100 transition-colors"
                     >
                       <Trash2 size={14} /> ลบ
-                    </button>
+                    </button>}
                     <button
                       onClick={() => setSelectedArticle(null)}
                       className="ml-auto flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors"

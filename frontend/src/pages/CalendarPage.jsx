@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { API_BASE } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import { useCanAct } from '../context/PermissionContext';
 import Portal from '../components/Portal';
 
 // ─── Type config ───────────────────────────────────────────────────────────────
@@ -90,6 +91,9 @@ const SectionHeader = ({ icon: Icon, gradient, title, action, onAction }) => (
 // ─── CalendarPage ──────────────────────────────────────────────────────────────
 export default function CalendarPage() {
     const { user }   = useAuth();
+    const canCreateCal = useCanAct('calendar', 'create');
+    const canEditCal = useCanAct('calendar', 'edit');
+    const canDeleteCal = useCanAct('calendar', 'delete');
     const calRef     = useRef(null);
 
     const [taskTypes,     setTaskTypes]     = useState([]);
@@ -349,13 +353,13 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                     </div>
                     <p className="text-slate-500 font-medium pl-[52px]">วางแผนและติดตามงาน IT ประจำวัน</p>
                 </div>
-                <motion.button
+                {canCreateCal && <motion.button
                     whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                     onClick={() => openAdd()}
                     className="flex items-center gap-2 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-200 transition-all"
                 >
                     <Plus className="w-4 h-4" /> สร้างงานใหม่
-                </motion.button>
+                </motion.button>}
             </motion.div>
 
             {/* Main Layout */}
@@ -469,7 +473,7 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                             headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,listWeek' }}
                             buttonText={{ today: 'วันนี้', month: 'เดือน', week: 'สัปดาห์', list: 'รายการ' }}
                             events={fcEvents}
-                            editable selectable selectMirror dayMaxEvents
+                            editable={canEditCal} selectable={canCreateCal} selectMirror dayMaxEvents
                             height="auto"
                             select={info => openAdd(info.startStr, info.endStr)}
                             eventClick={info => {
@@ -649,13 +653,13 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                         {/* Modal Footer */}
                         <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-100">
                             <div>
-                                {form.task_id && !confirmDel && (
+                                {form.task_id && canDeleteCal && !confirmDel && (
                                     <button onClick={() => setConfirmDel(true)}
                                         className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-700 font-medium transition-colors">
                                         <Trash2 className="w-4 h-4" /> ลบงาน
                                     </button>
                                 )}
-                                {form.task_id && confirmDel && (
+                                {form.task_id && canDeleteCal && confirmDel && (
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs text-red-600 font-bold">ยืนยันลบ?</span>
                                         <button onClick={deleteTask} className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-red-700 transition-colors">ลบ</button>
@@ -668,12 +672,12 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                                     className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-900 border border-slate-200 rounded-xl hover:bg-white transition-all">
                                     ยกเลิก
                                 </button>
-                                <motion.button onClick={saveTask} disabled={saving}
+                                {(form.task_id ? canEditCal : canCreateCal) && <motion.button onClick={saveTask} disabled={saving}
                                     whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                                     className="flex items-center gap-2 px-5 py-2 text-sm font-bold bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white rounded-xl shadow-lg shadow-indigo-200 disabled:opacity-50 transition-all">
                                     <Send className="w-3.5 h-3.5" />
                                     {saving ? 'กำลังบันทึก...' : 'บันทึก'}
-                                </motion.button>
+                                </motion.button>}
                             </div>
                         </div>
                     </motion.div>

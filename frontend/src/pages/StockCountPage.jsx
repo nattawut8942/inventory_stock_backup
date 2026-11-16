@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
-import { useCan } from '../context/PermissionContext';
+import { useCan, useCanAct } from '../context/PermissionContext';
 import AlertModal from '../components/AlertModal';
 import Portal from '../components/Portal';
 import { API_BASE, API_URL } from '../config/api';
@@ -16,6 +16,7 @@ const StockCountPage = () => {
     const canEditSC = useCan('stock-count', 'edit');
     const canAdjustSC = useCan('stock-count', 'adjust');
     const canDeleteSC = useCan('stock-count', 'delete');
+    const canCountSC = useCanAct('stock-count', 'count');
 
     // View state
     const [currentView, setCurrentView] = useState('counting'); // counting | history
@@ -492,12 +493,12 @@ const StockCountPage = () => {
                             </div>
                             <h3 className="text-2xl font-black text-slate-800 mb-2">เริ่มการนับสต็อก</h3>
                             <p className="text-slate-400 mb-8 max-w-md mx-auto">สร้างรอบนับใหม่ แล้วสแกนบาร์โค้ดหรือพิมพ์ค้นหาอุปกรณ์เพื่อเริ่มนับ</p>
-                            <button
+                            {canCountSC && <button
                                 onClick={handleCreateSession}
                                 className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-10 py-4 rounded-2xl font-bold text-lg shadow-lg shadow-indigo-200 hover:shadow-xl hover:scale-105 transition-all flex items-center gap-3 mx-auto"
                             >
                                 <PlusCircle size={22} /> สร้างรอบนับใหม่
-                            </button>
+                            </button>}
                         </motion.div>
                     ) : (
                         <>
@@ -579,7 +580,7 @@ const StockCountPage = () => {
                                             className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 max-h-72 overflow-y-auto"
                                         >
                                             {searchResults.map(product => (
-                                                <button
+                                                canCountSC && <button
                                                     key={product.ProductID}
                                                     onClick={() => addProductToSession(product)}
                                                     className="w-full flex items-center gap-3 p-3 hover:bg-indigo-50 transition-colors text-left border-b border-slate-50 last:border-0"
@@ -664,12 +665,12 @@ const StockCountPage = () => {
                                                                 <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">นับจริง</label>
 
                                                                 <div className="flex items-center bg-slate-50 border-2 border-slate-200 rounded-xl overflow-hidden focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
-                                                                    <button
+                                                                    {canCountSC && <button
                                                                         onClick={() => handleUpdateQty(item.ItemID, Math.max(0, (item.ActualQty || 0) - 1))}
                                                                         className="px-3 py-2 text-slate-500 hover:bg-slate-200 hover:text-slate-700 font-black transition-colors"
                                                                     >
                                                                         -
-                                                                    </button>
+                                                                    </button>}
                                                                     <input
                                                                         type="number"
                                                                         min="0"
@@ -678,16 +679,16 @@ const StockCountPage = () => {
                                                                         placeholder="?"
                                                                         className="w-16 px-1 py-2 text-center text-xl font-black bg-transparent outline-none"
                                                                     />
-                                                                    <button
+                                                                    {canCountSC && <button
                                                                         onClick={() => handleUpdateQty(item.ItemID, (item.ActualQty || 0) + 1)}
                                                                         className="px-3 py-2 text-slate-500 hover:bg-slate-200 hover:text-slate-700 font-black transition-colors"
                                                                     >
                                                                         +
-                                                                    </button>
+                                                                    </button>}
                                                                 </div>
 
                                                                 {diff !== 0 && (
-                                                                    <button
+                                                                    canCountSC && <button
                                                                         onClick={() => handleUpdateQty(item.ItemID, item.SystemQty)}
                                                                         className="mt-1.5 text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1 rounded-full transition-colors flex items-center gap-1"
                                                                     >
@@ -707,12 +708,12 @@ const StockCountPage = () => {
                                                                 </div>
                                                             )}
 
-                                                            <button
+                                                            {canCountSC && <button
                                                                 onClick={() => handleRemoveItem(item.ItemID)}
                                                                 className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                                                             >
                                                                 <Trash2 size={18} />
-                                                            </button>
+                                                            </button>}
                                                         </div>
                                                     </div>
                                                 </motion.div>
@@ -734,14 +735,14 @@ const StockCountPage = () => {
                                         <span className="font-bold text-emerald-600 ml-1">{countingList.filter(i => i.ActualQty !== null && i.ActualQty !== undefined && i.ActualQty === i.SystemQty).length}</span> ตรง •
                                         <span className="font-bold text-red-500 ml-1">{countingList.filter(i => i.ActualQty !== null && i.ActualQty !== undefined && i.ActualQty !== i.SystemQty).length}</span> แตกต่าง
                                     </div>
-                                    <button
+                                    {canCountSC && <button
                                         onClick={handleConfirm}
                                         disabled={isConfirming}
                                         className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-10 py-4 rounded-2xl font-bold shadow-lg shadow-indigo-200 hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50"
                                     >
                                         {isConfirming ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle2 size={20} />}
                                         บันทึกการนับสต็อก
-                                    </button>
+                                    </button>}
                                 </motion.div>
                             )}
                         </>
@@ -1068,12 +1069,12 @@ const StockCountPage = () => {
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <button
+                                                    {canCountSC && <button
                                                         onClick={() => addProductToSession(product)}
                                                         className="px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl font-bold text-sm shadow-sm transition-all"
                                                     >
                                                         + เพิ่ม
-                                                    </button>
+                                                    </button>}
                                                 </div>
                                             ))}
                                         </div>

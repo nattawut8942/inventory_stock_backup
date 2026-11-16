@@ -1,4 +1,5 @@
 import express from 'express';
+import { requirePerm } from '../middleware/permissionMiddleware.js';
 import {
   getBorrowings,
   createBorrowing,
@@ -14,13 +15,13 @@ const router = express.Router();
 router.get('/', getBorrowings);
 
 // บันทึกการยืมใหม่ (ผู้ใช้ที่ login แล้วทุกคน)
-router.post('/', createBorrowing);
+router.post('/', requirePerm('borrowings', 'create'), createBorrowing);
 
 // แก้ไขข้อมูลรายการยืม
-router.put('/:id', updateBorrowing);
+router.put('/:id', requirePerm('borrowings', 'edit'), updateBorrowing);
 
 // รับคืนอุปกรณ์ (Update สถานะ)
-router.put('/:id/return', returnBorrowing);
+router.put('/:id/return', requirePerm('borrowings', 'return'), returnBorrowing);
 
 // ค้นหาข้อมูลครุภัณฑ์จากระบบ Fixed Asset (DCI) ด้วยรหัสครุภัณฑ์
 // path เต็มจะกลายเป็น {mount-prefix}/borrowings/assets/:code เพราะ router นี้ mount ใต้ /borrowings อยู่แล้ว

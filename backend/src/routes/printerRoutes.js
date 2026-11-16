@@ -17,12 +17,12 @@ const router = express.Router();
 router.get('/printer-health', getPrinterHealth);
 router.get('/printer-locations', getPrinterLocations);
 router.put('/printer-locations/:id', requirePerm('devices-layout', 'edit', { strict: true }), updatePrinterLocation);
-router.post('/printer-health', createPrinter);
+router.post('/printer-health', requirePerm('printer-health', 'create'), createPrinter);
 router.get('/printer-health/meta/factories', getFactoryOptions);
-router.put('/printer-health/:id', updatePrinter);
+router.put('/printer-health/:id', requirePerm('printer-health', 'edit'), updatePrinter);
 router.get('/printer-health/:id/history', getPrinterHistory);
 router.get('/printer-health/:id/errors', getPrinterErrors);
-router.post('/printer-health/:id/scan', scanPrinterNow);
+router.post('/printer-health/:id/scan', requirePerm('printer-health', 'view'), scanPrinterNow);
 
 export default router;
 

@@ -7,6 +7,7 @@
  */
 
 import express from 'express';
+import { requirePerm } from '../middleware/permissionMiddleware.js';
 import crypto from 'crypto';
 import { verifyToken } from '../middleware/authMiddleware.js';
 import {
@@ -55,19 +56,19 @@ const requireUserOrScanKey = (req, res, next) => {
 
 // Subnet — อ่านต้องมี token/scan key, แก้/เพิ่ม/ลบ ต้อง login (verifyToken)
 router.get('/ip-scan/subnets',          requireUserOrScanKey, getIPSubnets);
-router.post('/ip-scan/subnets/add',     verifyToken, addSubnet);
-router.delete('/ip-scan/subnets/:subnet', verifyToken, deleteSubnet);
+router.post('/ip-scan/subnets/add',     verifyToken, requirePerm('ip-management', 'manage'), addSubnet);
+router.delete('/ip-scan/subnets/:subnet', verifyToken, requirePerm('ip-management', 'manage'), deleteSubnet);
 
 // IPs
 router.get('/ip-scan/ips',              requireUserOrScanKey, getIPsBySubnet);
-router.put('/ip-scan/ips/:ip',          verifyToken, updateIP);
+router.put('/ip-scan/ips/:ip',          verifyToken, requirePerm('ip-management', 'edit'), updateIP);
 router.get('/ip-scan/ips/:ip/history',  verifyToken, getIPHistory);
 
 // Scan results (จาก auto_scan.js) — ใช้ scan key แทน user token
 router.post('/ip-scan/scan-result',     requireScanKey, postScanResult);
 
 // Manual trigger จาก frontend — ต้อง login
-router.post('/ip-scan/trigger',         verifyToken, triggerScan);
+router.post('/ip-scan/trigger',         verifyToken, requirePerm('ip-management', 'manage'), triggerScan);
 router.get('/ip-scan/scan-status',      verifyToken, getScanStatus);
 
 // มุมมองภาพรวม: ไทม์ไลน์ และรายการ inactive

@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useCanAct } from '../context/PermissionContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Activity, AlertCircle, CheckCircle2, XCircle,
@@ -231,7 +232,7 @@ function DetailPanel({ device, devices, onClose, onPing, onCheckHttp, onEdit, on
                 <p className="font-mono text-xs text-white/80 mt-0.5">{device.ip_address}</p>
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => onEdit(device)} aria-label="แก้ไข" className="p-1.5 hover:bg-white/20 rounded-full"><Edit2 size={14}/></button>
+                {onEdit && <button onClick={() => onEdit(device)} aria-label="แก้ไข" className="p-1.5 hover:bg-white/20 rounded-full"><Edit2 size={14}/></button>}
                 <button onClick={onClose} aria-label="ปิด" className="p-1.5 hover:bg-white/20 rounded-full"><X size={16}/></button>
               </div>
             </div>
@@ -312,10 +313,10 @@ function DetailPanel({ device, devices, onClose, onPing, onCheckHttp, onEdit, on
                 disabled={!!busy} className={`w-full py-2.5 ${BTN_SECONDARY}`}>
                 {busy==='http'?<RefreshCw size={14} className="animate-spin"/>:<Network size={14}/>} ตรวจ HTTP
               </button>
-              <button onClick={()=>{onDelete(device.id); onClose();}}
+              {onDelete && <button onClick={()=>{onDelete(device.id); onClose();}}
                 className="w-full flex items-center justify-center gap-2 py-2 text-sm font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-xl transition-colors">
                 <Trash2 size={14}/> ลบอุปกรณ์
-              </button>
+              </button>}
             </div>
           </div>
           <div className="px-5 py-3 bg-slate-50 border-t border-slate-100">
@@ -536,6 +537,9 @@ export default function SoundLayout() {
   const [search,     setSearch]     = useState('');
   const [toast,      setToast]      = useState(null);
   const [showAdd,    setShowAdd]    = useState(false);
+  const canCreateSound = useCanAct('sound-layout', 'create');
+  const canEditSound = useCanAct('sound-layout', 'edit');
+  const canDeleteSound = useCanAct('sound-layout', 'delete');
   const [editDevice, setEditDevice] = useState(null);
   const [busyAll,    setBusyAll]    = useState(null);
   const [cardFilter, setCardFilter] = useState('all');
@@ -698,9 +702,9 @@ export default function SoundLayout() {
         <input type="text" placeholder="ค้นหาชื่อหรือ IP..."
           value={search} onChange={e=>setSearch(e.target.value)}
           className="flex-1 min-w-[180px] px-4 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 shadow-sm"/>
-        <button onClick={()=>setShowAdd(true)} className={BTN_PRIMARY}>
+        {canCreateSound && <button onClick={()=>setShowAdd(true)} className={BTN_PRIMARY}>
           <Plus size={14}/> เพิ่มอุปกรณ์
-        </button>
+        </button>}
         <button onClick={handlePingAll} disabled={!!busyAll||!devices.length} className={BTN_SECONDARY}>
           {busyAll==='ping'?<RefreshCw size={14} className="animate-spin"/>:<Zap size={14}/>} Ping ทั้งหมด
         </button>
@@ -744,9 +748,9 @@ export default function SoundLayout() {
             <Server className="w-10 h-10 text-slate-300 mb-3"/>
             <p className="font-bold text-slate-700">ยังไม่มีอุปกรณ์ในระบบ</p>
             <p className="text-sm text-slate-400 mb-4">เพิ่ม TOA NX-100 และ Network Switch เพื่อเริ่มติดตามสถานะ</p>
-            <button onClick={()=>setShowAdd(true)} className={BTN_PRIMARY}>
+            {canCreateSound && <button onClick={()=>setShowAdd(true)} className={BTN_PRIMARY}>
               <Plus size={14}/> เพิ่มอุปกรณ์แรก
-            </button>
+            </button>}
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center text-center py-12 bg-white rounded-2xl border border-slate-200">
@@ -784,8 +788,8 @@ export default function SoundLayout() {
           onClose={()=>setSelected(null)}
           onPing={handlePing}
           onCheckHttp={handleCheckHttp}
-          onEdit={(d)=>{setSelected(null); setEditDevice(d);}}
-          onDelete={handleDelete}
+          onEdit={canEditSound ? (d)=>{setSelected(null); setEditDevice(d);} : undefined}
+          onDelete={canDeleteSound ? handleDelete : undefined}
         />
       )}
 

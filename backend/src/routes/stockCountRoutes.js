@@ -14,16 +14,16 @@ const router = express.Router();
 // Sessions
 router.get('/stock-count/sessions', getSessions);
 router.get('/stock-count/sessions/:id', getSessionDetail);
-router.post('/stock-count/sessions', createSession);
+router.post('/stock-count/sessions', requirePerm('stock-count', 'count'), createSession);
 
 // Items within a session
-router.post('/stock-count/sessions/:id/items', addItem);
-router.put('/stock-count/sessions/:id/items/:itemId', updateItem);
-router.delete('/stock-count/sessions/:id/items/:itemId', deleteItem);
+router.post('/stock-count/sessions/:id/items', requirePerm('stock-count', 'count'), addItem);
+router.put('/stock-count/sessions/:id/items/:itemId', requirePerm('stock-count', 'count'), updateItem);
+router.delete('/stock-count/sessions/:id/items/:itemId', requirePerm('stock-count', 'count'), deleteItem);
 
 // Confirm & Edit & Delete & Adjust
-router.post('/stock-count/sessions/:id/confirm', confirmSession);
-router.post('/stock-count/sessions/:id/adjust', applyStockAdjustment);
+router.post('/stock-count/sessions/:id/confirm', requirePerm('stock-count', 'count'), confirmSession);
+router.post('/stock-count/sessions/:id/adjust', requirePerm('stock-count', 'adjust'), applyStockAdjustment);
 router.put('/stock-count/sessions/:id', requirePerm('stock-count', 'edit', { strict: true }), editConfirmedSession);
 router.delete('/stock-count/sessions/:id', verifyToken, deleteSession); // Draft: any user; Confirmed: Admin only (checked in controller)
 

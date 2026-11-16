@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { MapPin, Plus, RefreshCw, Server, Network, Camera, Wifi, WifiOff, ChevronDown, X, Search } from 'lucide-react';
 import { API_BASE, API_URL } from '../config/api';
 import { useAuth } from '../context/AuthContext';
-import { useCan } from '../context/PermissionContext';
+import { useCan, useCanAct } from '../context/PermissionContext';
 import CCTVFormModal from '../components/cctv/CCTVFormModal';
 import RackFormModal from '../components/cctv/RackFormModal';
 import SwitchFormModal from '../components/cctv/SwitchFormModal';
@@ -111,6 +111,9 @@ function drawCornerFrame(ctx, cx, cy, halfSize, color, lineLen = 16, lineWidth =
 const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilter,
     listPage, setListPage, selectedCam, setSelectedCam, setDetailModal,
     setLocationModal, setCamModal, fullUrl, selectedLayout, onJumpToCamera }) => {
+    const canCreateCctv = useCanAct('cctv', 'create');
+    const canEditCctv = useCanAct('cctv', 'edit');
+    const canDeleteCctv = useCanAct('cctv', 'delete');
 
     const [search, setSearch] = useState('');
     const ITEMS = 20;
@@ -143,10 +146,10 @@ const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilt
             <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-gray-600">รายการกล้องทั้งหมด — {currentName}</span>
-                    <button onClick={() => setCamModal({ mode: 'add' })}
+                    {canCreateCctv && <button onClick={() => setCamModal({ mode: 'add' })}
                         className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">
                         <Plus size={11} /> เพิ่มกล้อง
-                    </button>
+                    </button>}
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                     {/* Search — local state ไม่กระทบ CCTVPage */}
@@ -250,8 +253,8 @@ const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilt
                                                         <MapPin size={12} />
                                                     </button>
                                                 )}
-                                                <button onClick={() => setCamModal({ mode: 'edit', data: cam })} title="แก้ไข"
-                                                    className="p-1 rounded hover:bg-gray-100 text-gray-400">✏️</button>
+                                                {canEditCctv && <button onClick={() => setCamModal({ mode: 'edit', data: cam })} title="แก้ไข"
+                                                    className="p-1 rounded hover:bg-gray-100 text-gray-400">✏️</button>}
                                             </div>
                                         </td>
                                     </tr>
@@ -566,6 +569,9 @@ function CCTVPage() {
     const isStaff = useCan('cctv', 'edit'); // ✅ ลากย้ายตำแหน่งกล้องได้เฉพาะ staff — ดูอย่างเดียวได้ทุกคน
     const isStaffRef = useRef(isStaff);
     useEffect(() => { isStaffRef.current = isStaff; }, [isStaff]);
+    const canCreateCctv = useCanAct('cctv', 'create');
+    const canEditCctv = useCanAct('cctv', 'edit');
+    const canDeleteCctv = useCanAct('cctv', 'delete');
     const [layouts, setLayouts] = useState([]);
     const [selectedLayout, setSelectedLayout] = useState(null);
     const [allCameras, setAllCameras] = useState([]);
@@ -1202,10 +1208,10 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                             <RefreshCw size={13} /> Ping All
                         </button>
                     )}
-                    <button onClick={() => setCamModal({ mode: 'add' })}
+                    {canCreateCctv && <button onClick={() => setCamModal({ mode: 'add' })}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
                         <Plus size={13} /> เพิ่มกล้อง
-                    </button>
+                    </button>}
                 </div>
             </div>
 
@@ -1365,14 +1371,14 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                 <span className="text-xs font-semibold text-gray-600">Rack & Switch — {current?.name}</span>
                             </div>
                             <div className="flex gap-2">
-                                <button onClick={() => setSwitchModal({ mode: 'add' })}
+                                {canCreateCctv && <button onClick={() => setSwitchModal({ mode: 'add' })}
                                     className="flex items-center gap-1 px-2.5 py-1 border border-gray-200 text-xs rounded-lg text-gray-600 hover:bg-gray-50">
                                     <Network size={11} /> เพิ่ม Switch
-                                </button>
-                                <button onClick={() => setRackModal({ mode: 'add' })}
+                                </button>}
+                                {canCreateCctv && <button onClick={() => setRackModal({ mode: 'add' })}
                                     className="flex items-center gap-1 px-2.5 py-1 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700">
                                     <Server size={11} /> เพิ่ม Rack
-                                </button>
+                                </button>}
                             </div>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -1398,8 +1404,8 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                                     className={`p-1 rounded transition-colors ${rack.location_x != null ? 'text-blue-400 hover:bg-blue-50' : 'text-amber-500 bg-amber-50 hover:bg-amber-100'}`}>
                                                     <MapPin size={12} />
                                                 </button>
-                                                <button onClick={() => setRackModal({ mode: 'edit', data: rack })}
-                                                    className="p-1 rounded hover:bg-gray-100 text-gray-400">✏️</button>
+                                                {canEditCctv && <button onClick={() => setRackModal({ mode: 'edit', data: rack })}
+                                                    className="p-1 rounded hover:bg-gray-100 text-gray-400">✏️</button>}
                                             </div>
                                         </div>
                                         {rackSwitches.length > 0 && (
@@ -1466,10 +1472,10 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700">
                                 ⬇️ Export CSV
                             </button>
-                            <button onClick={() => setMaintenanceModal({ mode: 'add', logType: activeTab === 'repair' ? 'repair' : 'removal' })}
+                            {canCreateCctv && <button onClick={() => setMaintenanceModal({ mode: 'add', logType: activeTab === 'repair' ? 'repair' : 'removal' })}
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700">
                                 + {activeTab === 'repair' ? 'เพิ่มบันทึกซ่อม' : 'บันทึกถอด'}
-                            </button>
+                            </button>}
                         </div>
                     </div>
                     <table className="w-full text-xs">
@@ -1552,9 +1558,9 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                                 <div className="flex gap-1">
                                                     <button onClick={() => setMaintenanceDetail(r)}
                                                         className="p-1 hover:bg-blue-50 rounded text-blue-400" title="ดูรายละเอียด">👁️</button>
-                                                    <button onClick={() => setMaintenanceModal({ mode: 'edit', data: r })}
-                                                        className="p-1 hover:bg-gray-100 rounded text-gray-400">✏️</button>
-                                                    <button onClick={() => setAlertModal({
+                                                    {canEditCctv && <button onClick={() => setMaintenanceModal({ mode: 'edit', data: r })}
+                                                        className="p-1 hover:bg-gray-100 rounded text-gray-400">✏️</button>}
+                                                    {canDeleteCctv && <button onClick={() => setAlertModal({
                                                         isOpen: true, type: 'danger',
                                                         title: 'ลบบันทึก', message: 'ยืนยันลบบันทึกนี้?',
                                                         onConfirm: async () => {
@@ -1563,7 +1569,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                                             setAlertModal(p => ({ ...p, isOpen: false }));
                                                         },
                                                         onCancel: () => setAlertModal(p => ({ ...p, isOpen: false }))
-                                                    })} className="p-1 hover:bg-red-50 rounded text-red-400">🗑️</button>
+                                                    })} className="p-1 hover:bg-red-50 rounded text-red-400">🗑️</button>}
                                                 </div>
                                             </td>
                                         </tr>
@@ -1710,10 +1716,10 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                     className="flex-1 py-2 bg-purple-50 border border-purple-200 rounded-xl text-xs font-semibold text-purple-600 hover:bg-purple-100 flex items-center justify-center gap-1.5">
                                     <MapPin size={12} /> ตำแหน่ง
                                 </button>
-                                <button onClick={() => { setRackDetailModal(null); setSelectedRackId(null); setRackModal({ mode: 'edit', data: rackDetailModal }); }}
+                                {canEditCctv && <button onClick={() => { setRackDetailModal(null); setSelectedRackId(null); setRackModal({ mode: 'edit', data: rackDetailModal }); }}
                                     className="flex-1 py-2 border border-gray-200 rounded-xl text-xs font-semibold text-gray-600 hover:bg-white flex items-center justify-center gap-1.5">
                                     ✏️ แก้ไข
-                                </button>
+                                </button>}
                             </div>
                         </div>
                     </div>
@@ -1889,10 +1895,10 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
 
                             {/* Footer */}
                             <div className="px-5 py-3 border-t border-gray-100 flex gap-2 bg-gray-50 flex-shrink-0">
-                                <button onClick={() => { setDetailModal(null); setCamModal({ mode: 'edit', data: detailModal }); }}
+                                {canEditCctv && <button onClick={() => { setDetailModal(null); setCamModal({ mode: 'edit', data: detailModal }); }}
                                     className="flex-1 py-2 border border-gray-200 rounded-xl text-xs font-semibold text-gray-600 hover:bg-white flex items-center justify-center gap-1.5">
                                     ✏️ แก้ไข
-                                </button>
+                                </button>}
                                 <button onClick={() => { setDetailModal(null); setLocationModal(detailModal); }}
                                     className="flex-1 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs font-semibold text-blue-600 hover:bg-blue-100 flex items-center justify-center gap-1.5">
                                     <MapPin size={12} /> ตำแหน่ง / FOV

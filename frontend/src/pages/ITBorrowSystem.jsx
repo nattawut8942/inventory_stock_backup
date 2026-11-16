@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, ArrowLeftRight, Search, Laptop, X, Loader2, AlertTriangle, PackageOpen, Minus, CheckCircle2, Info, Edit2, CalendarPlus, Clock } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useAuth, getAuthToken } from '../context/AuthContext';
-import { useCan } from '../context/PermissionContext';
+import { useCan, useCanAct } from '../context/PermissionContext';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config/api';
 
@@ -141,6 +141,8 @@ const ITBorrowSystem = () => {
     return true;
   };
   const isAdmin = useCan('borrowings', 'edit'); // ✅ [validation #7] จำกัดสิทธิ์แก้ไข/เปลี่ยนสถานะเฉพาะ staff เหมือน InventoryPage
+  const canCreateBorrow = useCanAct('borrowings', 'create');
+  const canReturnBorrow = useCanAct('borrowings', 'return');
 
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -668,12 +670,12 @@ const ITBorrowSystem = () => {
               className="w-full sm:w-64 pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
-          <button
+          {canCreateBorrow && <button
             onClick={handleOpenModal}
             className="shrink-0 bg-indigo-600 hover:bg-indigo-700 transition-colors text-white px-4 sm:px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-200 whitespace-nowrap"
           >
             <Plus size={18} /> บันทึกการยืม
-          </button>
+          </button>}
         </div>
       </header>
 
@@ -853,7 +855,7 @@ const ITBorrowSystem = () => {
                           </button>
                         )}
                         {b.brStatus !== 'returned' && (
-                          <button
+                          canReturnBorrow && <button
                             onClick={() => requestReturn(b)}
                             disabled={returningId === b.brID}
                             className="text-emerald-600 hover:text-emerald-700 transition-colors disabled:opacity-50"
@@ -970,7 +972,7 @@ const ITBorrowSystem = () => {
                       </button>
                     )}
                     {!returned && (
-                      <button
+                      canReturnBorrow && <button
                         onClick={() => requestReturn(b)}
                         disabled={returningId === b.brID}
                         className="ml-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50"

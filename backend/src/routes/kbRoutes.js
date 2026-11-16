@@ -1,4 +1,5 @@
 import express from 'express';
+import { requirePerm } from '../middleware/permissionMiddleware.js';
 import {
   getArticles,
   searchArticles,
@@ -33,15 +34,15 @@ router.get('/article/:slug', getArticleDetail);
 // ================== SUBMISSION ROUTES ==================
 
 // POST: สร้างบทความใหม่
-router.post('/', createArticle);
+router.post('/', requirePerm('knowledge-base', 'create'), createArticle);
 
 // PUT: แก้ไขบทความ
-router.put('/:id', updateArticle);
+router.put('/:id', requirePerm('knowledge-base', 'edit'), updateArticle);
 
 // DELETE: ลบเฉพาะ PDF
-router.delete('/:id/pdf', deletePdf);
+router.delete('/:id/pdf', requirePerm('knowledge-base', 'edit'), deletePdf);
 
 // DELETE: ลบบทความ
-router.delete('/:id', deleteArticle);
+router.delete('/:id', requirePerm('knowledge-base', 'delete'), deleteArticle);
 
 export default router;

@@ -10,6 +10,7 @@ import {
 import Pagination from '../components/Pagination';
 import { API_BASE } from '../config/api';
 import { useQuotaJobs } from '../context/QuotaJobContext';
+import { useCanAct } from '../context/PermissionContext';
 import { useAuth } from '../context/AuthContext';
 import Portal from '../components/Portal';
 
@@ -502,6 +503,8 @@ const DeleteConfirmModal = ({ item, onConfirm, onClose }) => {
 //  MAIN COMPONENT
 // ════════════════════════════════════════════════════════════
 const QuotaManager = () => {
+    const canSendQuota = useCanAct('quota-manager', 'send');
+    const canDeleteQuota = useCanAct('quota-manager', 'delete');
     const { user: authUser } = useAuth();
     const [tab, setTab] = useState('quota');
     const [users, setUsers] = useState([]);
@@ -1327,16 +1330,16 @@ const QuotaManager = () => {
                             }} title={`เลือก checkbox ทุกคนที่ใช้พื้นที่เกิน ${threshold}% อัตโนมัติ`} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50">
                                 <Filter size={12} /> เลือกที่เกิน {threshold}%
                             </button>
-                            <button disabled={sending} onClick={() => { setSendMode('warning'); setConfirmOpen(true); }}
+                            {canSendQuota && <button disabled={sending} onClick={() => { setSendMode('warning'); setConfirmOpen(true); }}
                                 title="ส่งอีเมลแจ้งเตือนพร้อมรายการไฟล์ให้ user ที่เลือก (ทีละคนตามคิว)"
                                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold disabled:opacity-50 transition-all">
                                 <Bell size={12} /> ส่ง Warning Email
-                            </button>
-                            <button disabled={sending} onClick={() => { setSendMode('report'); setConfirmOpen(true); }}
+                            </button>}
+                            {canSendQuota && <button disabled={sending} onClick={() => { setSendMode('report'); setConfirmOpen(true); }}
                                 title="ส่งรายงานสรุปรวมให้ Admin Email ที่ตั้งค่าไว้"
                                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold disabled:opacity-50 transition-all">
                                 <Send size={12} /> ส่ง Report
-                            </button>
+                            </button>}
                         </div>
                     </div>
 
@@ -1445,7 +1448,7 @@ const QuotaManager = () => {
                                                 <td className="px-4 py-3">
                                                     {u.email && (
                                                         <div className="relative group/btn">
-                                                            <button
+                                                            {canSendQuota && <button
                                                                 onClick={() => handleSendClick(u.username)}
                                                                 disabled={busy}
                                                                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all select-none
@@ -1456,7 +1459,7 @@ const QuotaManager = () => {
                                                                 {busy
                                                                     ? <><Loader2 size={11} className="animate-spin" /> กำลัง run...</>
                                                                     : <><Mail size={11} /> ส่งแจ้ง</>}
-                                                            </button>
+                                                            </button>}
                                                             {busy && (
                                                                 <div className="absolute bottom-full right-0 mb-2 w-56 px-3 py-2.5 bg-slate-900 text-white text-[11px] rounded-xl opacity-0 group-hover/btn:opacity-100 transition-all pointer-events-none z-20 shadow-2xl border border-slate-700">
                                                                     <div className="font-bold text-amber-400 flex items-center gap-1.5 mb-1">
@@ -1515,7 +1518,7 @@ const QuotaManager = () => {
                             </div>
                             <div className="flex items-center gap-2">
                                 {logs.some(l => l.Status === 'running') && (
-                                    <button onClick={resetStaleLogs}
+                                    canDeleteQuota && <button onClick={resetStaleLogs}
                                         title="รีเซ็ต log ที่ค้าง status=running เป็น error (ใช้หลัง server restart)"
                                         className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-all whitespace-nowrap">
                                         รีเซ็ต Running
@@ -1683,7 +1686,7 @@ const QuotaManager = () => {
                                                 </td>
                                                 <td className="px-3 py-2.5 text-center">
                                                     {!isLogBusy && (
-                                                        <button
+                                                        canDeleteQuota && <button
                                                             onClick={() => setDeleteConfirm({ id: l.ID, username: l.Username, sentAt: l.SentAt })}
                                                             className="px-2.5 py-1 rounded-lg text-xs font-bold text-red-500 bg-red-50 hover:bg-red-100 border border-red-100 transition-all whitespace-nowrap">
                                                             ลบ

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useCanAct } from '../context/PermissionContext';
 import { Printer, AlertTriangle, Wifi, WifiOff, RefreshCw, Droplet, Plus, X, History, Clock, Pencil, Factory as FactoryIcon, LayoutGrid, List as ListIcon, Search } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { API_BASE } from '../config/api';
@@ -388,6 +389,8 @@ const PrinterHealthPage = () => {
     const [error, setError] = useState(null);
     const [scanningId, setScanningId] = useState(null); // PrinterId ที่กำลังกดดึงข้อมูลอยู่
     const [modalMode, setModalMode] = useState(null); // null=ปิด, 'add', หรือ printer object (แก้ไข)
+    const canCreatePrinter = useCanAct('printer-health', 'create');
+    const canEditPrinter = useCanAct('printer-health', 'edit');
     const [selectedPrinter, setSelectedPrinter] = useState(null);
     const [selectedFactory, setSelectedFactory] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
@@ -538,10 +541,10 @@ const PrinterHealthPage = () => {
                             <option key={name} value={name}>{name}</option>
                         ))}
                     </select>
-                    <button onClick={() => setModalMode('add')} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2 h-[42px]">
+                    {canCreatePrinter && <button onClick={() => setModalMode('add')} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2 h-[42px]">
                         <Plus size={16} />
                         <span className="text-sm">เพิ่มเครื่อง</span>
-                    </button>
+                    </button>}
                     <button onClick={fetchData} className="bg-white hover:bg-indigo-50 text-indigo-600 border border-slate-200 font-bold px-3 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2 h-[42px]">
                         <RefreshCw size={16} />
                         <span className="text-sm">รีเฟรช</span>
@@ -573,13 +576,13 @@ const PrinterHealthPage = () => {
                                     {printer.Online
                                         ? <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">ออนไลน์</span>
                                         : <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">ออฟไลน์</span>}
-                                    <button
+                                    {canEditPrinter && <button
                                         onClick={(e) => { e.stopPropagation(); setModalMode(printer); }}
                                         className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 p-1 rounded-md transition-colors"
                                         title="แก้ไขข้อมูลเครื่อง"
                                     >
                                         <Pencil size={13} />
-                                    </button>
+                                    </button>}
                                 </div>
                             </div>
 

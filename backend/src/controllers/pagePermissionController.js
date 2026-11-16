@@ -1,5 +1,5 @@
 import { sql, getPool } from '../config/db.js';
-import { allPermissionKeys, catalogForClient, PAGES } from '../config/permissions.config.js';
+import { allPermissionKeys, catalogForClient, PAGES, ACTION_LABELS } from '../config/permissions.config.js';
 import {
     getPermissionMode, loadUserAccess, getUserPermissionList, getDefaultPermissionList,
     normalisePermissionInput, setUserPermissions, setDefaultPermissions, getAuditLog,
@@ -27,6 +27,9 @@ export const getMyPermissions = async (req, res) => {
             permissions: isAdmin ? allPermissionKeys() : [...access.perms].sort(),
             // menu/route -> page key, in menu order (the frontend uses it to hide pages without "view")
             routes: PAGES.filter((p) => p.route).map((p) => ({ route: p.route, page: p.key })),
+            // names for the "you do not have permission" notice
+            pageLabels: Object.fromEntries(PAGES.map((p) => [p.key, p.label])),
+            actionLabels: ACTION_LABELS,
         });
     } catch (err) {
         console.error('Get my permissions error:', err);

@@ -3,6 +3,7 @@
 //  Mount in server.js: app.use('/ITinventory/api', calendarRoutes);
 // ============================================================
 import express from 'express';
+import { requirePerm } from '../middleware/permissionMiddleware.js';
 import {
     getTasks,
     getTaskById,
@@ -23,10 +24,10 @@ router.get('/calendar/upcoming',    getUpcoming);
 
 // CRUD — ลำดับสำคัญ: specific routes ต้องอยู่ก่อน /:id
 router.get('/calendar/tasks',       getTasks);
-router.post('/calendar/tasks',      createTask);
+router.post('/calendar/tasks', requirePerm('calendar', 'create'),      createTask);
 router.get('/calendar/tasks/:id',   getTaskById);
-router.put('/calendar/tasks/:id',   updateTask);
-router.delete('/calendar/tasks/:id', deleteTask);
+router.put('/calendar/tasks/:id', requirePerm('calendar', 'edit'),   updateTask);
+router.delete('/calendar/tasks/:id', requirePerm('calendar', 'delete'), deleteTask);
 
 export default router;
 

@@ -22,10 +22,10 @@ router.put('/mo-location/:hostname', requirePerm('devices-layout', 'edit', { str
 router.get('/mo-inventory/by-fix-asset/:code',     getInventoryByFixAsset);
 router.get('/mo-inventory/:hostname/history',      getHistory);
 router.get('/mo-inventory/:hostname',              getInventoryByHostname);
-router.put('/mo-inventory/:hostname/asset',        updateAsset);
-router.put('/mo-inventory/:hostname/status',       updateStatus);   // ✅ เพิ่มบรรทัดนี้
+router.put('/mo-inventory/:hostname/asset', requirePerm('pc-inventory', 'edit'),        updateAsset);
+router.put('/mo-inventory/:hostname/status', requirePerm('pc-inventory', 'edit'),       updateStatus);   // ✅ เพิ่มบรรทัดนี้
 router.get('/mo-inventory/:hostname/software',     getSoftware);
-router.delete('/mo-inventory/:hostname',           deleteInventory);
+router.delete('/mo-inventory/:hostname', requirePerm('pc-inventory', 'delete'),           deleteInventory);
 router.get('/mo-active-users/:hostname',           getActiveUsersByHostname);
 
 export default router;

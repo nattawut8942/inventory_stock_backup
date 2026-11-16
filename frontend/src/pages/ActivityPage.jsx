@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Camera, Images, Calendar, Star, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useCan } from '../context/PermissionContext';
+import { useCan, useCanAct } from '../context/PermissionContext';
 import { API_BASE, API_URL } from '../config/api';
 import { formatThaiDate } from '../utils/formatDate';
 import AlertModal from '../components/AlertModal';
@@ -14,6 +14,8 @@ const ActivityPage = () => {
     const { user } = useAuth();
     const isAdmin = useCan('activity', 'edit'); // edit album info / cover
     const canDelete = useCan('activity', 'delete');
+    const canCreateAlbum = useCanAct('activity', 'create');
+    const canPinAlbum = useCanAct('activity', 'edit');
 
     const [categories, setCategories] = useState([]);
     const [uploadOpen, setUploadOpen] = useState(false);
@@ -174,12 +176,12 @@ const ActivityPage = () => {
                     <h2 className="text-3xl font-black mb-1 text-slate-800">ACTIVITY</h2>
                     <p className="text-slate-500 font-medium">รวมรูปภาพและประวัติการปฏิบัติงาน IT</p>
                 </div>
-                <button
+                {canCreateAlbum && <button
                     onClick={() => setUploadOpen(true)}
                     className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl transition-all shadow-md shadow-indigo-200"
                 >
                     <Camera size={18} /> เพิ่มรูปกิจกรรม
-                </button>
+                </button>}
             </motion.div>
 
             {/* Hero — เดี่ยว เปลี่ยนรูปอัตโนมัติ ไม่ขึ้นกับ category filter/search */}
@@ -204,13 +206,13 @@ const ActivityPage = () => {
                             </motion.div>
                         </AnimatePresence>
 
-                        <button
+                        {canPinAlbum && <button
                             onClick={() => handleTogglePin(heroAlbum.AlbumID, !heroAlbum.IsFeatured)}
                             title={heroAlbum.IsFeatured ? 'ยกเลิกการปักหมุด' : 'ปักหมุดไว้ซ้ายสุด'}
                             className={`absolute top-4 right-4 z-10 w-9 h-9 rounded-full flex items-center justify-center transition-all ${heroAlbum.IsFeatured ? 'bg-amber-400 text-white' : 'bg-white/10 backdrop-blur text-white/70 hover:bg-white/20'}`}
                         >
                             <Star size={16} fill={heroAlbum.IsFeatured ? 'currentColor' : 'none'} />
-                        </button>
+                        </button>}
 
                         <div
                             onClick={() => setViewingAlbumId(heroAlbum.AlbumID)}
@@ -299,7 +301,7 @@ const ActivityPage = () => {
                                 album={album}
                                 index={idx}
                                 onClick={setViewingAlbumId}
-                                onTogglePin={handleTogglePin}
+                                onTogglePin={canPinAlbum ? handleTogglePin : undefined}
                                 onDelete={canDelete ? handleDeleteAlbum : null}
                                 setAlertModal={setAlertModal}
                             />

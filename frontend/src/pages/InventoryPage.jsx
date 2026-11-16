@@ -5,7 +5,7 @@ import Barcode from 'react-barcode';
 import { motion, AnimatePresence, animate } from 'motion/react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
-import { useCan } from '../context/PermissionContext';
+import { useCan, useCanAct } from '../context/PermissionContext';
 import AlertModal from '../components/AlertModal';
 import Portal from '../components/Portal';
 import { getBadgeStyle, getColorGradient, getChartColor, getDeviceTypeColor } from '../utils/styleHelpers';
@@ -576,6 +576,7 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
   const canEdit = useCan('inventory', 'edit');
   const canDelete = useCan('inventory', 'delete');
   const isAdmin = canEdit || canDelete; // the "manage" column shows if either applies
+  const canWithdraw = useCanAct('inventory', 'withdraw');
   const [gridSort, setGridSort] = useState('priority');
 
   const getIcon = (type) => {
@@ -804,7 +805,7 @@ const handleFileUpload = async (file) => {
 
         {/* ✅ ย้ายมาอยู่ขวาสุดของแถว tab */}
         <div className="flex items-center gap-2">
-          <button
+          {canWithdraw && <button
             ref={cartBtnRef}
             onClick={() => setIsCartOpen(true)}
             aria-label={`เปิดตะกร้า${cart.length > 0 ? ` (${cart.length} รายการ)` : ''}`}
@@ -823,14 +824,14 @@ const handleFileUpload = async (file) => {
                 {getCartTotal()}
               </motion.span>
             )}
-          </button>
-          <button
+          </button>}
+          {canWithdraw && <button
             onClick={() => setScanModal({ isOpen: true, scannedCode: '', foundProduct: null, error: '' })}
             className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-3 py-2 rounded-xl transition-all shadow-md shadow-emerald-200 flex items-center gap-2"
           >
             <ScanLine size={18} />
             <span className="hidden sm:inline">สแกนเบิก</span>
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -995,8 +996,8 @@ const handleFileUpload = async (file) => {
                       </td>
                       <td className="p-4 text-center">
                         <div className="flex justify-center gap-1">
-                          <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-lg disabled:opacity-30" title="เพิ่มลงตะกร้า" aria-label="เพิ่มลงตะกร้า"><ShoppingCart size={16} /></button>
-                          <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg disabled:opacity-30" title="เบิกด่วน" aria-label="เบิกด่วน"><ShoppingBag size={16} /></button>
+                          {canWithdraw && <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-lg disabled:opacity-30" title="เพิ่มลงตะกร้า" aria-label="เพิ่มลงตะกร้า"><ShoppingCart size={16} /></button>}
+                          {canWithdraw && <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg disabled:opacity-30" title="เบิกด่วน" aria-label="เบิกด่วน"><ShoppingBag size={16} /></button>}
                         </div>
                       </td>
                       <td className="p-4 text-center">
@@ -1099,8 +1100,8 @@ const handleFileUpload = async (file) => {
                       </div>
                     </div>
                     <div className="flex w-full gap-1">
-                      <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 disabled:opacity-50">ใส่ตะกร้า</button>
-                      <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 disabled:opacity-50">เบิก</button>
+                      {canWithdraw && <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 disabled:opacity-50">ใส่ตะกร้า</button>}
+                      {canWithdraw && <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 disabled:opacity-50">เบิก</button>}
                     </div>
                   </div>
                 </motion.div>

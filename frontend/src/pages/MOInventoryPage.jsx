@@ -6,7 +6,7 @@ import { useLocation } from 'react-router-dom';
 import { API_BASE } from '../config/api';
 import Portal from '../components/Portal';
 import LocationSelectorModal from './LocationSelectorModal';
-import { useCan } from '../context/PermissionContext';
+import { useCan, useCanAct } from '../context/PermissionContext';
 import MapViewTab from './MapViewTab';
 import AlertModal from '../components/AlertModal';
 
@@ -248,6 +248,8 @@ const MOInventoryPage = () => {
   const [locationData, setLocationData] = useState(null);
   const [showLocationModal, setShowLocationModal] = useState(false);
   const canEditLayout = useCan('devices-layout', 'edit'); // placing a device on the map
+  const canEditPC = useCanAct('pc-inventory', 'edit');
+  const canDeletePC = useCanAct('pc-inventory', 'delete');
   const [locationLoading, setLocationLoading] = useState(false);
 
   // ── NEW: History & Shutdown Events ───────────────────────────────────────
@@ -1046,10 +1048,10 @@ const MOInventoryPage = () => {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <button
+                    {canEditPC && <button
                       className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors"
                       onClick={() => { setModalData({ hostname, assetInput: detailData.inv.fix_asset }); setShowAssetModal(true); }}
-                    >Edit Asset</button>
+                    >Edit Asset</button>}
 
                     {canEditLayout && <button
                       className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors"
@@ -1072,19 +1074,19 @@ const MOInventoryPage = () => {
                         <>
                           <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
                           <div className="absolute right-0 mt-1.5 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 text-[13px] font-medium animate-in fade-in zoom-in-95 duration-150">
-                            <button
+                            {canEditPC && <button
                               className="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50"
                               onClick={() => { setMenuOpen(false); togglePcStatus(); }}
                             >
                               {detailData.inv.pc_status === 'Inactive' ? '✓ Reactivate' : '⏸ Mark Inactive'}
-                            </button>
+                            </button>}
 
                             <div className="my-1 border-t border-gray-100" />
 
-                            <button
+                            {canDeletePC && <button
                               className="w-full text-left px-3.5 py-2 text-red-600 hover:bg-red-50"
                               onClick={() => { setMenuOpen(false); setModalData({ hostname }); setShowDeleteModal(true); }}
-                            >🗑 Delete</button>
+                            >🗑 Delete</button>}
                           </div>
                         </>
                       )}

@@ -5,6 +5,7 @@ const AuthContext = createContext(null);
 // ธงบอกหน้า login ว่าเซสชันหมดอายุ (ใช้ sessionStorage เพราะเป็นข้อความครั้งเดียว)
 export const EXPIRED_FLAG = 'it_stock_session_expired';
 const UNAUTHORIZED_EVENT = 'it-stock-unauthorized';
+export const PERMISSION_DENIED_EVENT = 'it-stock-permission-denied';
 
 // อ่าน exp จาก JWT (ไม่ตรวจลายเซ็น — server ตรวจเองทุก request) ถ้าอ่านไม่ได้ให้ถือว่ายังไม่หมดอายุ
 const tokenExpired = (token) => {
@@ -88,6 +89,11 @@ if (typeof window !== 'undefined' && !window.__itStockFetchPatched) {
             // ให้ออกจากระบบแล้วพาไปหน้า login แทนการแสดง error ค้าง
             if (expiredMidSession && (res.status === 401 || res.status === 403)) {
                 window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+            } else if (res.status === 403 && isApi) {
+                // the server refused a specific permission: tell the user which one (read from a clone)
+                res.clone().json().then((d) => {
+                    if (d && d.code === 'PERMISSION_DENIED') window.dispatchEvent(new CustomEvent(PERMISSION_DENIED_EVENT, { detail: d }));
+                }).catch(() => {});
             }
         } catch { /* ไม่ให้การดักทำให้ request พัง */ }
         return res;

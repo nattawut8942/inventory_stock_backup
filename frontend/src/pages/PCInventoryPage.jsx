@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import { API_BASE, API_URL } from '../config/api';
 import MOInventoryPage from './MOInventoryPage';
 import LocationSelectorModal from './LocationSelectorModal';
-import { useCan } from '../context/PermissionContext';
+import { useCan, useCanAct } from '../context/PermissionContext';
 import MapViewTab from './MapViewTab';
 import Portal from '../components/Portal';
 import AlertModal from '../components/AlertModal';
@@ -225,6 +225,8 @@ const PCInventoryPage = () => {
   const [locationData, setLocationData] = useState(null);
   const [showLocationModal, setShowLocationModal] = useState(false);
   const canEditLayout = useCan('devices-layout', 'edit'); // placing a device on the map
+  const canEditPC = useCanAct('pc-inventory', 'edit');
+  const canDeletePC = useCanAct('pc-inventory', 'delete');
   const [locationLoading, setLocationLoading] = useState(false);
 
   const location = useLocation();
@@ -1172,10 +1174,10 @@ const sessionView = useMemo(() => {
                     <div className="flex flex-wrap items-center gap-2 bg-[#eff4ff] border border-[#bfcfff] rounded-xl px-3.5 py-2 mb-3 text-[13px] font-medium text-[#2563eb] shadow-sm">
                       ☑ เลือกแล้ว <b>{selectedHosts.size}</b> เครื่อง
                       <div className="ml-auto flex items-center gap-2">
-                        <button
+                        {canEditPC && <button
                           onClick={() => { setModalData({ warrantyPkg: '', warrantyDate: '' }); setShowBulkWarrantyModal(true); }}
                           className="bg-white border border-[#bfcfff] px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#dbeafe] transition-colors"
-                        >🛡️ ตั้งค่าประกัน</button>
+                        >🛡️ ตั้งค่าประกัน</button>}
                         <button
                           onClick={() => exportFilteredList(filteredData.filter(d => selectedHosts.has(d.hostname)), '_selected')}
                           className="bg-white border border-[#bfcfff] px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#dbeafe] transition-colors flex items-center gap-1.5"
@@ -1355,20 +1357,20 @@ const sessionView = useMemo(() => {
                       </div>
                       
          <div className="flex items-center gap-2">
-  <button
+  {canEditPC && <button
     className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors"
     onClick={() => { setModalData({ hostname, assetInput: detailData.inv.fix_asset }); setShowAssetModal(true); }}
-  >Edit Asset</button>
+  >Edit Asset</button>}
 
   {canEditLayout && <button
     className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors"
     onClick={() => setShowLocationModal(true)}
   >📍 Edit Location</button>}
 
-  <button
+  {canEditPC && <button
     className="bg-[#eff4ff] text-[#2563eb] border border-[#bfcfff] hover:bg-[#dbeafe] px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors"
     onClick={() => { setModalData({ hostname, warrantyPkg: detailData.inv.warranty_package || '', warrantyDate: detailData.inv.warranty_expire_date ? detailData.inv.warranty_expire_date.slice(0, 10) : '' }); setShowWarrantyModal(true); }}
-  >🛡️ Edit Warranty</button>
+  >🛡️ Edit Warranty</button>}
 
   <button
     className="bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
@@ -1392,12 +1394,12 @@ const sessionView = useMemo(() => {
       <>
         <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
         <div className="absolute right-0 mt-1.5 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 text-[13px] font-medium animate-in fade-in zoom-in-95 duration-150">
-          <button
+          {canEditPC && <button
             className="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50"
             onClick={() => { setMenuOpen(false); togglePcStatus(); }}
           >
             {detailData.inv.pc_status === 'Inactive' ? '✓ Reactivate' : '⏸ Mark Inactive'}
-          </button>
+          </button>}
 
           {isNotebookType(detailData.inv) && (
             <button
@@ -1412,10 +1414,10 @@ const sessionView = useMemo(() => {
 
           <div className="my-1 border-t border-gray-100" />
 
-          <button
+          {canDeletePC && <button
             className="w-full text-left px-3.5 py-2 text-red-600 hover:bg-red-50"
             onClick={() => { setMenuOpen(false); setModalData({ hostname }); setShowDeleteModal(true); }}
-          >🗑 Delete</button>
+          >🗑 Delete</button>}
         </div>
       </>
     )}
@@ -2159,7 +2161,7 @@ const sessionView = useMemo(() => {
             <input type="text" value={modalData.pin || ''} onChange={e => setModalData({ ...modalData, pin: e.target.value })} placeholder="BitLocker PIN" className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-[13px] font-bold text-gray-700 focus:border-blue-600 outline-none transition-colors font-mono" />
             <div className="flex justify-end gap-2.5 mt-5">
               <button className="px-5 py-2.5 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors" onClick={() => setShowBlModal(false)}>Cancel</button>
-              <button className="px-5 py-2.5 rounded-lg bg-[#2563eb] text-white text-[13px] font-semibold hover:bg-blue-700 transition-colors" onClick={saveBl}>Save</button>
+              {canEditPC && <button className="px-5 py-2.5 rounded-lg bg-[#2563eb] text-white text-[13px] font-semibold hover:bg-blue-700 transition-colors" onClick={saveBl}>Save</button>}
             </div>
           </div>
         </div>

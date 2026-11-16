@@ -12,7 +12,7 @@ import { upload } from '../config/multer.js';
 const router = express.Router();
 
 // Upload
-router.post('/upload', uploadImage);
+router.post('/upload', requirePerm('inventory', 'edit'), uploadImage);
 // Vendors
 router.get('/vendors', getVendors);
 router.get('/employees/:code', getEmployeeByCode);
@@ -24,7 +24,7 @@ router.delete('/products/:id', requirePerm('inventory', 'delete', { strict: true
 router.get('/products/check-asset-code/:code', checkFixedAssetCode);
 // Product Operations
 router.post('/products/manual-import', requirePerm('manual-import', 'create', { strict: true }), manualImport);
-router.post('/products/withdraw', withdrawProduct);
+router.post('/products/withdraw', requirePerm('inventory', 'withdraw'), withdrawProduct);
 
 // Device Types
 router.get('/types', getDeviceTypes);
