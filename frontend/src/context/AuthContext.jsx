@@ -75,11 +75,19 @@ if (typeof window !== 'undefined' && !window.__itStockFetchPatched) {
             }
         } catch { /* ไม่ให้การแนบ token ทำให้ request พัง */ }
 
+        // session ยังค้างใน storage แต่ token หมดอายุ (readSession คืน null) = ไม่มี token ถูกแนบ
+        const expiredMidSession = isApi && !getAuthToken() && !!localStorage.getItem(SESSION_KEY);
+
         const res = await originalFetch(input, nextInit);
         try {
             if (res.status === 401 && isApi) {
                 const headers = new Headers(nextInit?.headers || (input && input.headers) || {});
                 if (headers.get('Authorization')) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+            }
+            // token หมดอายุระหว่างเปิดหน้าอยู่: หน้าที่เรียก endpoint ที่บังคับ token จะได้ 401/403
+            // ให้ออกจากระบบแล้วพาไปหน้า login แทนการแสดง error ค้าง
+            if (expiredMidSession && (res.status === 401 || res.status === 403)) {
+                window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
             }
         } catch { /* ไม่ให้การดักทำให้ request พัง */ }
         return res;

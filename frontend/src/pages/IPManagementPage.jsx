@@ -570,7 +570,7 @@ const SubnetList = ({ subnets, currentSN, onSelect, query, setQuery, onAdd }) =>
                         className="w-full pl-8 pr-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400" />
                 </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+            <div className="flex-1 p-2 space-y-1">
                 {list.map(s => {
                     const total = s.total || 254;
                     const pct = Math.round(((s.active_count || 0) / total) * 100);
@@ -647,32 +647,62 @@ const AddSubnetModal = ({ onClose, onConfirm }) => {
 };
 
 // ─── DIALOG: จองหลายรายการ ────────────────────────────────────────────────────
+// ฟิลด์ที่จองพร้อมกันได้ — ไม่รวม serial/MAC/Asset Tag เพราะเป็นของเฉพาะเครื่อง (ซ้ำหลาย IP ไม่ได้)
+const BULK_FIELD_INPUTS = [
+    { k: 'remark', label: 'Remark', placeholder: 'เช่น CCTV ชั้น 2' },
+    { k: 'device', label: 'Device', list: 'bulk-device-options', placeholder: 'PC, Printer…' },
+    { k: 'location', label: 'สถานที่ติดตั้ง', placeholder: 'เช่น อาคาร A ชั้น 2' },
+    { k: 'contact', label: 'ผู้รับผิดชอบ', placeholder: 'ชื่อหรือรหัสพนักงาน' },
+    { k: 'purpose', label: 'วัตถุประสงค์', list: 'bulk-purpose-options', placeholder: 'เลือกหรือพิมพ์เอง' },
+];
 const BulkReserveModal = ({ count, busyProgress, onClose, onConfirm }) => {
-    const [owner, setOwner] = useState('');
-    const [remark, setRemark] = useState('');
+    const [form, setForm] = useState({ owner: '', remark: '', device: '', location: '', contact: '', purpose: '', iptype: '' });
     const busy = busyProgress !== null;
+    const inputCls = 'mt-1 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-100 focus:border-emerald-400 disabled:opacity-60';
+    // ส่งเฉพาะช่องที่กรอก — ช่องว่างจะไม่ไปทับค่าเดิมของ IP แต่ละตัว
+    const submit = () => {
+        const payload = { owner_name: form.owner.trim() };
+        for (const f of BULK_FIELD_INPUTS) if (form[f.k].trim()) payload[f.k === 'remark' ? 'remark' : f.k] = form[f.k].trim();
+        if (form.iptype) payload.ip_type = form.iptype;
+        onConfirm(payload);
+    };
     return (
-        <Modal onClose={busy ? () => {} : onClose}>
+        <Modal onClose={busy ? () => {} : onClose} width="max-w-lg">
             <div className="p-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white">
                 <h3 className="font-black text-lg">จอง {count} รายการ</h3>
-                <p className="text-xs text-white/80">เฉพาะ IP ที่ยังว่างเท่านั้นที่จะถูกจอง</p>
+                <p className="text-xs text-white/80">เฉพาะ IP ที่ยังว่างเท่านั้นที่จะถูกจอง · กรอกเฉพาะช่องที่ต้องการให้เหมือนกันทุกรายการ ช่องที่ว่างจะไม่แก้ค่าเดิม</p>
             </div>
-            <div className="p-5 space-y-3">
+            <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
                 <label className="block">
                     <span className="text-xs font-semibold text-slate-600">Owner / หน่วยงาน *</span>
-                    <input value={owner} onChange={e => setOwner(e.target.value)} disabled={busy} autoFocus
-                        className="mt-1 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-100 focus:border-emerald-400 disabled:opacity-60" />
+                    <input value={form.owner} onChange={e => setForm({ ...form, owner: e.target.value })} disabled={busy} autoFocus maxLength={100}
+                        className={inputCls} />
                 </label>
-                <label className="block">
-                    <span className="text-xs font-semibold text-slate-600">Remark</span>
-                    <input value={remark} onChange={e => setRemark(e.target.value)} disabled={busy}
-                        className="mt-1 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-100 focus:border-emerald-400 disabled:opacity-60" />
-                </label>
+                <div className="grid grid-cols-2 gap-3">
+                    {BULK_FIELD_INPUTS.map(f => (
+                        <label key={f.k} className={`block ${f.k === 'remark' || f.k === 'location' ? 'col-span-2' : ''}`}>
+                            <span className="text-xs font-semibold text-slate-600">{f.label}</span>
+                            <input value={form[f.k]} onChange={e => setForm({ ...form, [f.k]: e.target.value })} disabled={busy}
+                                list={f.list} placeholder={f.placeholder} maxLength={f.k === 'location' ? 150 : f.k === 'contact' ? 120 : 50}
+                                className={inputCls} />
+                        </label>
+                    ))}
+                    <label className="block">
+                        <span className="text-xs font-semibold text-slate-600">ประเภท IP</span>
+                        <select value={form.iptype} onChange={e => setForm({ ...form, iptype: e.target.value })} disabled={busy} className={inputCls}>
+                            <option value="">ไม่เปลี่ยน</option>
+                            <option value="Static">Static</option>
+                            <option value="DHCP">DHCP</option>
+                        </select>
+                    </label>
+                </div>
+                <datalist id="bulk-device-options">{DEVICE_OPTIONS.map(o => <option key={o} value={o} />)}</datalist>
+                <datalist id="bulk-purpose-options">{PURPOSE_OPTIONS.map(o => <option key={o} value={o} />)}</datalist>
                 {busy && <p className="text-xs text-indigo-600 font-semibold">กำลังจอง {busyProgress.done}/{busyProgress.total}…</p>}
             </div>
             <div className="flex gap-2 px-5 py-4 bg-slate-50 border-t border-slate-100">
                 <button onClick={onClose} disabled={busy} className="flex-1 py-2 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-xl disabled:opacity-50">ยกเลิก</button>
-                <button onClick={() => onConfirm(owner.trim(), remark)} disabled={!owner.trim() || busy}
+                <button onClick={submit} disabled={!form.owner.trim() || busy}
                     className="flex-1 py-2 text-sm font-bold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
                     {busy ? 'กำลังจอง…' : `จอง ${count} รายการ`}
                 </button>
@@ -1270,6 +1300,10 @@ const IPManagementPage = () => {
             serial_number: d.serial_number || null,
             mac_address: d.mac_address || null,
             device: d.device || null,
+            location: d.location || null,
+            contact: d.contact || null,
+            purpose: d.purpose || null,
+            ip_type: d.ip_type || null,
             reservation_status: d.reservation_status || 'available',
             reserveby: d.reserveby || '',
         };
@@ -1366,9 +1400,9 @@ const IPManagementPage = () => {
     const selectedFreeIPs = selectedRows.filter(d => !isReserved(d)).map(d => d.ip_address);
     const selectedReservedIPs = selectedRows.filter(isReserved).map(d => d.ip_address);
 
-    const bulkReserveConfirm = (owner, remark) => runBulk(
+    const bulkReserveConfirm = (fields) => runBulk(
         selectedFreeIPs,
-        () => ({ owner_name: owner, remark, reservation_status: 'reserved', reserveby: actor }),
+        () => ({ ...fields, reservation_status: 'reserved', reserveby: actor }),
         'จอง',
     );
     const bulkReleaseConfirm = () => runBulk(
@@ -2006,7 +2040,7 @@ const IPManagementPage = () => {
             {mainView === 'subnet' && (
             <div className="flex gap-5 items-start">
                 {/* Sidebar (desktop) */}
-                <aside className={`hidden md:flex w-64 shrink-0 flex-col ${cardClass} sticky top-4 max-h-[calc(100vh-2rem)] overflow-hidden`}>
+                <aside className={`hidden md:flex w-64 shrink-0 flex-col ${cardClass} self-start`}>
                     <SubnetList subnets={subnets} currentSN={currentSN} onSelect={selectSubnet}
                         query={subnetQuery} setQuery={setSubnetQuery} onAdd={() => setAddSubnet(true)} />
                 </aside>

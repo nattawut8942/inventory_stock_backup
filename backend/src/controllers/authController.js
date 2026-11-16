@@ -128,7 +128,7 @@ export const login = async (req, res) => {
                     empcode: empCode
                 },
                 getJwtSecret(),
-                { expiresIn: '1h' }
+                { expiresIn: '8h' }
             );
 
             await writeLoginLog(req, { username, empCode, role, status: 'SUCCESS' });

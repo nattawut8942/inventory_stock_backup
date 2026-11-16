@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion'; // หรือ 'motion/react'
 import {
     Shield, Clock, AlertTriangle, DollarSign, Server, Monitor, Cpu, Wifi,
     Plus, Edit2, Trash2, X, Search, ChevronDown, Eye, FileText, Calendar,
     MapPin, Tag, Hash, Building, CreditCard, RefreshCw, CheckCircle, XCircle,
     HardDrive, Globe, Wrench, Printer, ChevronLeft, ChevronRight,
-    ChevronUp, ArrowUpDown, User, List, LayoutGrid, Layers, Copy
+    ChevronUp, ArrowUpDown, User, List, LayoutGrid, Layers, Copy, Paperclip, Upload, MoreHorizontal
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AlertModal from '../components/AlertModal';
@@ -274,6 +274,8 @@ const MATVMini = ({ item, isDark }) => {
     );
 };
 
+// ขนาดตัวอักษรรากของหน้า TV (16px = ปกติ) จอ 55" 1920×1080 ระยะ 5 ม. ต้องใหญ่กว่านี้
+const TV_ROOT_FONT_PX = 20;
 const TV_ACTIVE_MODES = { cards: 'เกิน 60 วัน: แสดง', hide: 'เกิน 60 วัน: ซ่อน' };
 const STALE_MINUTES = 15;
 
@@ -309,6 +311,14 @@ const MATVView = ({ items, onBack, theme = 'dark', onToggleTheme, onRefresh, las
     }, [onRefresh]);
 
     useEffect(() => { try { localStorage.setItem('maTvActiveMode', activeMode); } catch { /* ignore */ } }, [activeMode]);
+
+    // ขยายทั้งหน้า TV (rem) เฉพาะตอนเปิดโหมดนี้ แล้วคืนค่าเดิมเมื่อปิด
+    useEffect(() => {
+        const root = document.documentElement;
+        const prev = root.style.fontSize;
+        root.style.fontSize = `${TV_ROOT_FONT_PX}px`;
+        return () => { root.style.fontSize = prev; };
+    }, []);
 
     // เต็มจอ
     useEffect(() => {
@@ -463,8 +473,8 @@ const MATVView = ({ items, onBack, theme = 'dark', onToggleTheme, onRefresh, las
                             {attention.length === 0 ? (
                                 <p className={`text-xl font-bold py-6 text-center rounded-2xl border ${isDark ? 'text-emerald-400 border-emerald-800 bg-emerald-950/30' : 'text-emerald-700 border-emerald-200 bg-emerald-50'}`}>✓ ไม่มีรายการใกล้หมดอายุ</p>
                             ) : (
-                                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
-                                    {attention.map((item, i) => <MAGridCard key={item.ItemID} item={item} idx={i} readOnly renderCell={renderCell} />)}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 justify-items-center">
+                                    {attention.map((item, i) => <MATVCard key={item.ItemID} item={item} idx={i} />)}
                                 </div>
                             )}
                         </section>
@@ -485,7 +495,9 @@ const MATVView = ({ items, onBack, theme = 'dark', onToggleTheme, onRefresh, las
 
 
 // แถบขั้นตอนต่ออายุแบบย่อ สำหรับการ์ด grid และ TV (แยกแถว ไม่ทับแถบ %)
-const MiniRenewalStepper = ({ value }) => {
+// ข้อความขั้นตอนสำหรับหน้า TV
+const TV_STEP_LABELS = ['กำลังขอ QT', 'เปิด PR แล้ว', 'รอ PO ออก', 'PO ออกแล้ว รอต่ออายุ'];
+const MiniRenewalStepper = ({ value, labels = null }) => {
     const cur = RENEWAL_OPTIONS.findIndex(o => o.value === value);
     const pct = cur <= 0 ? 0 : (cur / (RENEWAL_OPTIONS.length - 1)) * 100;
     return (
@@ -498,10 +510,10 @@ const MiniRenewalStepper = ({ value }) => {
                     const done = cur >= i;
                     return (
                         <div key={o.value} className="relative z-10 flex flex-col items-center w-1/4">
-                            <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black border-2 ${done ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-violet-200 text-violet-300'} ${cur === i ? 'ring-2 ring-violet-200' : ''}`}>
+                            <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[0.5625rem] font-black border-2 ${done ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-violet-200 text-violet-300'} ${cur === i ? 'ring-2 ring-violet-200' : ''}`}>
                                 {done && i < cur ? <CheckCircle size={9} /> : i + 1}
                             </div>
-                            <span className={`mt-0.5 text-[10px] font-bold leading-none whitespace-nowrap ${done ? 'text-violet-700' : 'text-slate-400'}`}>{o.short}</span>
+                            <span className={`mt-0.5 font-bold text-center ${labels ? 'text-[0.6875rem] leading-tight' : 'text-[0.625rem] leading-none whitespace-nowrap'} ${done ? 'text-violet-700' : 'text-slate-400'}`}>{labels ? labels[i] : o.short}</span>
                         </div>
                     );
                 })}
@@ -565,11 +577,11 @@ const MAGridCard = ({ item, idx = 0, isAdmin, renderCell, onOpen, onEdit, onRene
                                         <RentalTimelineCard item={item} />
                                     ) : (
                                         <>
-                                            <div className="flex justify-between items-center text-[15px]">
+                                            <div className="flex justify-between items-center text-[0.9375rem]">
                                                 <span className="text-slate-500 font-medium">หมดอายุ</span>
                                                 <span className={`font-bold ${isCancelled ? 'text-slate-400' : isExpired ? 'text-red-600' : isExpiring ? 'text-orange-600' : 'text-slate-800'}`}>{formatDate(item.EndDate)}</span>
                                             </div>
-                                            <div className="flex justify-between items-center text-[15px]">
+                                            <div className="flex justify-between items-center text-[0.9375rem]">
                                                 <span className="text-slate-500 font-medium">เหลือเวลา</span>
                                                 {renderCell(item, { key: '_duration' })}
                                             </div>
@@ -583,7 +595,7 @@ const MAGridCard = ({ item, idx = 0, isAdmin, renderCell, onOpen, onEdit, onRene
                                                         <div className="h-1.5 rounded-full bg-black/10 overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="ระยะสัญญาที่ใช้ไปแล้ว">
                                                             <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
                                                         </div>
-                                                        <div className="flex justify-between text-[11px] text-slate-500 mt-0.5">
+                                                        <div className="flex justify-between text-[0.6875rem] text-slate-500 mt-0.5">
                                                             <span>{formatDate(item.StartDate)}</span>
                                                             <span>ใช้ไป {pct}% · {formatDuration(item.StartDate, item.EndDate)}</span>
                                                         </div>
@@ -591,13 +603,13 @@ const MAGridCard = ({ item, idx = 0, isAdmin, renderCell, onOpen, onEdit, onRene
                                                 );
                                             })()}
                                             {item.PONumber && (
-                                                <div className="flex justify-between items-start gap-2 text-[13px]">
+                                                <div className="flex justify-between items-start gap-2 text-[0.8125rem]">
                                                     <span className="text-slate-500 whitespace-nowrap">PO:</span>
                                                     <span className="font-medium text-slate-700 text-right truncate">{item.PONumber}</span>
                                                 </div>
                                             )}
                                             {item.ServiceNumber && (
-                                                <div className="flex justify-between items-start gap-2 text-[13px]">
+                                                <div className="flex justify-between items-start gap-2 text-[0.8125rem]">
                                                     <span className="text-slate-500 whitespace-nowrap">{item.Category === 'SERVICE' ? 'เลขสัญญา:' : 'เลขบริการ:'}</span>
                                                     <span className="font-medium text-slate-700 text-right truncate">{item.ServiceNumber}</span>
                                                 </div>
@@ -605,14 +617,14 @@ const MAGridCard = ({ item, idx = 0, isAdmin, renderCell, onOpen, onEdit, onRene
                                         </>
                                     )}
                                     {(item.LicenseQty > 0 || item.Price > 0) && (
-                                        <div className="flex justify-between items-center gap-2 text-[13px]">
+                                        <div className="flex justify-between items-center gap-2 text-[0.8125rem]">
                                             <span className="text-slate-500">{item.LicenseQty > 0 ? `จำนวน ${item.LicenseQty}${item.Category === 'SOFTWARE' ? ' license' : ''}` : ''}</span>
                                             {item.Price > 0 && <span className="font-bold text-slate-700">฿{item.Price.toLocaleString()}</span>}
                                         </div>
                                     )}
 
                                     <MiniRenewalStepper value={item.RenewalStatus} />
-                                    <div className="flex items-start gap-2 text-[13px] pt-1 border-t border-black/5">
+                                    <div className="flex items-start gap-2 text-[0.8125rem] pt-1 border-t border-black/5">
 
                                         <span className="text-slate-800 font-semibold whitespace-nowrap">Vendor:</span>
                                         <span className="font-medium text-slate-700 text-right truncate">{item.VendorName || '-'}</span>
@@ -623,8 +635,12 @@ const MAGridCard = ({ item, idx = 0, isAdmin, renderCell, onOpen, onEdit, onRene
                                             <span className="text-slate-700 truncate">{item.LocationName}</span>
                                         </div>
                                     )}
+                                    <div className="flex items-center gap-1 text-[0.7500rem] text-slate-500" title="เวลาอัปเดตล่าสุด">
+                                        <Clock size={11} className="shrink-0" />
+                                        <span className="truncate">อัปเดต {fmtDT(item.UpdatedAt)}</span>
+                                    </div>
                                     {item.LastRenewedAt && (
-                                        <div className="flex items-center gap-1 text-[12px] text-emerald-700" title="ต่ออายุล่าสุด">
+                                        <div className="flex items-center gap-1 text-[0.7500rem] text-emerald-700" title="ต่ออายุล่าสุด">
                                             <CheckCircle size={11} className="shrink-0" />
                                             <span className="truncate">ต่ออายุ {formatDate(item.LastRenewedAt)} · {item.LastRenewedBy || '-'}</span>
                                         </div>
@@ -633,12 +649,12 @@ const MAGridCard = ({ item, idx = 0, isAdmin, renderCell, onOpen, onEdit, onRene
                                 {isAdmin && !readOnly && (
                                     <div className="px-2 py-1.5 border-t border-black/5 flex items-center justify-end gap-1">
                                         <button onClick={(e) => { e.stopPropagation(); onEdit(item); }}
-                                            className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold text-indigo-600 hover:bg-indigo-50">
+                                            className="flex items-center gap-1 px-2 py-1 rounded-md text-[0.6875rem] font-bold text-indigo-600 hover:bg-indigo-50">
                                             <Edit2 size={12} /> แก้ไข
                                         </button>
                                         {(item.RenewalStatus || needsRenewalAction(item)) && (
                                             <button onClick={(e) => { e.stopPropagation(); onRenew(item); }}
-                                                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold ${item.RenewalStatus === 'PO_ISSUED' ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'text-emerald-700 hover:bg-emerald-50'}`}>
+                                                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[0.6875rem] font-bold ${item.RenewalStatus === 'PO_ISSUED' ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'text-emerald-700 hover:bg-emerald-50'}`}>
                                                 <CheckCircle size={12} /> ต่ออายุเสร็จ
                                             </button>
                                         )}
@@ -646,6 +662,66 @@ const MAGridCard = ({ item, idx = 0, isAdmin, renderCell, onOpen, onEdit, onRene
                                 )}
                             </motion.div>
                         );
+};
+
+// การ์ด TV: ข้อมูลน้อยลง เน้นชื่อ วันคงเหลือ และสถานะให้อ่านได้จากไกล
+const MATVCard = ({ item, idx = 0 }) => {
+    const days = getDaysRemaining(item.EndDate);
+    const pct = getElapsedPercent(item.StartDate, item.EndDate);
+    const status = getEffectiveStatus(item);
+    const isPending = item.Status === 'Pending';
+    const isExpired = days !== null && days <= 0;
+    const isExpiring = days !== null && days > 0 && days <= ALERT_DAYS;
+    const tone = isPending ? { card: 'bg-yellow-100 border-yellow-500', bar: 'bg-yellow-500', num: 'text-amber-700' }
+        : isExpired ? { card: 'bg-red-100 border-red-400', bar: 'bg-red-500', num: 'text-red-700' }
+            : isExpiring ? { card: 'bg-orange-50 border-orange-300', bar: 'bg-orange-500', num: 'text-orange-700' }
+                : { card: 'bg-white border-slate-200', bar: 'bg-emerald-500', num: 'text-slate-900' };
+    const cat = CATEGORIES.find(c => c.key === item.Category);
+    const CatIcon = cat?.icon;
+    return (
+        <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.02 }}
+            className={`w-full max-w-[26rem] rounded-3xl border-2 shadow-md overflow-hidden flex flex-col gap-3 p-4 ${tone.card}`}>
+            <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${cat?.color || 'from-slate-500 to-slate-600'} flex items-center justify-center shrink-0`}>
+                    {CatIcon && <CatIcon className="w-5 h-5 text-white" />}
+                </div>
+                <h4 className="font-black text-slate-900 text-xl leading-tight line-clamp-2 min-w-0">{item.ItemName}</h4>
+            </div>
+
+            <div className="flex items-end justify-between gap-3">
+                <div className="min-w-0">
+                    <p className={`font-black leading-none tabular-nums text-5xl ${tone.num}`}>
+                        {days == null ? '—' : Math.max(0, days)}
+                    </p>
+                    <p className="text-sm font-bold text-slate-600 mt-1">
+                        {days == null ? 'ไม่มีกำหนด' : days > 0 ? `วันเหลือ · หมด ${formatDate(item.EndDate)}` : `เลยกำหนดแล้ว · ${formatDate(item.EndDate)}`}
+                    </p>
+                </div>
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <span className={`px-2.5 py-0.5 rounded-full text-sm font-bold border ${STATUS_COLORS[status]}`}>{status}</span>
+                    {item.RenewalStatus && <RenewalBadge value={item.RenewalStatus} size="lg" />}
+                </div>
+            </div>
+
+            {pct !== null && (
+                <div className="h-3 rounded-full bg-black/10 overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="ระยะ PO ที่ใช้ไปแล้ว">
+                    <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${pct}%` }} />
+                </div>
+            )}
+
+            <div className="w-[70%] mx-auto"><MiniRenewalStepper value={item.RenewalStatus} labels={TV_STEP_LABELS} /></div>
+
+            <div className="flex items-center gap-2 text-sm text-slate-600 font-semibold">
+                <Clock size={14} className="shrink-0" />
+                <span>อัปเดต {fmtDT(item.UpdatedAt)}</span>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 text-sm pt-2 border-t border-black/10">
+                <span className="font-semibold text-slate-700 truncate min-w-0">{item.VendorName || '-'}</span>
+                {item.Price > 0 && <span className="font-black text-slate-800 shrink-0">฿{item.Price.toLocaleString()}</span>}
+            </div>
+        </motion.div>
+    );
 };
 
 // ─── MAIN PAGE COMPONENT ─────────────────
@@ -917,13 +993,17 @@ const MALicensePage = () => {
         }
     };
 
-    const handleCompleteRenewal = async (item, data) => {
+    const handleCompleteRenewal = async (item, data, files = []) => {
         try {
-            const res = await fetch(`${API_BASE}/ma/${item.ItemID}/renew`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...data, UpdatedBy: user?.username || 'system' })
-            });
+            const fd = new FormData();
+            fd.append('StartDate', data.StartDate || '');
+            fd.append('EndDate', data.EndDate || '');
+            fd.append('PONumber', data.PONumber || '');
+            fd.append('Price', data.Price ?? '');
+            fd.append('UpdatedBy', user?.username || 'system');
+            fd.append('Kinds', JSON.stringify(files.map(f => f.kind)));
+            files.forEach(f => fd.append('files', f.file));
+            const res = await fetch(`${API_BASE}/ma/${item.ItemID}/renew`, { method: 'POST', body: fd });
             if (res.ok) {
                 setRenewItem(null); fetchItems();
                 setAlertModal({ isOpen: true, type: 'success', title: 'ต่ออายุเรียบร้อย', message: `"${item.ItemName}" ต่ออายุถึง ${formatDate(data.EndDate)} แล้ว` });
@@ -1086,7 +1166,7 @@ const MALicensePage = () => {
         if (col.key === 'SerialNumber') return item.SerialNumber ? <span className="font-mono text-[11px] text-emerald-700">{item.SerialNumber}</span> : <span className="text-slate-400">-</span>;
         if (col.key === 'Price') return `฿${(item.Price || 0).toLocaleString()}`;
         if (col.key === 'LicenseQty') return item.LicenseQty || '-';
-        if (col.key === 'CreatedAt' || col.key === 'UpdatedAt') return formatDate(item[col.key]);
+        if (col.key === 'CreatedAt' || col.key === 'UpdatedAt') return <span className="whitespace-nowrap text-xs">{fmtDT(item[col.key])}</span>;
         if (col.key === 'CreatedBy') return item.CreatedBy || '-';
         return item[col.key] || '-';
     };
@@ -1346,7 +1426,7 @@ const MALicensePage = () => {
             )}
 
             {renewItem && (
-                <RenewModal item={renewItem} onSave={(data) => handleCompleteRenewal(renewItem, data)} onClose={() => setRenewItem(null)} />
+                <RenewModal item={renewItem} onSave={(data, files) => handleCompleteRenewal(renewItem, data, files)} onClose={() => setRenewItem(null)} />
             )}
 
             <AlertModal isOpen={alertModal.isOpen} type={alertModal.type} title={alertModal.title} message={alertModal.message}
@@ -1441,7 +1521,7 @@ const DetailSection = ({ title, icon: Icon, tone, children }) => (
 );
 
 // แถบขั้นตอนต่ออายุ: ขอ QT → เปิด PR → รอ PO → ออก PO
-const RenewalStepper = ({ value }) => {
+const RenewalStepper = ({ value, onPick }) => {
     const cur = RENEWAL_OPTIONS.findIndex(o => o.value === value);
     const pct = cur <= 0 ? 0 : (cur / (RENEWAL_OPTIONS.length - 1)) * 100;
     return (
@@ -1454,13 +1534,16 @@ const RenewalStepper = ({ value }) => {
                     const done = cur >= i;
                     const active = cur === i;
                     return (
-                        <div key={o.value} className="relative z-10 flex flex-col items-center w-16">
+                        <button key={o.value} type="button" disabled={!onPick || active}
+                            onClick={() => onPick && onPick(o.value)}
+                            title={onPick ? `ตั้งเป็น: ${o.label}` : o.label}
+                            className={`relative z-10 flex flex-col items-center w-16 ${onPick && !active ? 'cursor-pointer group' : 'cursor-default'}`}>
                             <motion.div animate={{ scale: active ? 1.15 : 1 }} transition={{ type: 'spring', stiffness: 400, damping: 18 }}
                                 className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black border-2 transition-colors ${done ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-violet-200 text-violet-300'} ${active ? 'ring-4 ring-violet-200' : ''}`}>
                                 {done && i < cur ? <CheckCircle size={13} /> : i + 1}
                             </motion.div>
                             <span className={`mt-1.5 text-[10px] font-bold text-center leading-tight ${done ? 'text-violet-700' : 'text-slate-400'}`}>{o.short}</span>
-                        </div>
+                        </button>
                     );
                 })}
             </div>
@@ -1487,7 +1570,7 @@ const DueRing = ({ percent, days }) => {
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
                 <span className="text-xl font-black leading-none tabular-nums">{days == null ? '—' : shown}</span>
-                <span className="text-[9px] font-bold opacity-85 mt-1">{label}</span>
+                <span className="text-xs font-bold opacity-90 mt-1">{label}</span>
             </div>
         </div>
     );
@@ -1500,6 +1583,125 @@ const ActionBtn = ({ icon: Icon, tone, onClick, children, className = '', title 
     </motion.button>
 );
 
+// ─── HISTORY & ATTACHMENTS (ข้อมูลจาก MA_History / MA_RenewalHistory / MA_Attachments) ───
+const EVENT_META = {
+    CREATE: { label: 'บันทึกรายการใหม่', dot: 'bg-blue-500' },
+    UPDATE: { label: 'แก้ไขข้อมูล', dot: 'bg-amber-500' },
+    STATUS: { label: 'เปลี่ยนสถานะ', dot: 'bg-slate-500' },
+    RENEW_STEP: { label: 'อัปเดตขั้นตอนต่ออายุ', dot: 'bg-violet-500' },
+    RENEW_COMPLETE: { label: 'ต่ออายุเสร็จ', dot: 'bg-emerald-500' },
+    DELETE: { label: 'ลบรายการ', dot: 'bg-red-500' },
+    ATTACH: { label: 'แนบไฟล์', dot: 'bg-indigo-500' },
+    DETACH: { label: 'ลบไฟล์แนบ', dot: 'bg-rose-500' },
+};
+const FIELD_LABELS = {
+    Category: 'หมวด', IpAddress: 'IP Address', MacAddress: 'MAC Address', SubType: 'ประเภท', ItemName: 'ชื่อรายการ', Brand: 'ยี่ห้อ/รุ่น', SerialNumber: 'Serial',
+    ServiceType: 'ประเภทบริการ', ServiceNumber: 'เลขบริการ', LicenseQty: 'จำนวน License', PONumber: 'PO',
+    LocationName: 'สถานที่', Price: 'ราคา', VendorID: 'Vendor', StartDate: 'วันเริ่ม', EndDate: 'วันหมดอายุ',
+    ContractEndDate: 'สัญญาหลักหมด', POCycle: 'รอบ PO', RenewalStatus: 'ขั้นต่ออายุ', PRNumber: 'PR',
+    NewPONumber: 'PO ใหม่', Status: 'สถานะ', Remark: 'หมายเหตุ',
+};
+const RENEW_LABEL = Object.fromEntries(RENEWAL_OPTIONS.map(o => [o.value, o.label]));
+const KIND_OPTIONS = [
+    { value: 'QT', label: 'ใบเสนอราคา (QT)' },
+    { value: 'PR', label: 'PR' },
+    { value: 'PO', label: 'PO' },
+    { value: 'RECEIPT', label: 'ใบเสร็จ/ใบกำกับ' },
+    { value: 'OTHER', label: 'อื่นๆ' },
+];
+const fmtChangeVal = (field, v) => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (field === 'RenewalStatus') return RENEW_LABEL[v] || v;
+    if (field === 'Price') return `฿${Number(v).toLocaleString()}`;
+    if (['StartDate', 'EndDate', 'ContractEndDate'].includes(field)) return formatDate(v);
+    return String(v);
+};
+const fmtSize = (n) => (n == null ? '-' : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+
+// IP / MAC of the PC that performed the action (MAC only when on the same network as the server)
+const ClientTag = ({ ip, mac }) => (
+    <p className="text-[10px] text-slate-400 font-mono break-all">IP {ip || '-'} · MAC {mac || '-'}</p>
+);
+
+const MAHistoryList = ({ history }) => {
+    if (!history) return <p className="px-4 py-3 text-xs text-slate-400">กำลังโหลดประวัติ...</p>;
+    const { events = [], renewals = [] } = history;
+    if (events.length === 0 && renewals.length === 0) {
+        return <p className="px-4 py-3 text-xs text-slate-400">ยังไม่มีประวัติ (รายการที่บันทึกก่อนมีระบบนี้จะยังไม่มีประวัติ)</p>;
+    }
+    return (
+        <div className="px-4 py-3 space-y-4">
+            {renewals.length > 0 && (
+                <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-violet-600 mb-2">รอบการต่ออายุ ({renewals.length})</p>
+                    <div className="space-y-2">
+                        {renewals.map(r => (
+                            <div key={r.RenewalID} className="rounded-xl bg-white border border-violet-100 p-3 text-xs">
+                                <p className="font-bold text-slate-800">
+                                    {formatDate(r.OldEndDate)} → {formatDate(r.NewEndDate)}
+                                </p>
+                                <p className="text-slate-600 mt-0.5">
+                                    ราคา {fmtChangeVal('Price', r.OldPrice)} → {fmtChangeVal('Price', r.NewPrice)}
+                                </p>
+                                <p className="text-slate-600">
+                                    PO {r.OldPONumber || '-'} → {r.NewPONumber || '-'} · PR {r.PRNumber || '-'}
+                                </p>
+                                <p className="text-[11px] text-slate-500 mt-1">{r.CompletedBy || '-'} · {fmtDT(r.CompletedAt)}</p>
+                                <ClientTag ip={r.ClientIP} mac={r.ClientMAC} />
+                                {r.files?.length > 0 && (
+                                    <ul className="mt-2 space-y-1 border-t border-violet-100 pt-2">
+                                        {r.files.map(f => (
+                                            <li key={f.AttachmentID}>
+                                                <a href={`${API_BASE}/ma/attachments/${f.AttachmentID}/download`}
+                                                    className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-700 hover:underline min-w-0">
+                                                    <Paperclip size={11} className="shrink-0" />
+                                                    <span className="truncate">[{KIND_OPTIONS.find(k => k.value === f.Kind)?.label || f.Kind}] {f.FileName}</span>
+                                                    <span className="text-slate-400 shrink-0">({fmtSize(f.FileSize)})</span>
+                                                </a>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {events.length > 0 && (
+                <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 mb-2">ทุกการเปลี่ยนแปลง ({events.length})</p>
+                    <div className="relative space-y-3">
+                        {events.length > 1 && <span className="absolute left-[5px] top-2 bottom-2 w-px bg-blue-200" />}
+                        {events.map(ev => {
+                            const meta = EVENT_META[ev.EventType] || { label: ev.EventType, dot: 'bg-slate-400' };
+                            return (
+                                <div key={ev.HistoryID} className="relative pl-6">
+                                    <span className={`absolute left-0 top-1 w-3 h-3 rounded-full ring-4 ring-white ${meta.dot}`} />
+                                    <p className="text-xs font-bold text-slate-800">{meta.label}</p>
+                                    <p className="text-[11px] text-slate-500">{ev.ActorUser || '-'} · {fmtDT(ev.CreatedAt)}</p>
+                                    <ClientTag ip={ev.ClientIP} mac={ev.ClientMAC} />
+                                    {ev.changes?.length > 0 && (
+                                        <ul className="mt-1 space-y-0.5">
+                                            {ev.changes.map((c, i) => (
+                                                <li key={i} className="text-[11px] text-slate-600">
+                                                    <span className="font-semibold">{FIELD_LABELS[c.field] || c.field}:</span>{' '}
+                                                    <span className="line-through text-slate-400">{fmtChangeVal(c.field, c.old)}</span>{' → '}
+                                                    <span className="font-semibold text-slate-800">{fmtChangeVal(c.field, c.new)}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                    {ev.Note && <p className="text-[11px] text-slate-600 mt-0.5">{ev.Note}</p>}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenewalChange, onComplete, onDelete }) => {
     const cat = CATEGORIES.find(c => c.key === item.Category) || CATEGORIES[1];
     const CatIcon = cat.icon;
@@ -1509,7 +1711,6 @@ const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenew
     const elapsed = getElapsedPercent(item.StartDate, item.EndDate);
     const remainingPct = elapsed == null ? 0 : 100 - elapsed;
     const renewal = getRenewal(item.RenewalStatus);
-    const nextStep = getNextRenewal(item.RenewalStatus);
     const price = useCountUp(item.Price || 0, 900);
     const [menu, setMenu] = useState(null); // 'status' | 'renewal' | null
     const menuRef = useRef(null);
@@ -1521,13 +1722,17 @@ const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenew
         return () => document.removeEventListener('mousedown', onDown);
     }, [menu]);
 
-    // ประวัติ เรียงจากล่าสุด
-    const events = [
-        item.CreatedAt && { key: 'c', label: 'บันทึกรายการ', who: item.CreatedBy, at: item.CreatedAt, dot: 'bg-blue-500' },
-        item.RenewalUpdatedAt && { key: 'r', label: 'เปลี่ยนสถานะต่ออายุ', who: item.RenewalUpdatedBy, at: item.RenewalUpdatedAt, dot: 'bg-violet-500' },
-        item.LastRenewedAt && { key: 'l', label: 'ต่ออายุล่าสุด', who: item.LastRenewedBy, at: item.LastRenewedAt, dot: 'bg-emerald-500' },
-        item.UpdatedAt && { key: 'u', label: 'แก้ไขล่าสุด', who: null, at: item.UpdatedAt, dot: 'bg-amber-500' },
-    ].filter(Boolean).sort((a, b) => new Date(b.at) - new Date(a.at));
+    // ประวัติ + ไฟล์แนบ โหลดจาก API (อัปเดตเมื่อมีการแก้ไข หรือกดอัปโหลด/ลบไฟล์)
+    const [history, setHistory] = useState(null);
+    const loadExtras = useCallback(async () => {
+        try {
+            const h = await fetch(`${API_BASE}/ma/${item.ItemID}/history`);
+            if (h.ok) setHistory(await h.json());
+        } catch (e) {
+            console.error('Load MA history error:', e);
+        }
+    }, [item.ItemID]);
+    useEffect(() => { loadExtras(); }, [loadExtras, item.UpdatedAt]);
 
     return (
         <Portal>
@@ -1537,7 +1742,7 @@ const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenew
                 <motion.div role="dialog" aria-modal="true" aria-label={item.ItemName}
                     initial={{ opacity: 0, y: 40, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ type: 'spring', damping: 26, stiffness: 300 }}
-                    className="w-full sm:max-w-2xl max-h-[92vh] flex flex-col bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden">
+                    className="w-full sm:max-w-4xl max-h-[92vh] flex flex-col bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden">
 
                     {/* HERO */}
                     <div className={`relative bg-gradient-to-br ${cat.color} text-white px-5 pt-5 pb-5 overflow-hidden shrink-0`}>
@@ -1567,15 +1772,16 @@ const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenew
                                 </div>
                             </div>
                         </div>
+                        <p className="relative mt-3 flex items-center gap-1.5 text-xs font-semibold text-white/85"><Clock size={12} />อัปเดตล่าสุด {fmtDT(item.UpdatedAt)}</p>
                         <div className="relative mt-5 flex items-center gap-4">
                             <DueRing percent={remainingPct} days={daysPO} />
                             <div className="grid grid-cols-2 gap-2 flex-1 min-w-0">
                                 <div className="rounded-2xl bg-white/15 backdrop-blur-sm ring-1 ring-white/25 px-3 py-2.5 min-w-0">
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/75">ราคา</p>
+                                    <p className="text-xs font-bold uppercase tracking-wider text-white/85">ราคา</p>
                                     <p className="text-base font-black tabular-nums truncate">฿{price.toLocaleString()}</p>
                                 </div>
                                 <div className="rounded-2xl bg-white/15 backdrop-blur-sm ring-1 ring-white/25 px-3 py-2.5 min-w-0">
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/75">{daysContract != null ? 'สัญญาหลัก' : 'ระยะ PO'}</p>
+                                    <p className="text-xs font-bold uppercase tracking-wider text-white/85">{daysContract != null ? 'สัญญาหลัก' : 'ระยะ PO'}</p>
                                     <p className="text-sm font-black truncate">
                                         {daysContract != null
                                             ? (daysContract > 0 ? `เหลือ ${daysContract} วัน` : 'หมดแล้ว')
@@ -1589,9 +1795,13 @@ const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenew
                     {/* BODY */}
                     <motion.div variants={staggerList} initial="hidden" animate="show"
                         className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/70">
+                        <div className="grid sm:grid-cols-2 gap-3 items-start">
+                        <div className="space-y-3">
                         <DetailSection title="ข้อมูลรายการ" icon={Tag} tone={DETAIL_TONES.slate}>
                             {item.Brand && <DetailRow icon={Tag} label="ยี่ห้อ/รุ่น" value={item.Brand} />}
                             {item.SerialNumber && <DetailRow icon={Hash} label="Serial Number" value={item.SerialNumber} copy />}
+                            {item.IpAddress && <DetailRow icon={Hash} label="IP Address" value={item.IpAddress} copy />}
+                            {item.MacAddress && <DetailRow icon={Hash} label="MAC Address" value={item.MacAddress} copy />}
                             {item.ServiceNumber && <DetailRow icon={FileText} label="เลขบริการ/สัญญา" value={item.ServiceNumber} copy />}
                             {item.LicenseQty > 0 && <DetailRow icon={Hash} label="จำนวน License" value={item.LicenseQty} />}
                             <DetailRow icon={Building} label="Vendor" value={item.VendorName || '-'} />
@@ -1612,25 +1822,21 @@ const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenew
                             )}
                         </DetailSection>
 
+                        </div>
+                        <div className="space-y-3">
                         <DetailSection title="ต่ออายุ" icon={RefreshCw} tone={DETAIL_TONES.violet}>
-                            <RenewalStepper value={item.RenewalStatus} />
+                            <RenewalStepper value={item.RenewalStatus} onPick={isAdmin ? (v) => onRenewalChange(item, v) : null} />
+                            {isAdmin && <p className="text-center text-[10px] text-slate-400 -mt-1 pb-2">กดที่ขั้นตอนเพื่อเปลี่ยนสถานะต่ออายุ</p>}
                             <DetailRow icon={FileText} label="เลขที่ PR" value={item.PRNumber || '-'} copy />
                             <DetailRow icon={CreditCard} label="เลขที่ PO ใหม่" value={item.NewPONumber || '-'} copy />
                         </DetailSection>
 
-                        <DetailSection title="ประวัติ" icon={Clock} tone={DETAIL_TONES.blue}>
-                            {events.length === 0 && <p className="px-4 py-3 text-xs text-slate-400">ยังไม่มีประวัติ</p>}
-                            <div className="relative px-4 py-3 space-y-3">
-                                {events.length > 1 && <span className="absolute left-[23px] top-5 bottom-5 w-px bg-blue-200" />}
-                                {events.map(ev => (
-                                    <motion.div key={ev.key} variants={fadeUp} className="relative pl-7">
-                                        <span className={`absolute left-0 top-1 w-3 h-3 rounded-full ring-4 ring-white ${ev.dot}`} />
-                                        <p className="text-xs font-bold text-slate-800">{ev.label}</p>
-                                        <p className="text-[11px] text-slate-500">{ev.who ? `${ev.who} · ` : ''}{fmtDT(ev.at)}</p>
-                                    </motion.div>
-                                ))}
-                            </div>
+                        <DetailSection title="ประวัติการเปลี่ยนแปลง" icon={Clock} tone={DETAIL_TONES.blue}>
+                            <MAHistoryList history={history} />
                         </DetailSection>
+                        </div>
+                        </div>
+
 
                         {item.Remark && (
                             <motion.blockquote variants={fadeUp} className="rounded-2xl bg-white border border-slate-200 border-l-4 border-l-amber-400 px-4 py-3 shadow-sm">
@@ -1645,51 +1851,26 @@ const MADetailModal = ({ item, isAdmin, onClose, onEdit, onStatusChange, onRenew
                         <div ref={menuRef} className="p-3 bg-white border-t border-slate-100 flex flex-wrap items-center gap-2 shrink-0">
                             <ActionBtn icon={Edit2} tone="indigo" onClick={onEdit}>แก้ไข</ActionBtn>
 
-                            <div className="relative">
-                                <ActionBtn icon={RefreshCw} tone="amber" onClick={() => setMenu(m => m === 'status' ? null : 'status')}>
-                                    เปลี่ยนสถานะ <ChevronDown size={12} className={`transition-transform ${menu === 'status' ? 'rotate-180' : ''}`} />
-                                </ActionBtn>
-                                <AnimatePresence>
-                                    {menu === 'status' && (
-                                        <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6 }}
-                                            className="absolute bottom-full left-0 mb-2 min-w-[140px] bg-white rounded-xl shadow-xl border border-slate-200 p-1 z-20">
-                                            {MANUAL_STATUS_OPTIONS.filter(s => s !== toManualStatus(item.Status)).map(s => (
-                                                <button key={s} type="button" onClick={() => { setMenu(null); onStatusChange(item, s); }}
-                                                    className="w-full text-left px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg">{s}</button>
-                                            ))}
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-
-                            <div className="relative">
-                                <ActionBtn icon={FileText} tone="plain" onClick={() => setMenu(m => m === 'renewal' ? null : 'renewal')}>
-                                    สถานะต่ออายุ <ChevronDown size={12} className={`transition-transform ${menu === 'renewal' ? 'rotate-180' : ''}`} />
-                                </ActionBtn>
-                                <AnimatePresence>
-                                    {menu === 'renewal' && (
-                                        <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6 }}
-                                            className="absolute bottom-full left-0 mb-2 min-w-[160px] bg-white rounded-xl shadow-xl border border-slate-200 p-1 z-20">
-                                            {[{ value: '', label: 'ยังไม่ดำเนินการ' }, ...RENEWAL_OPTIONS]
-                                                .filter(o => o.value !== (item.RenewalStatus || ''))
-                                                .map(o => (
-                                                    <button key={o.value || 'none'} type="button" onClick={() => { setMenu(null); onRenewalChange(item, o.value); }}
-                                                        className="w-full text-left px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg">{o.label}</button>
-                                                ))}
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-
-                            {nextStep && (
-                                <ActionBtn icon={ChevronRight} tone="violetSolid" title="เลื่อนไปขั้นถัดไป" onClick={() => onRenewalChange(item, nextStep.value)}>
-                                    {nextStep.label}
-                                </ActionBtn>
-                            )}
                             <ActionBtn icon={CheckCircle} tone={renewal?.value === 'PO_ISSUED' ? 'emeraldSolid' : 'emerald'} onClick={onComplete}>
                                 ต่ออายุเสร็จ
                             </ActionBtn>
-                            <ActionBtn icon={Trash2} tone="red" className="ml-auto" onClick={onDelete}>ลบ</ActionBtn>
+
+                            <div className="relative ml-auto">
+                                <ActionBtn icon={MoreHorizontal} tone="plain" onClick={() => setMenu(m => m === 'more' ? null : 'more')}>
+                                    เพิ่มเติม
+                                </ActionBtn>
+                                <AnimatePresence>
+                                    {menu === 'more' && (
+                                        <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6 }}
+                                            className="absolute bottom-full right-0 mb-2 min-w-[160px] bg-white rounded-xl shadow-xl border border-slate-200 p-1 z-20">
+                                            <button type="button" onClick={() => { setMenu(null); onDelete(); }}
+                                                className="w-full flex items-center gap-2 text-left px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg">
+                                                <Trash2 size={13} /> ลบรายการ
+                                            </button>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </div>
                         </div>
                     )}
                 </motion.div>
@@ -1732,13 +1913,51 @@ const RenewModal = ({ item, onSave, onClose }) => {
         Price: item.Price || 0,
     });
     const [error, setError] = useState('');
+    const [files, setFiles] = useState([]); // { id, file, kind }
+    const [dragOver, setDragOver] = useState(false);
+    const fileRef = useRef(null);
+    const hasPO = files.some(f => f.kind === 'PO');
     const set = (k, v) => { setForm(p => ({ ...p, [k]: v })); setError(''); };
+
+    // เดาประเภทเอกสารจากชื่อไฟล์ (ผู้ใช้เปลี่ยนเองได้)
+    const guessKind = (name) => {
+        if (/\bPR\b|PR[-_ ]?\d/i.test(name)) return 'PR';
+        if (/\bPO\b|PO[-_ ]?\d/i.test(name)) return 'PO';
+        if (/\bQT\b|QUOT|ใบเสนอราคา/i.test(name)) return 'QT';
+        return 'OTHER';
+    };
+    const ALLOWED_EXT = ['.pdf', '.png', '.jpg', '.jpeg', '.xlsx', '.xls', '.docx', '.doc'];
+    const addFiles = (list) => {
+        const picked = Array.from(list || []);
+        const bad = picked.filter(f => !ALLOWED_EXT.some(ext => f.name.toLowerCase().endsWith(ext)));
+        const ok = picked.filter(f => f.size <= 10 * 1024 * 1024 && !bad.includes(f));
+        const tooBig = picked.length - bad.length - ok.length;
+        if (bad.length) setError(`ไม่รองรับไฟล์: ${bad.map(f => f.name).join(', ')}`);
+        else if (tooBig > 0) setError('มีไฟล์ใหญ่เกิน 10 MB');
+        else setError('');
+        const next = ok.map(f => ({ id: `${f.name}-${f.size}-${Math.random().toString(36).slice(2, 8)}`, file: f, kind: guessKind(f.name) }));
+        if (next.length) setFiles(p => [...p, ...next].slice(0, 10));
+    };
+    const setFileKind = (id, kind) => setFiles(p => p.map(f => (f.id === id ? { ...f, kind } : f)));
+    const removeFile = (id) => setFiles(p => p.filter(f => f.id !== id));
+
+    // วางรูป/ไฟล์ จาก clipboard (Ctrl+V) ขณะเปิดหน้าต่างนี้
+    useEffect(() => {
+        const onPaste = (e) => {
+            const list = Array.from(e.clipboardData?.files || []);
+            if (list.length) { e.preventDefault(); addFiles(list); }
+        };
+        window.addEventListener('paste', onPaste);
+        return () => window.removeEventListener('paste', onPaste);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const submit = (e) => {
         e?.preventDefault();
         if (!form.EndDate) return setError('กรุณาระบุวันหมดอายุใหม่');
         if (form.StartDate && form.StartDate > form.EndDate) return setError('วันเริ่มต้องไม่เกินวันหมดอายุ');
-        onSave(form);
+        if (!hasPO) return setError('ต้องแนบเอกสาร PO อย่างน้อย 1 ไฟล์ (เลือกประเภท PO)');
+        onSave(form, files);
     };
 
     const inputCls = 'w-full p-2 border border-emerald-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-emerald-100';
@@ -1780,10 +1999,44 @@ const RenewModal = ({ item, onSave, onClose }) => {
                             </div>
                         )}
                         <p className="text-[10px] text-slate-500">เมื่อบันทึก: สถานะ → Active, ล้างสถานะต่ออายุ / เลข PR / เลข PO ใหม่ และบันทึกชื่อผู้ต่ออายุ{isRental ? ' (วันสิ้นสุดสัญญาหลักไม่เปลี่ยน — แก้ผ่านปุ่มแก้ไขถ้าต่อสัญญาหลักด้วย)' : ''}</p>
+                        <div className="space-y-2">
+                            <p className="text-[11px] font-bold text-slate-700">เอกสารแนบ <span className="text-red-500">*</span> <span className="font-normal text-slate-500">(ต้องมีไฟล์ประเภท PO อย่างน้อย 1 ไฟล์)</span></p>
+                            <div role="button" tabIndex={0}
+                                onClick={() => fileRef.current?.click()}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileRef.current?.click(); }}
+                                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                                onDragLeave={() => setDragOver(false)}
+                                onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+                                className={`rounded-xl border-2 border-dashed p-3 text-center cursor-pointer transition-colors ${dragOver ? 'border-emerald-500 bg-emerald-50' : files.length === 0 ? 'border-rose-300 bg-rose-50/40' : 'border-emerald-300 bg-white'}`}>
+                                <Upload size={18} className="mx-auto text-emerald-600" />
+                                <p className="text-xs font-bold text-slate-700 mt-1">ลากไฟล์มาวาง, กดเพื่อเลือกไฟล์ หรือกด Ctrl+V วางรูป</p>
+                                <p className="text-[10px] text-slate-500">PDF / รูปภาพ / Office ไม่เกิน 10 MB ต่อไฟล์ (สูงสุด 10 ไฟล์)</p>
+                                <input ref={fileRef} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.docx,.doc" className="hidden"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+                            </div>
+                            {files.length > 0 && (
+                                <ul className="space-y-1.5">
+                                    {files.map(f => (
+                                        <li key={f.id} className="flex items-center gap-2 rounded-lg bg-white border border-slate-200 px-2.5 py-1.5">
+                                            <Paperclip size={13} className="text-emerald-600 shrink-0" />
+                                            <span className="text-xs font-semibold text-slate-700 truncate flex-1 min-w-0">{f.file.name}</span>
+                                            <select value={f.kind} onChange={(e) => setFileKind(f.id, e.target.value)}
+                                                className="text-[11px] border border-slate-200 rounded px-1 py-0.5 bg-white">
+                                                {KIND_OPTIONS.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
+                                            </select>
+                                            <button type="button" onClick={() => removeFile(f.id)} aria-label="เอาออก"
+                                                className="p-1 text-slate-400 hover:text-red-600"><X size={13} /></button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
                         {error && <p className="text-xs text-red-600 font-bold">{error}</p>}
                         <div className="flex justify-end gap-2 pt-1">
                             <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">ยกเลิก</button>
-                            <button type="submit" className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-emerald-500 to-teal-600 shadow-sm hover:shadow-md flex items-center gap-1">
+                            <button type="submit" disabled={!hasPO} title={hasPO ? '' : 'ต้องแนบไฟล์ PO ก่อน'}
+                                className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-emerald-500 to-teal-600 shadow-sm hover:shadow-md disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none flex items-center gap-1">
                                 <CheckCircle size={14} /> บันทึกการต่ออายุ
                             </button>
                         </div>
@@ -1803,6 +2056,8 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
         ItemName: item?.ItemName || '',
         Brand: item?.Brand || '',
         SerialNumber: item?.SerialNumber || '',
+        IpAddress: item?.IpAddress || '',
+        MacAddress: item?.MacAddress || '',
         ServiceNumber: item?.ServiceNumber || '',
         LicenseQty: item?.LicenseQty || 0,
         PONumber: item?.PONumber || '',
@@ -1849,133 +2104,143 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
     return (
         <Portal>
             <div className="fixed inset-0 z-[70] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden">
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-3xl bg-white rounded-2xl shadow-xl overflow-hidden">
                     <div className={`p-4 bg-gradient-to-r ${catInfo?.color || 'from-slate-700 to-slate-800'} text-white`}>
                         <div className="flex justify-between items-center">
                             <h3 className="font-black text-lg">{isEdit ? 'แก้ไขรายการ' : `เพิ่ม ${catInfo?.label || ''} ใหม่`}</h3>
                             <button onClick={onClose} className="p-1.5 hover:bg-white/20 rounded-full transition-colors"><X size={18} /></button>
                         </div>
                     </div>
-                    <form id="ma-form" onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[65vh] overflow-y-auto custom-scrollbar">
-                        <div className="grid grid-cols-2 gap-3">
-                            <FormField label="ประเภทย่อย" required error={errors.SubType}>
-                                <select value={form.SubType} onChange={(e) => handleChange('SubType', e.target.value)} className={`w-full p-2 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 ${errors.SubType ? 'border-red-400' : 'border-slate-200'}`}>
-                                    <option value="">เลือกประเภท...</option>
-                                    {subtypeOptions.map(s => <option key={s} value={s}>{s}</option>)}
-                                </select>
-                            </FormField>
-                            <FormField label={cat === 'SOFTWARE' ? 'ชื่อ Software / License' : cat === 'SERVICE' ? 'ชื่อบริการ' : cat === 'RENTAL' ? 'ชื่อรายการเช่า' : 'ชื่ออุปกรณ์'} error={errors.ItemName}>
-                                <input type="text" value={form.ItemName} onChange={(e) => handleChange('ItemName', e.target.value)} className={`w-full p-2 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 ${errors.ItemName ? 'border-red-400' : 'border-slate-200'}`} placeholder="ระบุชื่อ..." />
-                            </FormField>
-                        </div>
-                        {(cat === 'HARDWARE' || cat === 'RENTAL') && (
-                            <div className="grid grid-cols-2 gap-3">
-                                <FormField label="ยี่ห้อ/รุ่น"><input type="text" value={form.Brand} onChange={(e) => handleChange('Brand', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Brand / Model" /></FormField>
-                                <FormField label="Serial Number"><input type="text" value={form.SerialNumber} onChange={(e) => handleChange('SerialNumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="S/N" /></FormField>
-                            </div>
-                        )}
-                        {cat === 'SOFTWARE' && (
-                            <div className="grid grid-cols-2 gap-3">
-                                <FormField label="หมายเลขบริการ"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Service Number" /></FormField>
-                                <FormField label="จำนวน License"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
-                            </div>
-                        )}
-                        {cat === 'SERVICE' && (
-                            <div className="grid grid-cols-2 gap-3">
-                                <FormField label="เลขสัญญา"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Contract No." /></FormField>
-                                <FormField label="สถานที่ให้บริการ">
-                                    <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
-                                        <option value="">เลือกสถานที่...</option>
-                                        {locations.map(l => <option key={l.LocationID} value={l.Name}>{l.Name}</option>)}
-                                    </select>
-                                </FormField>
-                            </div>
-                        )}
-                        <div className="grid grid-cols-2 gap-3">
-                            {(cat !== 'SERVICE') && (
-                                <FormField label="PO / เลขสัญญา"><input type="text" value={form.PONumber} onChange={(e) => handleChange('PONumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="PO Number" /></FormField>
-                            )}
-                            {(cat === 'RENTAL') && (
-                                <FormField label="จำนวน"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
-                            )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            {(cat === 'HARDWARE' || cat === 'RENTAL') && (
-                                <FormField label="สถานที่ติดตั้ง">
-                                    <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
-                                        <option value="">เลือกสถานที่...</option>
-                                        {locations.map(l => <option key={l.LocationID} value={l.Name}>{l.Name}</option>)}
-                                    </select>
-                                </FormField>
-                            )}
-                            <FormField label="ราคา (฿)"><input type="number" min="0" step="0.01" value={form.Price} onChange={(e) => handleChange('Price', parseFloat(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <FormField label="Vendor">
-                                <select value={form.VendorID} onChange={(e) => handleChange('VendorID', e.target.value ? parseInt(e.target.value) : '')} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
-                                    <option value="">เลือก Vendor...</option>
-                                    {vendors.map(v => <option key={v.VendorID} value={v.VendorID}>{v.VendorName}</option>)}
-                                </select>
-                            </FormField>
-                            <FormField label="สถานะ">
-                                <select value={form.Status} onChange={(e) => handleChange('Status', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
-                                    {MANUAL_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                                </select>
-                                <p className="text-[10px] text-slate-400 mt-0.5">Expiring / Expired คำนวณจากวันหมดอายุอัตโนมัติ</p>
-                            </FormField>
-                        </div>
+                    <form id="ma-form" onSubmit={handleSubmit} className="p-4 space-y-3 max-h-[72vh] overflow-y-auto custom-scrollbar">
 
-                        {/* ── NEW: RENTAL contract fields section ── */}
-                        {isRental ? (
-                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
-                                <p className="text-[10px] font-black text-amber-700 uppercase tracking-wider flex items-center gap-1">
-                                    <FileText size={11} /> ระยะเวลาสัญญา Rental
-                                </p>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <FormField label="วันที่เริ่มสัญญา">
-                                        <input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="w-full p-2 border border-amber-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-100" />
-                                    </FormField>
-                                    <FormField label="สัญญาหลักหมด">
-                                        <input type="date" value={form.ContractEndDate} onChange={(e) => handleChange('ContractEndDate', e.target.value)} className="w-full p-2 border border-amber-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-100" />
-                                    </FormField>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <FormField label="PO ปัจจุบันหมด">
-                                        <input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="w-full p-2 border border-orange-200 bg-white rounded-lg text-lg outline-none focus:ring-2 focus:ring-orange-100" />
-                                    </FormField>
-                                    <FormField label="รอบการเปิด PO">
-                                        <select value={form.POCycle} onChange={(e) => handleChange('POCycle', e.target.value)} className="w-full p-2 border border-amber-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-100">
-                                            {PO_CYCLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        {/* 1 · ข้อมูลรายการ */}
+                        <FormSection n={1} title="ข้อมูลรายการ">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <FormField label="ประเภทย่อย" required error={errors.SubType}>
+                                    <select value={form.SubType} onChange={(e) => handleChange('SubType', e.target.value)} className={`w-full p-2 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 ${errors.SubType ? 'border-red-400' : 'border-slate-200'}`}>
+                                        <option value="">เลือกประเภท...</option>
+                                        {subtypeOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </FormField>
+                                <FormField label={cat === 'SOFTWARE' ? 'ชื่อ Software / License' : cat === 'SERVICE' ? 'ชื่อบริการ' : cat === 'RENTAL' ? 'ชื่อรายการเช่า' : 'ชื่ออุปกรณ์'} error={errors.ItemName}>
+                                    <input type="text" value={form.ItemName} onChange={(e) => handleChange('ItemName', e.target.value)} className={`w-full p-2 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 ${errors.ItemName ? 'border-red-400' : 'border-slate-200'}`} placeholder="ระบุชื่อ..." />
+                                </FormField>
+
+                                {(cat === 'HARDWARE' || cat === 'RENTAL') && (
+                                    <FormField label="ยี่ห้อ/รุ่น"><input type="text" value={form.Brand} onChange={(e) => handleChange('Brand', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Brand / Model" /></FormField>
+                                )}
+                                {(cat === 'HARDWARE' || cat === 'RENTAL') && (
+                                    <FormField label="Serial Number"><input type="text" value={form.SerialNumber} onChange={(e) => handleChange('SerialNumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="S/N" /></FormField>
+                                )}
+                                {cat === 'SOFTWARE' && (
+                                    <FormField label="หมายเลขบริการ"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Service Number" /></FormField>
+                                )}
+                                {cat === 'SOFTWARE' && (
+                                    <FormField label="จำนวน License"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
+                                )}
+                                {cat === 'SERVICE' && (
+                                    <FormField label="เลขสัญญา"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Contract No." /></FormField>
+                                )}
+                                {cat === 'SERVICE' && (
+                                    <FormField label="สถานที่ให้บริการ">
+                                        <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
+                                            <option value="">เลือกสถานที่...</option>
+                                            {locations.map(l => <option key={l.LocationID} value={l.Name}>{l.Name}</option>)}
                                         </select>
                                     </FormField>
-                                </div>
-                                {/* Summary: แสดงระยะเวลาที่คำนวณแล้ว */}
-                                {form.StartDate && form.ContractEndDate && (
-                                    <div className="text-[15px] text-amber-700 font-medium bg-amber-100 rounded-lg px-3 py-2 flex justify-between">
-                                        <span>ระยะสัญญาหลัก:</span>
-                                        <span className="font-black">{formatDuration(form.StartDate, form.ContractEndDate)}</span>
-                                    </div>
                                 )}
-                                {form.StartDate && form.EndDate && (
-                                    <div className="text-[11px] text-orange-700 font-medium bg-orange-100 rounded-lg px-3 py-2 flex justify-between">
-                                        <span>ระยะ PO ปัจจุบัน:</span>
-                                        <span className="font-black">{formatDuration(form.StartDate, form.EndDate)}</span>
-                                    </div>
+                                {cat === 'RENTAL' && (
+                                    <FormField label="จำนวน"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
                                 )}
+                                {(cat === 'HARDWARE' || cat === 'RENTAL') && (
+                                    <FormField label="สถานที่ติดตั้ง">
+                                        <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
+                                            <option value="">เลือกสถานที่...</option>
+                                            {locations.map(l => <option key={l.LocationID} value={l.Name}>{l.Name}</option>)}
+                                        </select>
+                                    </FormField>
+                                )}
+                                <FormField label="IP Address (ถ้ามี)">
+                                    <input type="text" value={form.IpAddress} maxLength={15} onChange={(e) => handleChange('IpAddress', e.target.value)}
+                                        className="w-full p-2 border border-slate-200 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-100"
+                                        placeholder="192.168.1.10" />
+                                </FormField>
+                                <FormField label="MAC Address (ถ้ามี)">
+                                    <input type="text" value={form.MacAddress} maxLength={17} onChange={(e) => handleChange('MacAddress', e.target.value)}
+                                        className="w-full p-2 border border-slate-200 rounded-lg text-xs font-mono uppercase outline-none focus:ring-2 focus:ring-indigo-100"
+                                        placeholder="AA:BB:CC:DD:EE:FF" />
+                                </FormField>
                             </div>
-                        ) : (
-                            /* non-RENTAL: date fields เดิม */
-                            <div className="grid grid-cols-2 gap-3">
-                                <FormField label="วันที่เริ่ม/ต่อประกัน"><input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
-                                <FormField label="วันที่หมดอายุ"><input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
-                            </div>
-                        )}
+                        </FormSection>
 
-                        {/* ── สถานะการต่ออายุ / จัดซื้อ ── */}
+                        {/* 2 · Vendor, ราคา, PO, สถานะ */}
+                        <FormSection n={2} title="Vendor, ราคา และ PO">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <FormField label="Vendor">
+                                    <select value={form.VendorID} onChange={(e) => handleChange('VendorID', e.target.value ? parseInt(e.target.value) : '')} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
+                                        <option value="">เลือก Vendor...</option>
+                                        {vendors.map(v => <option key={v.VendorID} value={v.VendorID}>{v.VendorName}</option>)}
+                                    </select>
+                                </FormField>
+                                <FormField label="ราคา (฿)"><input type="number" min="0" step="0.01" value={form.Price} onChange={(e) => handleChange('Price', parseFloat(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
+                                {(cat !== 'SERVICE') && (
+                                    <FormField label="PO / เลขสัญญา"><input type="text" value={form.PONumber} onChange={(e) => handleChange('PONumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="PO Number" /></FormField>
+                                )}
+                                <FormField label="สถานะ">
+                                    <select value={form.Status} onChange={(e) => handleChange('Status', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
+                                        {MANUAL_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">Expiring / Expired คำนวณจากวันหมดอายุอัตโนมัติ</p>
+                                </FormField>
+                            </div>
+                        </FormSection>
+
+                        {/* 3 · ระยะเวลา */}
+                        <FormSection n={3} title={isRental ? 'ระยะเวลาสัญญา Rental' : 'วันที่เริ่มและหมดอายุ'}>
+                            {isRental ? (
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <FormField label="วันที่เริ่มสัญญา">
+                                            <input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="w-full p-2 border border-amber-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-100" />
+                                        </FormField>
+                                        <FormField label="สัญญาหลักหมด">
+                                            <input type="date" value={form.ContractEndDate} onChange={(e) => handleChange('ContractEndDate', e.target.value)} className="w-full p-2 border border-amber-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-100" />
+                                        </FormField>
+                                        <FormField label="PO ปัจจุบันหมด">
+                                            <input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="w-full p-2 border border-orange-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-orange-100" />
+                                        </FormField>
+                                        <FormField label="รอบการเปิด PO">
+                                            <select value={form.POCycle} onChange={(e) => handleChange('POCycle', e.target.value)} className="w-full p-2 border border-amber-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-100">
+                                                {PO_CYCLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                            </select>
+                                        </FormField>
+                                    </div>
+                                    {form.StartDate && form.ContractEndDate && (
+                                        <div className="text-xs text-amber-700 font-medium bg-amber-100 rounded-lg px-3 py-2 flex justify-between">
+                                            <span>ระยะสัญญาหลัก:</span>
+                                            <span className="font-black">{formatDuration(form.StartDate, form.ContractEndDate)}</span>
+                                        </div>
+                                    )}
+                                    {form.StartDate && form.EndDate && (
+                                        <div className="text-xs text-orange-700 font-medium bg-orange-100 rounded-lg px-3 py-2 flex justify-between">
+                                            <span>ระยะ PO ปัจจุบัน:</span>
+                                            <span className="font-black">{formatDuration(form.StartDate, form.EndDate)}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <FormField label="วันที่เริ่ม/ต่อประกัน"><input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
+                                    <FormField label="วันที่หมดอายุ"><input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
+                                </div>
+                            )}
+                        </FormSection>
+
+                        {/* 4 · การต่ออายุ / จัดซื้อ (พับได้) */}
                         <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 space-y-3">
                             <button type="button" onClick={() => setShowRenewal(v => !v)} aria-expanded={showRenewal}
                                 className="w-full flex items-center justify-between text-[10px] font-black text-violet-700 uppercase tracking-wider">
-                                <span className="flex items-center gap-1"><RefreshCw size={11} /> การต่ออายุ / จัดซื้อ</span>
+                                <span className="flex items-center gap-1"><RefreshCw size={11} /> 4 · การต่ออายุ / จัดซื้อ</span>
                                 <span className="flex items-center gap-1 normal-case font-bold">
                                     {!showRenewal && (getRenewal(form.RenewalStatus)?.label || 'ยังไม่ดำเนินการ')}
                                     <ChevronDown size={12} className={`transition-transform ${showRenewal ? 'rotate-180' : ''}`} />
@@ -2000,24 +2265,28 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                             </>)}
                         </div>
 
-                        <FormField label="หมายเหตุ (Remark)">
-                            <textarea rows={2} value={form.Remark} onChange={(e) => handleChange('Remark', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 resize-none" placeholder="ข้อมูลเพิ่มเติม..." />
-                        </FormField>
-                        <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mt-4">
-                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-2">📋 ข้อมูลการบันทึก</p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                                <div>
-                                    <label className="block text-blue-600 font-bold mb-0.5">ผู้บันทึก</label>
-                                    <input type="text" value={form.CreatedBy || user?.username} disabled className="w-full p-1.5 bg-white text-slate-500 rounded border border-blue-100 cursor-not-allowed" />
-                                </div>
-                                {isEdit && (
-                                    <div>
-                                        <label className="block text-blue-600 font-bold mb-0.5">วันบันทึก</label>
-                                        <input type="text" value={formatDate(form.CreatedAt)} disabled className="w-full p-1.5 bg-white text-slate-500 rounded border border-blue-100 cursor-not-allowed" />
+                        {/* 5 · หมายเหตุ */}
+                        <FormSection n={5} title="หมายเหตุและข้อมูลการบันทึก">
+                            <div className="space-y-3">
+                                <FormField label="หมายเหตุ (Remark)">
+                                    <textarea rows={2} value={form.Remark} onChange={(e) => handleChange('Remark', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 resize-none" placeholder="ข้อมูลเพิ่มเติม..." />
+                                </FormField>
+                                <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                        <div>
+                                            <label className="block text-blue-600 font-bold mb-0.5">ผู้บันทึก</label>
+                                            <input type="text" value={form.CreatedBy || user?.username} disabled className="w-full p-1.5 bg-white text-slate-500 rounded border border-blue-100 cursor-not-allowed" />
+                                        </div>
+                                        {isEdit && (
+                                            <div>
+                                                <label className="block text-blue-600 font-bold mb-0.5">วันบันทึก</label>
+                                                <input type="text" value={formatDate(form.CreatedAt)} disabled className="w-full p-1.5 bg-white text-slate-500 rounded border border-blue-100 cursor-not-allowed" />
+                                            </div>
+                                        )}
                                     </div>
-                                )}
+                                </div>
                             </div>
-                        </div>
+                        </FormSection>
                     </form>
                     <div className="p-3 bg-slate-50 border-t border-slate-100 flex gap-2">
                         <button type="button" onClick={onClose} className="flex-1 py-2 bg-white text-slate-600 rounded-lg text-xs font-bold border border-slate-200 hover:bg-slate-100 transition-colors">ยกเลิก</button>
@@ -2030,6 +2299,16 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
         </Portal>
     );
 };
+
+const FormSection = ({ n, title, children }) => (
+    <section className="rounded-xl border border-slate-200 bg-white">
+        <header className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50/70 rounded-t-xl">
+            <span className="w-5 h-5 rounded-full bg-slate-800 text-white text-[10px] font-black flex items-center justify-center shrink-0">{n}</span>
+            <h4 className="text-[11px] font-black text-slate-700 uppercase tracking-wider">{title}</h4>
+        </header>
+        <div className="p-3">{children}</div>
+    </section>
+);
 
 const FormField = ({ label, required, error, children }) => (
     <div>
