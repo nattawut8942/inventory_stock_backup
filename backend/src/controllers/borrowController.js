@@ -8,6 +8,39 @@ import { getHrmPool } from '../config/hrmDb.js';
 // ✅ รูปแบบรหัสครุภัณฑ์บังคับฝั่ง backend ด้วย (validation #4) — เดิมเช็คแค่ frontend เท่านั้น
 const FIXED_ASSET_CODE_REGEX = /^(CO|OF)\d{2}-\d{3}-\d{2}$/;
 
+// สถานะ: เปิดอยู่ = ยังไม่คืน (borrowed, repairing) / ปิดแล้ว = returned, lost, damaged
+export const OPEN_STATUSES = ['borrowed', 'repairing'];
+export const CLOSED_STATUSES = ['returned', 'lost', 'damaged'];
+const RETURN_CONDITIONS = ['returned', 'lost', 'damaged', 'repairing'];
+
+// บันทึกประวัติการเปลี่ยนแปลง (ไม่ให้การบันทึกประวัติทำให้งานหลักล้มเหลว)
+const writeAudit = async (brID, action, actor, detail) => {
+    try {
+        await getPool().request()
+            .input('brID', sql.Int, brID)
+            .input('action', sql.VarChar, action)
+            .input('actor', sql.NVarChar, actor || null)
+            .input('detail', sql.NVarChar(sql.MAX), detail ? JSON.stringify(detail) : null)
+            .query(`INSERT INTO dbo.IT_Borrow_Audit (brID, action, actor, detail) VALUES (@brID, @action, @actor, @detail)`);
+    } catch (err) {
+        console.warn('[borrow audit] บันทึกประวัติไม่สำเร็จ:', err.message);
+    }
+};
+
+// GET ประวัติการเปลี่ยนแปลงของรายการยืมหนึ่งรายการ
+export const getBorrowAudit = async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid borrowing id' });
+    try {
+        const r = await getPool().request().input('brID', sql.Int, id)
+            .query(`SELECT id, action, actor, detail, created_at FROM dbo.IT_Borrow_Audit WHERE brID = @brID ORDER BY created_at DESC, id DESC`);
+        res.json(r.recordset.map(x => ({ ...x, detail: x.detail ? JSON.parse(x.detail) : null })));
+    } catch (err) {
+        console.error('Get Borrow Audit Error:', err);
+        res.status(500).json({ error: 'Database error' });
+    }
+};
+
 // ✅ ยืนยันรหัสพนักงานกับระบบ HR จริง แล้วคืนชื่อ/cost center ที่ถูกต้องจาก HR เสมอ
 // (ไม่เชื่อค่าที่ client ส่งมาตรงๆ กันกรอกชื่อ/แผนกไม่ตรงกับรหัสจริง)
 const verifyEmployeeWithHR = async (code) => {
@@ -179,7 +212,7 @@ export const createBorrowing = async (req, res) => {
             }
         }
 
-        await new sql.Request(transaction)
+        const insRes = await new sql.Request(transaction)
             .input('brname', sql.NVarChar, brname)
             .input('Category', sql.VarChar, Category || null)
             .input('brfixasset', sql.NVarChar, brfixasset || null)
@@ -196,9 +229,12 @@ export const createBorrowing = async (req, res) => {
             .query(`
                 INSERT INTO dbo.IT_Borrowings (brname, Category, brfixasset, brserial, brqty, brEmpCode, brEmpname, brEmpDept, brReason, StartDate, EndDate, brStatus, recorded_by)
                 VALUES (@brname, @Category, @brfixasset, @brserial, @brqty, @brEmpCode, @brEmpname, @brEmpDept, @brReason, @StartDate, @EndDate, @brStatus, @recorded_by)
+                SELECT SCOPE_IDENTITY() AS brID;
             `);
+        const newId = insRes.recordset?.[0]?.brID;
 
         await transaction.commit();
+        await writeAudit(newId, 'create', recorded_by, { brname, brEmpCode: emp.EmployeeCode, EndDate });
         res.json({
             success: true,
             message: 'บันทึกการยืมสำเร็จ',
@@ -258,7 +294,7 @@ export const updateBorrowing = async (req, res) => {
         // ✅ [validation #6] ถ้าจะปิดเป็น "คืนแล้ว" ต้องเช็คว่า StartDate ใหม่ไม่มาหลังวันที่คืนจริงเดิม (หรือหลังวันนี้ถ้ายังไม่เคยมีวันที่คืน)
         const existingRes = await new sql.Request(transaction)
             .input('brID', sql.Int, id)
-            .query(`SELECT ActualReturnDate FROM dbo.IT_Borrowings WITH (UPDLOCK, HOLDLOCK) WHERE brID = @brID`);
+            .query(`SELECT ActualReturnDate, brStatus, EndDate FROM dbo.IT_Borrowings WITH (UPDLOCK, HOLDLOCK) WHERE brID = @brID`);
         if (existingRes.recordset.length === 0) {
             await transaction.rollback();
             return res.status(404).json({ error: 'ไม่พบรายการนี้' });
@@ -340,6 +376,12 @@ export const updateBorrowing = async (req, res) => {
             return res.status(404).json({ error: 'ไม่พบรายการนี้' });
         }
         await transaction.commit();
+        const prevRow = existingRes.recordset[0];
+        const actionName = ['lost', 'damaged', 'repairing'].includes(status) ? status : 'edit';
+        await writeAudit(Number(id), actionName, req.body.updated_by || received_by || null, {
+            before: { brStatus: prevRow.brStatus, EndDate: prevRow.EndDate },
+            after: { brStatus: status, EndDate, brEmpCode, brfixasset: brfixasset || null },
+        });
         res.json({ success: true, message: 'แก้ไขข้อมูลสำเร็จ' });
     } catch (err) {
         await transaction.rollback().catch(() => {});
@@ -351,7 +393,10 @@ export const updateBorrowing = async (req, res) => {
 // PUT: รับคืน (คืนอุปกรณ์)
 export const returnBorrowing = async (req, res) => {
     const { id } = req.params;
-    const { received_by } = req.body;
+    const { received_by, condition = 'returned', note } = req.body;
+    if (!RETURN_CONDITIONS.includes(condition)) {
+        return res.status(400).json({ error: 'สถานะการคืนไม่ถูกต้อง' });
+    }
 
     if (!id || Number.isNaN(Number(id))) {
         return res.status(400).json({ error: 'Invalid borrowing id' });
@@ -362,19 +407,109 @@ export const returnBorrowing = async (req, res) => {
         const result = await pool.request()
             .input('brID', sql.Int, id)
             .input('received_by', sql.NVarChar, received_by || null)
+            .input('condition', sql.VarChar, condition)
             .input('ActualReturnDate', sql.DateTime, new Date())
             .query(`
                 UPDATE dbo.IT_Borrowings 
-                SET brStatus = 'returned', received_by = @received_by, ActualReturnDate = @ActualReturnDate
-                WHERE brID = @brID AND brStatus = 'borrowed'
+                SET brStatus = @condition,
+                    received_by = @received_by,
+                    ActualReturnDate = CASE WHEN @condition IN ('returned', 'lost', 'damaged') THEN @ActualReturnDate ELSE NULL END,
+                    LateDays = CASE WHEN @condition = 'returned' AND DATEDIFF(day, EndDate, CAST(@ActualReturnDate AS DATE)) > 0
+                                    THEN DATEDIFF(day, EndDate, CAST(@ActualReturnDate AS DATE)) ELSE 0 END,
+                    UpdatedBy = @received_by,
+                    UpdatedAt = GETDATE()
+                WHERE brID = @brID AND brStatus IN ('borrowed', 'repairing')
             `);
 
         if (result.rowsAffected[0] === 0) {
             return res.status(404).json({ error: 'ไม่พบรายการนี้ หรือถูกรับคืนไปแล้ว' });
         }
-        res.json({ success: true, message: 'รับคืนสำเร็จ' });
+        await writeAudit(Number(id), condition === 'returned' ? 'return' : condition, received_by || null, { condition, note: note || null });
+        const msg = { returned: 'รับคืนสำเร็จ', lost: 'บันทึกว่าสูญหายแล้ว', damaged: 'บันทึกว่าชำรุดแล้ว', repairing: 'บันทึกว่าส่งซ่อมแล้ว' }[condition];
+        res.json({ success: true, message: msg });
     } catch (err) {
         console.error('Return Borrowing Error:', err);
         res.status(500).json({ error: 'Failed to update status' });
+    }
+};
+// ── รายงานยืม-คืน ─────────────────────────────────────────────────────
+// GET /borrowings/report?from=YYYY-MM-DD&to=YYYY-MM-DD (กรองตามวันที่ยืม, ค่าเริ่มต้น = ทั้งหมด)
+const DAY_MS = 86400000;
+const dayOf = (d) => { const x = new Date(d); return new Date(x.getFullYear(), x.getMonth(), x.getDate()); };
+const monthKey = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`; };
+
+export const getBorrowReport = async (req, res) => {
+    try {
+        const r = await getPool().request().query(`SELECT * FROM dbo.IT_Borrowings ORDER BY brID DESC`);
+        const isYmd = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+        const from = isYmd(req.query.from) ? new Date(`${req.query.from}T00:00:00`) : null;
+        const to = isYmd(req.query.to) ? new Date(`${req.query.to}T23:59:59`) : null;
+        const today = dayOf(new Date());
+        const rows = r.recordset.filter(b => {
+            const s = new Date(b.StartDate);
+            return (!from || s >= from) && (!to || s <= to);
+        });
+
+        const isOpen = (b) => OPEN_STATUSES.includes(b.brStatus);
+        const overdueOf = (b) => isOpen(b) && b.EndDate && dayOf(b.EndDate) < today;
+        const dueSoonOf = (b) => isOpen(b) && b.EndDate && (() => { const n = Math.round((dayOf(b.EndDate) - today) / DAY_MS); return n >= 0 && n <= 7; })();
+        const returnedRows = rows.filter(b => b.brStatus === 'returned');
+        const late = returnedRows.filter(b => (b.LateDays || 0) > 0);
+        const durationDays = (b) => {
+            const end = b.ActualReturnDate ? new Date(b.ActualReturnDate) : new Date();
+            return Math.max(0, Math.round((dayOf(end) - dayOf(b.StartDate)) / DAY_MS));
+        };
+        const avg = (xs) => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null);
+
+        const kpi = {
+            total: rows.length,
+            open: rows.filter(isOpen).length,
+            overdue: rows.filter(overdueOf).length,
+            dueSoon: rows.filter(dueSoonOf).length,
+            returned: returnedRows.length,
+            lost: rows.filter(b => b.brStatus === 'lost').length,
+            damaged: rows.filter(b => b.brStatus === 'damaged').length,
+            repairing: rows.filter(b => b.brStatus === 'repairing').length,
+            onTimeRate: returnedRows.length ? Math.round(((returnedRows.length - late.length) / returnedRows.length) * 1000) / 10 : null,
+            avgLateDays: avg(late.map(b => b.LateDays || 0)),
+            avgBorrowDays: avg(rows.filter(b => b.brStatus !== 'borrowed' || b.ActualReturnDate).map(durationDays)),
+        };
+
+        // สรุปแยกกลุ่ม
+        const group = (keyOf) => {
+            const m = new Map();
+            for (const b of rows) {
+                const k = keyOf(b) || 'ไม่ระบุ';
+                const g = m.get(k) || { key: k, total: 0, open: 0, overdue: 0, returned: 0, late: 0 };
+                g.total += 1;
+                if (isOpen(b)) g.open += 1;
+                if (overdueOf(b)) g.overdue += 1;
+                if (b.brStatus === 'returned') { g.returned += 1; if ((b.LateDays || 0) > 0) g.late += 1; }
+                m.set(k, g);
+            }
+            return [...m.values()].sort((a, b) => b.total - a.total);
+        };
+
+        // ประวัติรายเดือน (12 เดือนล่าสุด): ยืม และ คืน
+        const months = [];
+        for (let i = 11; i >= 0; i--) { const d = new Date(today.getFullYear(), today.getMonth() - i, 1); months.push(monthKey(d)); }
+        const monthly = months.map(m => ({
+            month: m,
+            borrowed: rows.filter(b => monthKey(b.StartDate) === m).length,
+            returned: rows.filter(b => b.ActualReturnDate && monthKey(b.ActualReturnDate) === m && b.brStatus === 'returned').length,
+        }));
+
+        res.json({
+            kpi,
+            byDept: group(b => b.brEmpDept),
+            byCategory: group(b => b.Category),
+            byEmployee: group(b => `${b.brEmpname || ''} (${b.brEmpCode || '-'})`).slice(0, 15),
+            monthly,
+            dueSoonList: rows.filter(dueSoonOf).slice(0, 50).map(b => ({ brID: b.brID, brname: b.brname, brEmpname: b.brEmpname, EndDate: b.EndDate, daysLeft: Math.round((dayOf(b.EndDate) - today) / DAY_MS) })),
+            openOverdue: rows.filter(overdueOf).slice(0, 50).map(b => ({ brID: b.brID, brname: b.brname, brEmpname: b.brEmpname, EndDate: b.EndDate, daysLate: Math.round((today - dayOf(b.EndDate)) / DAY_MS) })),
+        });
+    } catch (err) {
+        console.error('Borrow Report Error:', err);
+        res.status(500).json({ error: 'Database error' });
     }
 };

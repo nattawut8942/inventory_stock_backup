@@ -385,6 +385,18 @@ const startServer = async () => {
 };
 
 // ─── Sound Layout Health Check (08:00 และ 14:00) ──────────────
+// เตือนรายการยืมค้าง/ใกล้ครบ — เปิดเฉพาะเมื่อ BORROW_REMINDER_ENABLED=true (ปิดไว้เป็นค่าเริ่มต้น)
+if (process.env.BORROW_REMINDER_ENABLED === 'true') {
+    cron.schedule('0 8 * * 1-5', async () => {
+        try {
+            const { runBorrowReminders } = await import('./src/borrow/borrowReminderJob.js');
+            console.log('[Borrow reminder]', await runBorrowReminders());
+        } catch (err) {
+            console.error('[Borrow reminder] error:', err.message);
+        }
+    }, { scheduled: true, timezone: 'Asia/Bangkok' });
+}
+
 cron.schedule('0 8,14 * * *', async () => {
     console.log(`[Sound Cron] Health check started: ${new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}`);
     try {

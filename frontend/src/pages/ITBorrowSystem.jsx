@@ -5,6 +5,7 @@ import { useAuth, getAuthToken } from '../context/AuthContext';
 import { useCan, useCanAct } from '../context/PermissionContext';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config/api';
+import BorrowReportPanel from '../components/borrow/BorrowReportPanel';
 
 // ✅ JWT จาก AuthContext — backend ของ Borrowing ใช้ verifyToken ทุก endpoint จึงต้องแนบทุกครั้ง
 const authHeaders = (extra = {}) => {
@@ -90,7 +91,11 @@ const addDaysToInput = (isoDate, n) => {
   const [y, m, d] = isoDate.split('-').map(Number);
   return toInputDate(new Date(y, m - 1, d + n));
 };
-const isReturned = (b) => b.brStatus === 'returned';
+// สถานะที่ปิดแล้ว: คืนแล้ว / สูญหาย / ชำรุด (ส่งซ่อม ยังถือว่าเปิดอยู่)
+const CLOSED_STATUSES = ['returned', 'lost', 'damaged'];
+const ABNORMAL_STATUSES = ['lost', 'damaged', 'repairing'];
+const STATUS_LABEL = { borrowed: 'กำลังยืม', repairing: 'ส่งซ่อม', returned: 'คืนแล้ว', lost: 'สูญหาย', damaged: 'ชำรุด' };
+const isReturned = (b) => CLOSED_STATUSES.includes(b.brStatus);
 // เกินกำหนดเมื่อวันกำหนดคืนอยู่ก่อนวันนี้ (เทียบที่เที่ยงคืน จึงไม่ขึ้นเกินกำหนดตั้งแต่เช้าของวันครบกำหนด)
 const isOverdue = (b) => !isReturned(b) && !!b.EndDate && daysUntil(b.EndDate) < 0;
 const isDueSoon = (b) => {
@@ -158,6 +163,19 @@ const ITBorrowSystem = () => {
   const [formError, setFormError] = useState('');
   const [returningId, setReturningId] = useState(null);
   const [detailItem, setDetailItem] = useState(null);
+  const [auditRows, setAuditRows] = useState([]);
+  const [showReport, setShowReport] = useState(false);
+  // ประวัติการเปลี่ยนแปลงของรายการที่เปิดดู
+  useEffect(() => {
+    if (!detailItem) { setAuditRows([]); return; }
+    let cancelled = false;
+    fetch(`${API_BASE}/borrowings/${detailItem.brID}/audit`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => { if (!cancelled) setAuditRows(Array.isArray(d) ? d : []); })
+      .catch(() => { if (!cancelled) setAuditRows([]); });
+    return () => { cancelled = true; };
+  }, [detailItem?.brID]);
+  const AUDIT_LABEL = { create: 'บันทึกการยืม', edit: 'แก้ไขข้อมูล', extend: 'ต่อวันคืน', return: 'รับคืนแล้ว', lost: 'แจ้งสูญหาย', damaged: 'แจ้งชำรุด', repairing: 'ส่งซ่อม' };
   const [confirmReturnItem, setConfirmReturnItem] = useState(null);
 
   const [editItem, setEditItem] = useState(null); // borrowing record being edited (null = closed)
@@ -317,7 +335,7 @@ const ITBorrowSystem = () => {
     return list.filter((b) => {
       const matchesSearch =
         !q ||
-        [b.brname, b.brEmpname, b.brEmpDept, b.brserial, b.brfixasset]
+        [b.brname, b.brEmpname, b.brEmpDept, b.brEmpCode, b.Category, b.brReason, b.brserial, b.brfixasset]
           .filter(Boolean)
           .some((field) => String(field).toLowerCase().includes(q));
       const matchesStatus =
@@ -325,7 +343,8 @@ const ITBorrowSystem = () => {
         (statusFilter === 'returned' && isReturned(b)) ||
         (statusFilter === 'borrowed' && !isReturned(b)) ||
         (statusFilter === 'overdue' && isOverdue(b)) ||
-        (statusFilter === 'due-soon' && isDueSoon(b));
+        (statusFilter === 'due-soon' && isDueSoon(b)) ||
+        (statusFilter === 'abnormal' && ABNORMAL_STATUSES.includes(b.brStatus));
       return matchesSearch && matchesStatus;
     });
   }, [list, search, statusFilter]);
@@ -347,7 +366,7 @@ const ITBorrowSystem = () => {
   const borrowDurationDays = (b) => {
     if (!b.StartDate) return null;
     const start = new Date(b.StartDate);
-    const end = b.brStatus === 'returned' && b.ActualReturnDate ? new Date(b.ActualReturnDate) : new Date();
+    const end = isReturned(b) && b.ActualReturnDate ? new Date(b.ActualReturnDate) : new Date();
     const diffDays = Math.floor((end.setHours(0, 0, 0, 0) - start.setHours(0, 0, 0, 0)) / (1000 * 60 * 60 * 24));
     return diffDays < 0 ? 0 : diffDays;
   };
@@ -457,14 +476,14 @@ const ITBorrowSystem = () => {
     }
   };
 
-  const handleReturn = async (id) => {
+  const handleReturn = async (id, condition = 'returned', note = '') => {
     setReturningId(id);
     const now = new Date().toISOString();
     try {
       const res = await fetch(`${API_BASE}/borrowings/${id}/return`, {
         method: 'PUT',
         headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ received_by: (user?.username || '').toUpperCase() }), 
+        body: JSON.stringify({ received_by: (user?.username || '').toUpperCase(), condition, note }),
       });
       if (handleUnauthorized(res)) return;
       if (!res.ok) throw new Error('รับคืนไม่สำเร็จ');
@@ -472,7 +491,7 @@ const ITBorrowSystem = () => {
       setList((prev) =>
         prev.map((l) =>
           l.brID === id
-            ? { ...l, brStatus: 'returned', received_by: (user?.username || '').toUpperCase(), ActualReturnDate: now } 
+            ? { ...l, brStatus: condition, received_by: (user?.username || '').toUpperCase(), ActualReturnDate: ['returned', 'lost', 'damaged'].includes(condition) ? now : null }
             : l
         )
       );
@@ -486,12 +505,16 @@ const ITBorrowSystem = () => {
   };
 
   // เปิด modal ยืนยันก่อนรับคืนจริง — กัน handleReturn ถูกยิงตรงจากการกดพลาด
-  const requestReturn = (b) => setConfirmReturnItem(b);
+  const [returnCond, setReturnCond] = useState('returned');
+  const [returnNote, setReturnNote] = useState('');
+  const requestReturn = (b) => { setReturnCond('returned'); setReturnNote(''); setConfirmReturnItem(b); };
   const confirmReturn = async () => {
     if (!confirmReturnItem) return;
     const id = confirmReturnItem.brID;
+    const cond = returnCond;
+    const note = returnNote.trim();
     setConfirmReturnItem(null);
-    await handleReturn(id);
+    await handleReturn(id, cond, note);
   };
 
   // ── ยืดเวลาคืน (Staff) — ส่ง PUT ชุดเดิมพร้อมวันกำหนดคืนใหม่ ─────
@@ -626,6 +649,7 @@ const ITBorrowSystem = () => {
         body: JSON.stringify({
           ...editForm,
           brqty: editForm.Category === 'Asset' ? 1 : (Number(editForm.brqty) || 1),
+          updated_by: (user?.username || '').toUpperCase(),
           received_by: editForm.brStatus === 'returned' ? (editForm.received_by || user?.username || '').toUpperCase() : null,
         }),
       });
@@ -679,6 +703,14 @@ const ITBorrowSystem = () => {
         </div>
       </header>
 
+      <div className="inline-flex bg-white border border-slate-200 rounded-xl p-1 shadow-sm mb-4">
+        {[{ k: false, label: 'รายการยืม-คืน' }, { k: true, label: 'รายงาน' }].map((t) => (
+          <button key={String(t.k)} onClick={() => setShowReport(t.k)}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition ${showReport === t.k ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-700'}`}>{t.label}</button>
+        ))}
+      </div>
+
+      <div className={showReport ? 'hidden' : ''}>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <StatCard icon={PackageOpen} title="ทั้งหมด" value={stats.total} color="from-slate-500 to-slate-700" />
         <StatCard icon={ArrowLeftRight} title="กำลังยืมอยู่" value={stats.borrowed} color="from-emerald-400 to-emerald-600" />
@@ -696,6 +728,7 @@ const ITBorrowSystem = () => {
             { key: 'due-soon', label: 'ใกล้ครบกำหนด', count: stats.dueSoon },
             { key: 'overdue', label: 'เกินกำหนด', count: stats.overdue },
             { key: 'returned', label: 'คืนแล้ว', count: stats.returned },
+            { key: 'abnormal', label: 'สูญหาย/ชำรุด/ส่งซ่อม', count: list.filter((b) => ABNORMAL_STATUSES.includes(b.brStatus)).length },
           ].map((opt) => {
             const active = statusFilter === opt.key;
             return (
@@ -809,9 +842,10 @@ const ITBorrowSystem = () => {
                       )}
                     </td>
                     <td className="px-4 py-2 text-center">
-                      {b.brStatus === 'returned' ? (
+                      {isReturned(b) ? (
                         <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                          คืนแล้ว
+                          {STATUS_LABEL[b.brStatus] || 'คืนแล้ว'}
+                          {b.LateDays > 0 && <span className="text-amber-600">· ช้า {b.LateDays} วัน</span>}
                         </span>
                       ) : overdue ? (
                         <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-600 text-xs font-bold px-2.5 py-0.5 rounded-full">
@@ -1015,6 +1049,11 @@ const ITBorrowSystem = () => {
           </div>
         )}
       </div>
+      </div>
+
+      {showReport && (
+        <BorrowReportPanel inline headers={authHeaders()} />
+      )}
 
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
@@ -1419,7 +1458,7 @@ const ITBorrowSystem = () => {
                 <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">ไทม์ไลน์</span>
                 <div className="mt-4">
                   {(() => {
-                    const returned = detailItem.brStatus === 'returned';
+                    const returned = isReturned(detailItem);
                     const overdue = isOverdue(detailItem);
                     const steps = [
                       {
@@ -1463,16 +1502,31 @@ const ITBorrowSystem = () => {
                 </div>
 
                 <div className="mt-1">
-                  {detailItem.brStatus === 'returned' ? (
+                  {isReturned(detailItem) ? (
                     <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 text-[11px] font-bold px-2.5 py-1 rounded-full">คืนแล้ว</span>
                   ) : isOverdue(detailItem) ? (
                     <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-600 text-[11px] font-bold px-2.5 py-1 rounded-full">เกินกำหนด</span>
                   ) : (
                     <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 text-[11px] font-bold px-2.5 py-1 rounded-full">กำลังยืม</span>
                   )}
+                  {auditRows.length > 0 && (
+                    <div className="mt-4 border-t border-slate-100 pt-3">
+                      <div className="text-xs font-bold text-slate-500 mb-2">ประวัติการเปลี่ยนแปลง</div>
+                      <ul className="space-y-1.5 max-h-40 overflow-y-auto">
+                        {auditRows.map((a) => (
+                          <li key={a.id} className="text-[11px] text-slate-600 flex flex-wrap gap-x-2">
+                            <span className="font-bold text-slate-700">{AUDIT_LABEL[a.action] || a.action}</span>
+                            <span className="text-slate-400">{new Date(a.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                            <span>โดย {a.actor || '-'}</span>
+                            {a.detail?.note && <span className="text-slate-500">· {a.detail.note}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {borrowDurationDays(detailItem) !== null && (
                     <p className="text-[11px] text-slate-400 mt-2">
-                      {detailItem.brStatus === 'returned'
+                      {isReturned(detailItem)
                         ? `ยืมทั้งหมด ${borrowDurationDays(detailItem)} วัน`
                         : `ยืมมาแล้ว ${borrowDurationDays(detailItem)} วัน`}
                     </p>
@@ -1555,6 +1609,24 @@ const ITBorrowSystem = () => {
               <br />
               ผู้ยืม: {confirmReturnItem.brEmpname}
             </p>
+            <div className="text-left space-y-2 mb-5">
+              <label className="text-xs font-bold text-slate-500">สถานะการคืน</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { v: 'returned', label: 'คืนปกติ', cls: 'border-emerald-400 text-emerald-700' },
+                  { v: 'damaged', label: 'ชำรุด', cls: 'border-orange-400 text-orange-700' },
+                  { v: 'lost', label: 'สูญหาย', cls: 'border-rose-400 text-rose-700' },
+                  { v: 'repairing', label: 'ส่งซ่อม (ยังไม่กลับ)', cls: 'border-sky-400 text-sky-700' },
+                ].map((o) => (
+                  <button key={o.v} type="button" onClick={() => setReturnCond(o.v)}
+                    className={`py-2 rounded-xl text-xs font-bold border-2 transition-all ${returnCond === o.v ? `${o.cls} bg-white` : 'border-slate-200 text-slate-500'}`}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <input value={returnNote} onChange={(e) => setReturnNote(e.target.value)} placeholder="หมายเหตุ (ถ้ามี)"
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+            </div>
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmReturnItem(null)}
@@ -1727,6 +1799,9 @@ const ITBorrowSystem = () => {
                   {[
                     { value: 'borrowed', label: 'กำลังยืม' },
                     { value: 'returned', label: 'คืนแล้ว' },
+                    { value: 'repairing', label: 'ส่งซ่อม' },
+                    { value: 'damaged', label: 'ชำรุด' },
+                    { value: 'lost', label: 'สูญหาย' },
                   ].map((opt) => (
                     <button
                       key={opt.value}
