@@ -122,6 +122,24 @@ export default function StockMovementView({ type, location }) {
         });
     }, [data, query, dirFilter]);
 
+    // แบ่งหน้าตารางรายการ (ทำฝั่ง client จากข้อมูลที่โหลดมาแล้ว)
+    const PAGE_SIZE = 20;
+    const [page, setPage] = useState(1);
+    useEffect(() => { setPage(1); }, [query, dirFilter, data]);
+    const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+    const curPage = Math.min(page, totalPages);
+    const pageStart = (curPage - 1) * PAGE_SIZE;
+    const pageRows = rows.slice(pageStart, pageStart + PAGE_SIZE);
+    // แสดงเลขหน้า: หน้าแรก, หน้าสุดท้าย และรอบหน้าปัจจุบัน ที่เหลือเป็น "…"
+    const pageNumbers = (() => {
+        const out = [];
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || Math.abs(i - curPage) <= 1) out.push(i);
+            else if (out[out.length - 1] !== '…') out.push('…');
+        }
+        return out;
+    })();
+
     const chartData = useMemo(() => (data?.monthly || []).map((m) => ({
         name: m.label, IN: metric === 'qty' ? m.inQty : m.inValue, OUT: metric === 'qty' ? m.outQty : m.outValue,
         NET: metric === 'qty' ? m.inQty - m.outQty : Math.round(m.inValue - m.outValue),
@@ -223,7 +241,7 @@ export default function StockMovementView({ type, location }) {
                     <div className="flex flex-wrap items-center gap-3 mb-4">
                         <div className="mr-auto">
                             <h3 className="font-bold text-slate-800">รายการเคลื่อนไหว</h3>
-                            <p className="text-xs text-slate-500">แสดง {Math.min(rows.length, 300).toLocaleString()} จาก {rows.length.toLocaleString()} รายการ{data.transactionTotal > data.transactions.length ? ` (โหลดมา ${data.transactions.length} ล่าสุด — Export เพื่อดูตามที่โหลด)` : ''}</p>
+                            <p className="text-xs text-slate-500">แสดง {rows.length === 0 ? 0 : pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, rows.length)} จาก {rows.length.toLocaleString()} รายการ{data.transactionTotal > data.transactions.length ? ` (โหลดมา ${data.transactions.length} ล่าสุด — Export เพื่อดูตามที่โหลด)` : ''}</p>
                         </div>
                         <div className="flex p-1 rounded-xl bg-slate-100">
                             {[['all', 'ทั้งหมด'], ['IN', 'รับเข้า'], ['OUT', 'เบิกออก']].map(([id, label]) => (
@@ -246,7 +264,7 @@ export default function StockMovementView({ type, location }) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {rows.slice(0, 300).map((t) => (
+                                {pageRows.map((t) => (
                                     <tr key={t.TransID} className="hover:bg-slate-50" title={t.RefInfo}>
                                         <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{fmtDT(t.TransDate)}</td>
                                         <td className="px-3 py-2">
@@ -264,6 +282,23 @@ export default function StockMovementView({ type, location }) {
                             </tbody>
                         </table>
                     </div>
+                    {totalPages > 1 && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 mt-4">
+                            <p className="text-xs text-slate-500">หน้า {curPage} จาก {totalPages}</p>
+                            <div className="flex items-center gap-1">
+                                <button onClick={() => setPage(curPage - 1)} disabled={curPage === 1}
+                                    className="h-8 px-3 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">ก่อนหน้า</button>
+                                {pageNumbers.map((n, i) => n === '…' ? (
+                                    <span key={`e${i}`} className="px-2 text-xs text-slate-400">…</span>
+                                ) : (
+                                    <button key={n} onClick={() => setPage(n)}
+                                        className={`min-w-[32px] h-8 px-2 rounded-lg text-xs font-bold border transition-all ${n === curPage ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>{n}</button>
+                                ))}
+                                <button onClick={() => setPage(curPage + 1)} disabled={curPage === totalPages}
+                                    className="h-8 px-3 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">ถัดไป</button>
+                            </div>
+                        </div>
+                    )}
                 </Card>
             )}
 
