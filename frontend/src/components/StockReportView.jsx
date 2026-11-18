@@ -11,6 +11,7 @@ import StockAnalysisView from './StockAnalysisView';
 import StockProcurementView from './StockProcurementView';
 import StockCountQualityView from './StockCountQualityView';
 import { API_BASE } from '../config/api';
+import { usePager, PagerBar } from './StockPager';
 
 // ─── constants ──────────────────────────────────────────
 const STATUS = {
@@ -143,6 +144,7 @@ export default function StockReportView() {
             return (typeof x === 'string' ? x.localeCompare(y, 'th') : x - y) * dir;
         });
     }, [data, query, statusFilter, sort]);
+    const pager = usePager(rows, 20);
 
     const toggleSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'ProductName' ? 'asc' : 'desc' }));
 
@@ -263,7 +265,7 @@ export default function StockReportView() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {rows.slice(0, 500).map((r) => (
+                                {pager.pageRows.map((r) => (
                                     <tr key={r.ProductID} className="hover:bg-slate-50">
                                         <td className="px-3 py-2 font-medium text-slate-800 max-w-[260px] truncate" title={r.ProductName}>{r.ProductName}</td>
                                         <td className="px-3 py-2 text-slate-600">{r.TypeLabel}</td>
@@ -284,7 +286,7 @@ export default function StockReportView() {
                             </tbody>
                         </table>
                     </div>
-                    {rows.length > 500 && <p className="text-xs text-slate-400 mt-2">แสดง 500 รายการแรก — ใช้ตัวกรองหรือ Export Excel เพื่อดูทั้งหมด</p>}
+                    <PagerBar curPage={pager.curPage} totalPages={pager.totalPages} setPage={pager.setPage} pageStart={pager.pageStart} pageSize={pager.pageSize} total={pager.total} />
                 </Card>
             )}
 

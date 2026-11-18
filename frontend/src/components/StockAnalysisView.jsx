@@ -4,6 +4,7 @@ import { Download, AlertTriangle, ShoppingCart, Hourglass, Snowflake, Layers, In
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
 import * as XLSX from 'xlsx';
 import { API_BASE } from '../config/api';
+import { usePager, PagerBar } from './StockPager';
 
 const CLS = {
     A: { color: '#ef4444', badge: 'bg-red-50 text-red-700 border-red-200', hint: '80% แรกของมูลค่าเบิก' },
@@ -33,10 +34,9 @@ const Kpi = ({ icon: Icon, label, value, sub, tone }) => {
     );
 };
 
-// ตารางที่ย่อไว้ก่อน กด "ดูทั้งหมด" เพื่อขยาย
+// ตารางแบ่งหน้า (limit = จำนวนรายการต่อหน้า)
 const Table = ({ columns, rows, limit = 10, empty = 'ไม่มีข้อมูล', rowKey }) => {
-    const [open, setOpen] = useState(false);
-    const shown = open ? rows : rows.slice(0, limit);
+    const pager = usePager(rows, limit);
     return (
         <>
             <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -45,8 +45,8 @@ const Table = ({ columns, rows, limit = 10, empty = 'ไม่มีข้อม
                         <tr>{columns.map((c) => <th key={c.h} className={`px-3 py-2.5 font-bold ${c.right ? 'text-right' : 'text-left'}`}>{c.h}</th>)}</tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {shown.map((r, i) => (
-                            <tr key={rowKey ? rowKey(r) : i} className="hover:bg-slate-50">
+                        {pager.pageRows.map((r, i) => (
+                            <tr key={rowKey ? rowKey(r) : pager.pageStart + i} className="hover:bg-slate-50">
                                 {columns.map((c) => <td key={c.h} className={`px-3 py-2 ${c.right ? 'text-right tabular-nums' : ''} ${c.cls || ''}`}>{c.cell(r)}</td>)}
                             </tr>
                         ))}
@@ -54,11 +54,7 @@ const Table = ({ columns, rows, limit = 10, empty = 'ไม่มีข้อม
                     </tbody>
                 </table>
             </div>
-            {rows.length > limit && (
-                <button onClick={() => setOpen((v) => !v)} className="mt-2 text-xs font-bold text-indigo-600 hover:underline">
-                    {open ? 'ย่อรายการ' : `ดูทั้งหมด (${rows.length})`}
-                </button>
-            )}
+            <PagerBar curPage={pager.curPage} totalPages={pager.totalPages} setPage={pager.setPage} pageStart={pager.pageStart} pageSize={pager.pageSize} total={pager.total} />
         </>
     );
 };
