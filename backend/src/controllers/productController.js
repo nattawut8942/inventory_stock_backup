@@ -134,90 +134,155 @@ export const deleteProduct = async (req, res) => {
 
 // MANUAL IMPORT
 export const manualImport = async (req, res) => {
-    const { ProductName, DeviceType, LastPrice, CurrentStock, MinStock, MaxStock, Remark, UserID, Location } = req.body;
+const MANUAL_IMPORT_MAX_INT = 2147483647;
+const MANUAL_IMPORT_MAX_REMARK = 200;
 
-    const qty = parseInt(CurrentStock) || 0;
-    const unitCost = parseFloat(LastPrice) || 0;
-    const minStock = parseInt(MinStock) || 0;
-    const maxStock = parseInt(MaxStock) || 0;
+const isBlank = (v) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+
+    const body = req.body || {};
+    const { ProductName, DeviceType, LastPrice, CurrentStock, MinStock, MaxStock, Remark, UserID, Location } = body;
+
+    // ---- Validation (all server-side; never trust the client) ----
+    const name = typeof ProductName === 'string' ? ProductName.trim() : '';
+    if (!name) return res.status(400).json({ error: 'กรุณาระบุชื่ออุปกรณ์' });
+    if (name.length > 255) return res.status(400).json({ error: 'ชื่ออุปกรณ์ยาวเกิน 255 ตัวอักษร' });
+
+    const deviceType = typeof DeviceType === 'string' ? DeviceType.trim() : '';
+    if (!deviceType) return res.status(400).json({ error: 'กรุณาเลือกหมวดหมู่' });
+    if (deviceType.length > 50) return res.status(400).json({ error: 'หมวดหมู่ไม่ถูกต้อง' });
 
     try {
-        const pool = getPool();
-        const transaction = new sql.Transaction(pool);
+    const qty = isBlank(CurrentStock) ? NaN : Number(CurrentStock);
+    if (!Number.isInteger(qty) || qty <= 0 || qty > MANUAL_IMPORT_MAX_INT) {
+        return res.status(400).json({ error: 'จำนวนต้องเป็นจำนวนเต็มที่มากกว่า 0' });
+    }
+
+    const unitCost = isBlank(LastPrice) ? NaN : Number(LastPrice);
+    if (!Number.isFinite(unitCost) || unitCost < 0 || unitCost >= 1e15) {
+        return res.status(400).json({ error: 'ราคาต่อชิ้นต้องเป็นตัวเลขที่ไม่ติดลบ' });
+    }
+
+    const minStock = isBlank(MinStock) ? NaN : Number(MinStock);
+    if (!Number.isInteger(minStock) || minStock < 0 || minStock > MANUAL_IMPORT_MAX_INT) {
+        return res.status(400).json({ error: 'สต็อกขั้นต่ำต้องเป็นจำนวนเต็มที่ไม่ติดลบ' });
+    }
+
+    // Blank max = "keep existing" for an existing product, 0 for a new one (original behaviour).
+    const maxStockInput = isBlank(MaxStock) ? null : Number(MaxStock);
+    if (maxStockInput !== null && (!Number.isInteger(maxStockInput) || maxStockInput < 0 || maxStockInput > MANUAL_IMPORT_MAX_INT)) {
+        return res.status(400).json({ error: 'สต็อกสูงสุดต้องเป็นจำนวนเต็มที่ไม่ติดลบ' });
+    }
+    if (maxStockInput !== null && maxStockInput > 0 && minStock > maxStockInput) {
+        return res.status(400).json({ error: 'สต็อกขั้นต่ำต้องไม่มากกว่าสต็อกสูงสุด' });
+    }
+
+    const remark = typeof Remark === 'string' ? Remark.trim() : '';
+    if (remark.length > MANUAL_IMPORT_MAX_REMARK) {
+        return res.status(400).json({ error: `หมายเหตุยาวเกิน ${MANUAL_IMPORT_MAX_REMARK} ตัวอักษร` });
+    }
+
+    const location = typeof Location === 'string' && Location.trim() ? Location.trim().slice(0, 100) : null;
+    const userId = typeof UserID === 'string' && UserID.trim() ? UserID.trim().toUpperCase() : null;
+    const now = getThaiDate();
+
+    // ---- Transaction ----
+    let began = false;
+    const transaction = new sql.Transaction(getPool());
         await transaction.begin();
 
-        try {
-            // 1. Check if product exists
-            let productID;
-            const checkRes = await new sql.Request(transaction)
-                .input('ProductName', sql.NVarChar, ProductName.trim())
-                .query('SELECT ProductID FROM dbo.Stock_Products WHERE ProductName = @ProductName');
-
-            if (checkRes.recordset.length > 0) {
-                // Update Existing Product
-                productID = checkRes.recordset[0].ProductID;
-                await new sql.Request(transaction)
-                    .input('ProductID', sql.Int, productID)
-                    .input('Qty', sql.Int, qty)
-                    .input('UnitCost', sql.Decimal(18, 2), unitCost)
-                    .input('MinStock', sql.Int, minStock)
-                    .input('MaxStock', sql.Int, maxStock)
-                    .input('Location', sql.NVarChar, Location || null)
-                    .query(`
-                        UPDATE dbo.Stock_Products 
-                        SET CurrentStock = CurrentStock + @Qty,
-                            LastPrice = @UnitCost,
-                            MinStock = @MinStock,
-                            MaxStock = @MaxStock,
-                            Location = COALESCE(@Location, Location),
-                            IsActive = 1
-                        WHERE ProductID = @ProductID
-                    `);
-            } else {
-                // Create New Product
-                const insertRes = await new sql.Request(transaction)
-    .input('ProductName', sql.NVarChar(255), ProductName.trim())
-    .input('DeviceType', sql.VarChar(50), DeviceType || null)
-    .input('CurrentStock', sql.Int, qty)
-    .input('UnitCost', sql.Decimal(18, 2), unitCost)
-    .input('MinStock', sql.Int, minStock)
-    .input('MaxStock', sql.Int, maxStock)
-    .input('Location', sql.NVarChar(100), Location || null)
-    .input('business_priority', sql.TinyInt, 3)  // ✅ ADD THIS
-    .input('priority_label', sql.NVarChar(20), 'MEDIUM')  // ✅ ADD THIS
-    .query(`
-        INSERT INTO dbo.Stock_Products 
-            (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, MaxStock, Location, IsActive, business_priority, priority_label)
-        OUTPUT INSERTED.ProductID
-        VALUES (@ProductName, @DeviceType, @CurrentStock, @UnitCost, @MinStock, @MaxStock, @Location, 1, @business_priority, @priority_label)
-    `);
-                productID = insertRes.recordset[0].ProductID;
-            }
+        began = true;
+        // 1. Find product. UPDLOCK/HOLDLOCK stops two imports of the same new name from both inserting.
+        const checkRes = await new sql.Request(transaction)
+            .input('ProductName', sql.NVarChar(255), name)
+            .query(`
+                SELECT ProductID, IsActive
+                FROM dbo.Stock_Products WITH (UPDLOCK, HOLDLOCK)
+                WHERE ProductName = @ProductName
+            `);
 
 
-            // 2. Log Transaction
-            const now = getThaiDate();
-            await new sql.Request(transaction)
+        let productID;
+        let action;
+        let reactivated = false;
+        let previousStock = 0;
+        let newStock;
+        if (checkRes.recordset.length > 0) {
+            action = 'updated';
+            productID = checkRes.recordset[0].ProductID;
+            reactivated = !checkRes.recordset[0].IsActive;
+
+            const upd = await new sql.Request(transaction)
                 .input('ProductID', sql.Int, productID)
-                .input('TransType', sql.VarChar, 'IN')
                 .input('Qty', sql.Int, qty)
-                .input('RefInfo', sql.NVarChar, Remark || 'Manual Import')
-                .input('UserID', sql.NVarChar, UserID ? String(UserID).trim().toUpperCase() : UserID)
-                .input('TransDate', sql.DateTime, now)
+                .input('UnitCost', sql.Decimal(18, 2), unitCost)
+                .input('MinStock', sql.Int, minStock)
+                .input('MaxStock', sql.Int, maxStockInput)
+                .input('DeviceType', sql.VarChar(50), deviceType)
+                .input('Location', sql.NVarChar(100), location)
                 .query(`
-                    INSERT INTO dbo.Stock_Transactions (ProductID, TransType, Qty, RefInfo, UserID, TransDate)
-                    VALUES (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate)
+                    UPDATE dbo.Stock_Products
+                    SET CurrentStock = CurrentStock + @Qty,
+                        LastPrice = @UnitCost,
+                        MinStock = @MinStock,
+                        MaxStock = COALESCE(@MaxStock, MaxStock),
+                        DeviceType = @DeviceType,
+                        Location = COALESCE(@Location, Location),
+                        IsActive = 1
+                    OUTPUT DELETED.CurrentStock AS PrevStock, INSERTED.CurrentStock AS NewStock
+                    WHERE ProductID = @ProductID
                 `);
-
-            await transaction.commit();
-            res.json({ success: true, message: 'Import successful' });
-        } catch (err) {
-            await transaction.rollback();
-            throw err;
+            previousStock = upd.recordset[0].PrevStock;
+            newStock = upd.recordset[0].NewStock;
+        } else {
+            action = 'created';
+            const insertRes = await new sql.Request(transaction)
+                .input('ProductName', sql.NVarChar(255), name)
+                .input('DeviceType', sql.VarChar(50), deviceType)
+                .input('CurrentStock', sql.Int, qty)
+                .input('UnitCost', sql.Decimal(18, 2), unitCost)
+                .input('MinStock', sql.Int, minStock)
+                .input('MaxStock', sql.Int, maxStockInput ?? 0)
+                .input('Location', sql.NVarChar(100), location)
+                .input('business_priority', sql.TinyInt, 3)
+                .input('priority_label', sql.NVarChar(20), 'MEDIUM')
+                .query(`
+                    INSERT INTO dbo.Stock_Products
+                        (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, MaxStock, Location, IsActive, business_priority, priority_label)
+                    OUTPUT INSERTED.ProductID, INSERTED.CurrentStock AS NewStock
+                    VALUES (@ProductName, @DeviceType, @CurrentStock, @UnitCost, @MinStock, @MaxStock, @Location, 1, @business_priority, @priority_label)
+                `);
+            productID = insertRes.recordset[0].ProductID;
+            newStock = insertRes.recordset[0].NewStock;
         }
     } catch (err) {
+
+        // 2. Log the transaction
+        await new sql.Request(transaction)
+            .input('ProductID', sql.Int, productID)
+            .input('TransType', sql.VarChar(10), 'IN')
+            .input('Qty', sql.Int, qty)
+            .input('RefInfo', sql.NVarChar(MANUAL_IMPORT_MAX_REMARK), remark || 'Manual Import')
+            .input('UserID', sql.NVarChar(50), userId)
+            .input('TransDate', sql.DateTime, now)
+            .query(`
+                INSERT INTO dbo.Stock_Transactions (ProductID, TransType, Qty, RefInfo, UserID, TransDate)
+                VALUES (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate)
+            `);
+
+        await transaction.commit();
+        return res.json({
+            success: true,
+            message: 'Import successful',
+            action,
+            productId: productID,
+            previousStock,
+            addedQty: qty,
+            newStock,
+            reactivated
+        });
         console.error('Manual Import Error:', err);
-        res.status(500).json({ error: err.message });
+        if (began) await transaction.rollback().catch(() => {});
+        return res.status(500).json({ error: 'ไม่สามารถนำเข้าอุปกรณ์ได้ กรุณาลองใหม่อีกครั้ง' });
     }
 };
 
