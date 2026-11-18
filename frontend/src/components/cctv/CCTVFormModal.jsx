@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
-import { X, Upload, User } from 'lucide-react';
+import { X, Upload, User, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { API_BASE, API_URL } from '../../config/api';
 import { useAuth } from '../../context/AuthContext';
 import { drawCCTVIcon } from './cctvIconUtils';
@@ -47,7 +47,10 @@ const Field = ({ label, children, required }) => (
     </div>
 );
 
-const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, switches, selectedLayoutId, onClose, onSave }) {
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+const isValidIPv4 = (s) => IPV4.test(s) && s.split('.').every(n => +n <= 255);
+
+const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, switches, cameras = [], selectedLayoutId, onClose, onSave }) {
     const isEdit    = mode === 'edit';
     const { user }  = useAuth();
     const updatedBy = user?.name || user?.empcode || '';
@@ -67,6 +70,7 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
     const [snapshotPreview, setSnapshotPreview] = useState(null);
     const [loading,      setLoading]      = useState(false);
     const [error,        setError]        = useState('');
+    const [touched,      setTouched]      = useState(false); // มีการแก้ไขที่ยังไม่บันทึก
 
     // useMemo ป้องกัน re-compute ทุก keystroke
     const filteredSwitches = useMemo(
@@ -103,10 +107,32 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
         }
     }, [data?.id]); // ← เฉพาะเมื่อ id เปลี่ยน ไม่ใช่ทุก render
 
-    const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+    const set = (k, v) => { setTouched(true); setForm(p => ({ ...p, [k]: v })); };
+
+    // ── ตรวจ IP ทันที ───────────────────────────────────────────────
+    const ipText = form.ip_address.trim();
+    const ipFormatOk = !ipText || isValidIPv4(ipText);
+    const ipDup = ipText && ipFormatOk ? cameras.find(c => c.ip_address === ipText && c.id !== data?.id) : null;
+
+    // ปิดหน้าต่าง: ถ้ามีการแก้ไขที่ยังไม่บันทึก ให้ถามก่อน
+    const requestClose = () => {
+        if (touched && !window.confirm('มีการแก้ไขที่ยังไม่ได้บันทึก ต้องการปิดโดยไม่บันทึกหรือไม่?')) return;
+        onClose();
+    };
+
+    // คีย์ลัด: Esc ปิด, Ctrl+Enter บันทึก
+    useEffect(() => {
+        const onKey = (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); requestClose(); }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSubmit(); }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    });
 
     const handleSubmit = async () => {
         if (!form.name.trim())            { setError('กรุณากรอกชื่อกล้อง'); return; }
+        if (!ipFormatOk)                  { setError('รูปแบบ IP ไม่ถูกต้อง (เช่น 192.168.10.101)'); return; }
         if (!form.factory_layout_id)      { setError('กรุณาเลือก Factory Layout'); return; }
         setLoading(true); setError('');
         try {
@@ -159,10 +185,13 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
                         <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-xl">📹</div>
                         <div>
                             <div className="font-bold text-gray-900">{isEdit ? 'แก้ไขกล้อง' : 'เพิ่มกล้อง CCTV'}</div>
-                            {isEdit && <div className="text-xs text-gray-400">{data.name}</div>}
+                            <div className="text-xs text-gray-400 flex items-center gap-2">
+                                {isEdit ? data.name : 'กรอกข้อมูลกล้องใหม่'}
+                                {touched && <span className="inline-flex items-center gap-1 text-amber-600"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />ยังไม่บันทึก</span>}
+                            </div>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full"><X size={20}/></button>
+                    <button onClick={requestClose} className="p-2 hover:bg-gray-100 rounded-full" title="ปิด (Esc)"><X size={20}/></button>
                 </div>
 
                 {/* Body */}
@@ -222,6 +251,10 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
                     </div>
 
                     {/* Form fields */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">ข้อมูลกล้อง</span>
+                        <span className="flex-1 h-px bg-gray-100" />
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div className="col-span-2">
                             <Field label="ชื่อกล้อง" required>
@@ -231,9 +264,21 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
                             </Field>
                         </div>
                         <Field label="IP Address">
-                            <input type="text" value={form.ip_address} onChange={e => set('ip_address', e.target.value)}
-                                   placeholder="192.168.10.101"
-                                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 bg-white"/>
+                            <div className="relative">
+                                <input type="text" value={form.ip_address} onChange={e => set('ip_address', e.target.value)}
+                                       placeholder="192.168.10.101" inputMode="decimal"
+                                       className={`w-full px-3 py-2 pr-9 border rounded-lg text-sm outline-none bg-white transition
+                                           ${!ipFormatOk ? 'border-red-300 focus:border-red-400' : ipDup ? 'border-amber-300 focus:border-amber-400' : ipText ? 'border-emerald-200 focus:border-emerald-400' : 'border-gray-200 focus:border-blue-400'}`}/>
+                                {ipText && (
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                                        {!ipFormatOk || ipDup
+                                            ? <AlertTriangle size={15} className={ipDup ? 'text-amber-500' : 'text-red-500'}/>
+                                            : <CheckCircle2 size={15} className="text-emerald-500"/>}
+                                    </span>
+                                )}
+                            </div>
+                            {!ipFormatOk && <p className="text-[11px] text-red-500 mt-1">รูปแบบ IP ไม่ถูกต้อง</p>}
+                            {ipFormatOk && ipDup && <p className="text-[11px] text-amber-600 mt-1">IP นี้ซ้ำกับกล้อง “{ipDup.name}”</p>}
                         </Field>
                         <Field label="Model">
                             <input type="text" value={form.model} onChange={e => set('model', e.target.value)}
@@ -372,13 +417,14 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
                         )}
                     </div>
                     <div className="flex gap-2">
-                        <button onClick={onClose}
+                        <button onClick={requestClose}
                                 className="px-5 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-white">
                             ยกเลิก
                         </button>
-                        <button onClick={handleSubmit} disabled={loading}
-                                className="px-6 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
-                            {loading ? 'Saving...' : isEdit ? 'บันทึก' : 'เพิ่มกล้อง'}
+                        <button onClick={handleSubmit} disabled={loading || !ipFormatOk}
+                                className="px-6 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold shadow-sm shadow-blue-600/30 hover:bg-blue-700 disabled:opacity-50 disabled:shadow-none transition">
+                            {loading ? 'กำลังบันทึก…' : isEdit ? 'บันทึก' : 'เพิ่มกล้อง'}
+                            {!loading && <span className="ml-2 text-[10px] font-normal opacity-70">Ctrl+Enter</span>}
                         </button>
                     </div>
                 </div>

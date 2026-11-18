@@ -15,6 +15,7 @@ import Portal from '../components/Portal';
 import { drawCCTVIcon } from '../components/cctv/cctvIconUtils';
 import { STATUS_COLOR, FOV_ANGLE_MAP, getFovAngle, drawFovCone, drawCornerFrame } from '../components/cctv/cctvCanvasUtils';
 import { DataQualityPanel } from '../components/cctv/DataQualityPanel';
+import { CameraDetailModal } from '../components/cctv/CameraDetailModal';
 import { CameraListSection } from '../components/cctv/CameraListSection';
 import { CameraTimeline } from '../components/cctv/CameraTimeline';
 import { RackCameraPicker } from '../components/cctv/RackCameraPicker';
@@ -1531,6 +1532,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                         layouts={layouts}
                         racks={allRacks}
                         switches={allSwitches}
+                        cameras={allCameras}
                         selectedLayoutId={selectedLayout}
                         onClose={handleCamModalClose}
                         onSave={handleCamModalSave}
@@ -1657,245 +1659,22 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
             )}
             {/* ── Camera Detail Modal ──────────────────────────────────── */}
            {detailModal && (
-    <Portal>
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-            onClick={() => { setDetailModal(null); setSelectedCam(null); }}>
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden"
-                style={{ maxHeight: '90vh' }}
-                onClick={e => e.stopPropagation()}>
-
-                            {/* Header */}
-                            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0"
-                                style={{ background: detailModal.status === 'online' ? '#f0fdf4' : detailModal.status === 'offline' ? '#fef2f2' : '#f9fafb' }}>
-                                <div className="flex items-center gap-3">
-                                    {/* icon preview */}
-                                    <div className="w-11 h-11 rounded-xl overflow-hidden flex-shrink-0" style={{ background: STATUS_COLOR[detailModal.status] }}>
-                                        {detailModal.icon_url
-                                            ? <img src={fullUrl(detailModal.icon_url)} className="w-full h-full object-cover" />
-                                            : <canvas width={44} height={44}
-                                                ref={el => { if (el) { const ctx = el.getContext('2d'); if (ctx) drawCCTVIcon(ctx, 22, 22, 20, detailModal.icon_type || 'bullet', STATUS_COLOR[detailModal.status], 'white'); } }} />
-                                        }
-                                    </div>
-                                    <div>
-                                        <div className="font-bold text-gray-900 text-base">{detailModal.name}</div>
-                                        <div className="text-xs text-gray-500">{detailModal.model || 'ไม่ระบุ model'}</div>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${detailModal.status === 'online' ? 'bg-green-100 text-green-700' :
-                                        detailModal.status === 'offline' ? 'bg-red-100 text-red-700' :
-                                            'bg-gray-100 text-gray-500'
-                                        }`}>● {detailModal.status}</span>
-                                    <button onClick={() => { setDetailModal(null); setSelectedCam(null); }}
-                                        className="p-1.5 hover:bg-black/10 rounded-full"><X size={16} /></button>
-                                </div>
-                            </div>
-
-                            {/* Body — scrollable */}
-                            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-
-                                {/* Uptime 14 วัน — สรุปจากผล ping รายวัน */}
-                                {(() => {
-                                    const u = uptimeMap[detailModal.id];
-                                    return (
-                                        <div className="bg-gray-50 rounded-xl px-3 py-3">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Uptime 14 วัน</span>
-                                                <span className="text-sm font-bold text-slate-700 tabular-nums">{u?.uptime_pct != null ? `${u.uptime_pct}%` : '—'}</span>
-                                            </div>
-                                            {(() => {
-                                                // วาดครบ 14 วันย้อนหลัง วันที่ไม่มีข้อมูลเป็นช่องว่างสีเทา (ไม่ยืดแท่งเดียวเต็มความกว้าง)
-                                                const byDay = Object.fromEntries((u?.days || []).map(d => [d.day, d]));
-                                                const slots = Array.from({ length: 14 }, (_, i) => {
-                                                    const dt = new Date(); dt.setDate(dt.getDate() - (13 - i));
-                                                    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-                                                    return { key, d: byDay[key] };
-                                                });
-                                                return (
-                                                    <>
-                                                        <div className="flex items-end gap-1 h-12">
-                                                            {slots.map(({ key, d }) => {
-                                                                if (!d || !d.total) {
-                                                                    return <div key={key} title={`${key}: ไม่มีข้อมูล`} className="flex-1 h-1.5 rounded-sm bg-gray-200" />;
-                                                                }
-                                                                const p = d.online / d.total;
-                                                                return (
-                                                                    <div key={key} title={`${key}: ${Math.round(p * 100)}% (${d.online}/${d.total} ครั้ง)`}
-                                                                        className={`flex-1 rounded-sm ${p >= 0.95 ? 'bg-green-500' : p >= 0.5 ? 'bg-amber-400' : 'bg-red-500'}`}
-                                                                        style={{ height: `${Math.max(12, p * 100)}%` }} />
-                                                                );
-                                                            })}
-                                                        </div>
-                                                        <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-                                                            <span>14 วันก่อน</span>
-                                                            <span>
-                                                                {u?.samples
-                                                                    ? `จาก ${u.samples} ครั้ง${u.samples < 10 ? ' · ข้อมูลยังน้อย' : ''}`
-                                                                    : 'ยังไม่มีข้อมูล — กด Ping เพื่อเริ่มเก็บ'}
-                                                            </span>
-                                                            <span>วันนี้</span>
-                                                        </div>
-                                                    </>
-                                                );
-                                            })()}
-                                        </div>
-                                    );
-                                })()}
-
-                                {/* Snapshot ล่าสุด (ถ้ามี) */}
-                                {detailModal.snapshot_url && (
-                                    <img src={`${API_URL}${detailModal.snapshot_url}`} alt={detailModal.name}
-                                        className="w-full rounded-xl border border-gray-100 object-cover max-h-56 bg-gray-50" />
-                                )}
-
-                                {/* Section: ข้อมูลกล้อง */}
-                                <div>
-                                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">ข้อมูลกล้อง</div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {[
-                                            ['IP Address', detailModal.ip_address],
-                                            ['Model', detailModal.model],
-                                            ['Fix Asset', detailModal.fix_asset],
-                                            ['Factory', detailModal.layout_name],
-                                            ['ตำแหน่ง Map', detailModal.location_x != null
-                                                ? `X: ${detailModal.location_x.toFixed(1)}%, Y: ${detailModal.location_y?.toFixed(1)}%`
-                                                : null],
-                                            ['ทิศทาง (FOV)', detailModal.fov_direction
-                                                ? detailModal.fov_direction.startsWith('CUSTOM_')
-                                                    ? `Custom ${detailModal.fov_direction.replace('CUSTOM_', '')}°`
-                                                    : detailModal.fov_direction
-                                                : null],
-                                            ['Rack', detailModal.rack_name && (() => {
-                                                const rk = allRacks.find(x => x.id === detailModal.rack_id);
-                                                return rk && rk.factory_layout_id !== detailModal.factory_layout_id
-                                                    ? `${detailModal.rack_name} (อยู่ที่ ${rk.layout_name || 'โรงอื่น'})`
-                                                    : detailModal.rack_name;
-                                            })()],
-                                            ['Switch', detailModal.switch_name],
-                                            ['Record Server', detailModal.record_server_name],
-                                        ].map(([k, v]) => v ? (
-                                            <div key={k} className="bg-gray-50 rounded-lg px-3 py-2">
-                                                <div className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">{k}</div>
-                                                <div className="text-sm font-semibold text-gray-800 mt-0.5 break-words">{v}</div>
-                                            </div>
-                                        ) : null)}
-                                    </div>
-                                </div>
-
-                                {/* Section: เส้นสาย */}
-                                {(detailModal.rack_name || detailModal.switch_name) && (
-                                    <div>
-                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">เส้นสาย</div>
-                                        <div className="bg-purple-50 rounded-xl px-4 py-3 space-y-2">
-                                            {detailModal.rack_name && (
-                                                <div className="flex items-center justify-between text-sm">
-                                                    <span className="text-gray-500 flex items-center gap-1.5"><Server size={12} className="text-purple-500" />Rack</span>
-                                                    <span className="font-semibold text-purple-700">{detailModal.rack_name}</span>
-                                                </div>
-                                            )}
-                                            {detailModal.switch_name && (
-                                                <div className="flex items-center justify-between text-sm">
-                                                    <span className="text-gray-500 flex items-center gap-1.5"><Network size={12} className="text-blue-500" />Switch</span>
-                                                    <span className="font-semibold text-blue-700">
-                                                        {detailModal.switch_name}
-                                                        {detailModal.switch_ip && <span className="text-blue-400 font-normal ml-1">({detailModal.switch_ip})</span>}
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Section: สถานะ */}
-                                <div>
-                                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">สถานะ</div>
-                                    <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-2">
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="text-gray-500">Status</span>
-                                            <span className={`font-semibold ${detailModal.status === 'online' ? 'text-green-600' :
-                                                detailModal.status === 'offline' ? 'text-red-600' :
-                                                    detailModal.status === 'removed' ? 'text-gray-500' :
-                                                        detailModal.status === 'retired' ? 'text-gray-800' : 'text-gray-400'
-                                                }`}>● {detailModal.status}</span>
-                                        </div>
-                                        {detailModal.last_ping && (
-                                            <div className="flex items-center justify-between text-sm">
-                                                <span className="text-gray-500 flex items-center gap-1.5"><RefreshCw size={11} />Last ping</span>
-                                                <span className="font-medium text-gray-700 text-xs">
-                                                    {new Date(detailModal.last_ping).toLocaleString('th-TH')}
-                                                </span>
-                                            </div>
-                                        )}
-                                        <button onClick={() => handlePingSingle(detailModal.id)}
-                                            disabled={pingingId === detailModal.id}
-                                            className="w-full flex items-center justify-center gap-1.5 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50 transition-colors">
-                                            <RefreshCw size={11} className={pingingId === detailModal.id ? 'animate-spin' : ''} />
-                                            {pingingId === detailModal.id ? 'กำลัง Ping...' : 'Ping กล้องนี้'}
-                                        </button>
-                                        <button onClick={() => { setDetailModal(null); jumpToCamera(detailModal); }}
-                                            className="w-full flex items-center justify-center gap-1.5 py-1.5 border border-blue-100 rounded-lg text-xs font-medium text-blue-600 hover:bg-blue-50 transition-colors">
-                                            🎯 ดูบนแผนที่
-                                        </button>
-                                        {/* เปลี่ยนสถานะด้วยตัวเอง (manual status gated by cctv:edit) */}
-                                        {canEditCctv && <div className="pt-1 border-t border-gray-200">
-                                            <div className="text-[10px] text-gray-400 mb-1.5">ตั้งสถานะด้วยตนเอง (ทับผล ping จนกว่าจะ ping ใหม่):</div>
-                                            <div className="flex gap-1.5 flex-wrap">
-                                                {[
-                                                    { s: 'online', label: '🟢 Online', cls: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
-                                                    { s: 'offline', label: '🔴 Offline', cls: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100' },
-                                                    { s: 'removed', label: '⚫ ถอดออก', cls: 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100' },
-                                                    { s: 'retired', label: '🚫 เลิกใช้', cls: 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100' },
-                                                ].map(({ s, label, cls }) => (
-                                                    <button key={s}
-                                                        disabled={statusBusy || detailModal.status === s}
-                                                        onClick={() => requestCamStatus(s, label)}
-                                                        className={`px-2 py-1 text-[11px] font-medium border rounded-lg transition-colors
-                                                                disabled:opacity-40 disabled:cursor-not-allowed ${cls}`}>
-                                                        {label}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>}
-                                    </div>
-                                </div>
-
-                                {/* Section: ประวัติ Maintenance */}
-                                <CameraTimeline cameraId={detailModal.id} apiBase={API_BASE} />
-
-                                {/* Section: Remark */}
-                                {detailModal.remark && (
-                                    <div>
-                                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">หมายเหตุ</div>
-                                        <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-sm text-amber-800">
-                                            {detailModal.remark}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Section: บันทึกโดย */}
-                                {detailModal.updated_by && (
-                                    <div className="flex items-center gap-1.5 text-xs text-gray-400 pb-1">
-                                        <Camera size={11} />
-                                        บันทึก/แก้ไขโดย: <span className="font-medium text-gray-500">{detailModal.updated_by}</span>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Footer */}
-                            <div className="px-5 py-3 border-t border-gray-100 flex gap-2 bg-gray-50 flex-shrink-0">
-                                {canEditCctv && <button onClick={() => { setDetailModal(null); setCamModal({ mode: 'edit', data: detailModal }); }}
-                                    className="flex-1 py-2 border border-gray-200 rounded-xl text-xs font-semibold text-gray-600 hover:bg-white flex items-center justify-center gap-1.5">
-                                    ✏️ แก้ไข
-                                </button>}
-                                <button onClick={() => { setDetailModal(null); setLocationModal(detailModal); }}
-                                    className="flex-1 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs font-semibold text-blue-600 hover:bg-blue-100 flex items-center justify-center gap-1.5">
-                                    <MapPin size={12} /> ตำแหน่ง / FOV
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </Portal>
-            )}
+               <CameraDetailModal
+                   camera={detailModal}
+                   uptime={uptimeMap[detailModal.id]}
+                   racks={allRacks}
+                   canEdit={canEditCctv}
+                   pingingId={pingingId}
+                   statusBusy={statusBusy}
+                   apiBase={API_BASE}
+                   onClose={() => { setDetailModal(null); setSelectedCam(null); }}
+                   onPing={handlePingSingle}
+                   onRequestStatus={requestCamStatus}
+                   onJumpMap={(cam) => { setDetailModal(null); jumpToCamera(cam); }}
+                   onEdit={(cam) => { setDetailModal(null); setCamModal({ mode: 'edit', data: cam }); }}
+                   onLocation={(cam) => { setDetailModal(null); setLocationModal(cam); }}
+               />
+           )}
             {pingProgress && (
                 <div className="fixed bottom-6 left-6 z-[99997] w-72 rounded-xl bg-white shadow-2xl border border-slate-200 px-4 py-3">
                     <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-2 gap-2">
