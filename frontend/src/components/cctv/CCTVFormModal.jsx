@@ -140,8 +140,12 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
     const handleDelete = async () => {
         setLoading(true);
         try {
-            await fetch(`${API_BASE}/cctv/cameras/${data.id}`, { method: 'DELETE' });
+            const r = await fetch(`${API_BASE}/cctv/cameras/${data.id}`, { method: 'DELETE' });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok || d.success === false) throw new Error(d.error || `HTTP ${r.status}`);
             onSave();
+        } catch (err) {
+            window.alert(`ลบกล้องไม่สำเร็จ: ${err.message}`);
         } finally { setLoading(false); }
     };
 
@@ -266,7 +270,14 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
                                         onChange={e => { set('rack_id', e.target.value); set('switch_id', ''); }}
                                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-purple-400 bg-white">
                                     <option value="">-- เลือก Rack --</option>
-                                    {racks.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                                    {racks.map(r => {
+                                        const other = form.factory_layout_id && r.factory_layout_id !== +form.factory_layout_id;
+                                        return (
+                                            <option key={r.id} value={r.id}>
+                                                {r.name.trim()}{r.layout_name ? ` — ${r.layout_name}` : ''}{other ? ' (โรงอื่น)' : ''}
+                                            </option>
+                                        );
+                                    })}
                                 </select>
                             </Field>
                             <Field label="Switch">

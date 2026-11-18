@@ -21,17 +21,32 @@ const REMOVAL_STATUSES = [
     { value: 'reinstalled', label: '🟢 ติดตั้งคืนแล้ว', cls: 'border-green-400 text-green-700' },
     { value: 'retired',     label: '⚫ เลิกใช้งาน',     cls: 'border-gray-400 text-gray-600' },
 ];
+const INSTALL_STATUSES = [
+    { value: 'installed', label: '🟢 ติดตั้งแล้ว', cls: 'border-green-400 text-green-700' },
+];
+const TYPE_OPTIONS = [
+    { value: 'repair',  label: '🔧 ซ่อม' },
+    { value: 'removal', label: '📤 ถอด' },
+    { value: 'install', label: '🆕 ติดตั้ง' },
+];
+// สถานะเริ่มต้นของแต่ละประเภท
+const defaultStatus = (t) => (t === 'repair' ? 'pending' : t === 'install' ? 'installed' : 'removed');
 
 export default function MaintenanceLogModal({ mode, logType, data, cameras, layouts, user, onClose, onSave }) {
-    const isEdit   = mode === 'edit';
-    const isRepair = logType === 'repair';
+    const isEdit = mode === 'edit';
+    // ในโหมดเพิ่มผู้ใช้เลือกประเภทในฟอร์มได้ (รวมแท็บซ่อม/ถอด/ติดตั้ง)
+    const [type, setType] = useState(logType || 'repair');
+    const curType  = isEdit ? (data?.log_type || logType || 'repair') : type;
+    const isRepair = curType === 'repair';
+    const isRemoval = curType === 'removal';
+    const isInstall = curType === 'install';
 
     const [form, setForm] = useState({
         issue_type:     '',
         reason:         '',
         description:    '',
         solution:       '',
-        status:         isRepair ? 'pending' : 'removed',
+        status:         defaultStatus(curType),
         assigned_to:    '',
         resolved_at:    '',
         reinstalled_at: '',
@@ -51,7 +66,7 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
                 reason:         data.reason         || '',
                 description:    data.description    || '',
                 solution:       data.solution       || '',
-                status:         data.status         || (isRepair ? 'pending' : 'removed'),
+                status:         data.status         || defaultStatus(curType),
                 assigned_to:    data.assigned_to    || '',
                 resolved_at:    data.resolved_at    ? new Date(data.resolved_at).toISOString().split('T')[0]    : '',
                 reinstalled_at: data.reinstalled_at ? new Date(data.reinstalled_at).toISOString().split('T')[0] : '',
@@ -64,20 +79,6 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
     }, [isEdit, data]);
 
     const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
-
-    const toggleCam = (cam) => {
-        if (!isRepair) return; // removal = single select
-        setSelectedCams(prev =>
-            prev.find(c => c.id === cam.id)
-                ? prev.filter(c => c.id !== cam.id)
-                : [...prev, cam]
-        );
-    };
-
-    const handleCamSelect = (e) => {
-        const cam = cameras.find(c => c.id === +e.target.value);
-        if (cam) setSelectedCamId(cam.id);
-    };
 
     const handleSubmit = async () => {
         setError('');
@@ -109,17 +110,20 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
                     camera_name:  selectedCams[0].name,
                     camera_ids:   selectedCams.map(c => c.id).join(','),
                     camera_names: selectedCams.map(c => c.name).join(', '),
-                    log_type:     isRepair ? 'repair' : 'removal',
+                    log_type:     curType,
                     factory_name: factoryNames,
                     location_x:   selectedCams[0].location_x,
                     location_y:   selectedCams[0].location_y,
                     issue_type:   isRepair ? form.issue_type : null,
-                    reason:       isRepair ? null : form.reason,
+                    reason:       isRemoval ? form.reason : null,
                     description:  form.description,
                     solution:     form.solution,
-                    status:       isRepair ? 'pending' : 'removed',
+                    status:       defaultStatus(curType),
                     assigned_to:  form.assigned_to,
                     reported_by:  user?.username || user?.name || '',
+                    // วันที่ติดตั้ง ใช้คอลัมน์ resolved_at (ค่าว่าง = ใช้วันที่บันทึก)
+                    resolved_at:  isInstall ? (form.resolved_at || null) : null,
+                    new_location: isRemoval ? (form.new_location || null) : null,
                     remark:       form.remark,
                 }];
 
@@ -145,7 +149,13 @@ export default function MaintenanceLogModal({ mode, logType, data, cameras, layo
         return searchOk && statusOk;
     });
 
-    const statusList = isRepair ? REPAIR_STATUSES : REMOVAL_STATUSES;
+    const statusList = isRepair ? REPAIR_STATUSES : isInstall ? INSTALL_STATUSES : REMOVAL_STATUSES;
+    const titleText = isEdit ? 'แก้ไขบันทึก'
+        : isRepair ? 'เพิ่มบันทึกซ่อม'
+        : isInstall ? 'บันทึกการติดตั้งกล้อง'
+        : 'บันทึกการถอดกล้อง';
+    const submitText = isRepair ? 'เพิ่มบันทึกซ่อม' : isInstall ? 'บันทึกการติดตั้ง' : 'บันทึกการถอด';
+    const icon = isRepair ? '🔧' : isInstall ? '🆕' : '📤';
 
 return createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', padding: 16 }}>
@@ -153,10 +163,8 @@ return createPortal(
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                     <div className="flex items-center gap-2">
-                        <span className="text-xl">{isRepair ? '🔧' : '📤'}</span>
-                        <h2 className="font-bold text-gray-800">
-                            {isEdit ? 'แก้ไขบันทึก' : (isRepair ? 'เพิ่มบันทึกซ่อม' : 'บันทึกการถอดกล้อง')}
-                        </h2>
+                        <span className="text-xl">{icon}</span>
+                        <h2 className="font-bold text-gray-800">{titleText}</h2>
                     </div>
                     <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 text-lg">✕</button>
                 </div>
@@ -164,7 +172,23 @@ return createPortal(
                 <div className="overflow-y-auto px-6 py-4 space-y-4">
                     {error && <div className="text-red-500 text-xs bg-red-50 px-3 py-2 rounded-lg">{error}</div>}
 
-                    {/* เลือกกล้อง — ใช้ checkbox ทั้ง repair และ removal */}
+                    {/* ประเภทบันทึก (เฉพาะตอนเพิ่ม) */}
+                    {!isEdit && (
+                        <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">ประเภทบันทึก</label>
+                            <div className="flex gap-2 flex-wrap">
+                                {TYPE_OPTIONS.map(t => (
+                                    <button key={t.value} type="button" onClick={() => setType(t.value)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors
+                                                ${curType === t.value ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:border-blue-300'}`}>
+                                        {t.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* เลือกกล้อง — ใช้ checkbox ทุกประเภท */}
                     {!isEdit ? (
                         <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">
@@ -229,8 +253,8 @@ return createPortal(
                         </div>
                     )}
 
-                    {/* ประเภทปัญหา / เหตุผล */}
-                    {isRepair ? (
+                    {/* ประเภทปัญหา (ซ่อม) */}
+                    {isRepair && (
                         <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">ประเภทปัญหา</label>
                             <select value={form.issue_type} onChange={e => set('issue_type', e.target.value)}
@@ -239,7 +263,10 @@ return createPortal(
                                 {ISSUE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                             </select>
                         </div>
-                    ) : !isEdit && (
+                    )}
+
+                    {/* เหตุผลที่ถอด (ถอด, ตอนเพิ่มเท่านั้น) */}
+                    {isRemoval && !isEdit && (
                         <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">เหตุผลที่ถอด</label>
                             <div className="flex gap-2 flex-wrap">
@@ -256,19 +283,21 @@ return createPortal(
 
                     {/* รายละเอียด */}
                     <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">รายละเอียดปัญหา</label>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">
+                            {isInstall ? 'รายละเอียดการติดตั้ง' : 'รายละเอียดปัญหา'}
+                        </label>
                         <textarea value={form.description} onChange={e => set('description', e.target.value)}
-                                  rows={2} placeholder={isRepair ? 'อธิบายปัญหาที่พบ...' : 'รายละเอียดเพิ่มเติม...'}
+                                  rows={2} placeholder={isRepair ? 'อธิบายปัญหาที่พบ...' : isInstall ? 'ตำแหน่ง, อุปกรณ์ที่ใช้, การตั้งค่า...' : 'รายละเอียดเพิ่มเติม...'}
                                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none"/>
                     </div>
 
-                    {/* วิธีแก้ไข */}
+                    {/* วิธีแก้ไข / หมายเหตุ */}
                     <div>
                         <label className="block text-xs font-medium text-gray-500 mb-1">
-                            {isRepair ? 'วิธีแก้ไข' : 'หมายเหตุการถอด'}
+                            {isRepair ? 'วิธีแก้ไข' : isInstall ? 'หมายเหตุการติดตั้ง' : 'หมายเหตุการถอด'}
                         </label>
                         <textarea value={form.solution} onChange={e => set('solution', e.target.value)}
-                                  rows={2} placeholder={isRepair ? 'วิธีแก้ไขปัญหา...' : 'รายละเอียดการถอด, ตำแหน่งที่นำไป...'}
+                                  rows={2} placeholder={isRepair ? 'วิธีแก้ไขปัญหา...' : isInstall ? 'หมายเหตุเพิ่มเติม...' : 'รายละเอียดการถอด, ตำแหน่งที่นำไป...'}
                                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none"/>
                     </div>
 
@@ -292,27 +321,27 @@ return createPortal(
                         {/* ผู้รับผิดชอบ */}
                         <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">
-                                {isRepair ? 'ผู้รับผิดชอบ' : 'ผู้ถอด'}
+                                {isRepair ? 'ผู้รับผิดชอบ' : isInstall ? 'ผู้ติดตั้ง' : 'ผู้ถอด'}
                             </label>
                             <input type="text" value={form.assigned_to} onChange={e => set('assigned_to', e.target.value)}
                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"/>
                         </div>
 
-                        {/* วันที่แก้ไข / ติดตั้งคืน (edit only) */}
-                        {isEdit && (
+                        {/* วันที่: แก้ไข / ติดตั้ง (เพิ่ม+แก้ไข) / ติดตั้งคืน (แก้ไข) */}
+                        {(isEdit || isInstall) && (
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">
-                                    {isRepair ? 'วันที่แก้ไข' : 'วันที่ติดตั้งคืน'}
+                                    {isRepair ? 'วันที่แก้ไข' : isInstall ? 'วันที่ติดตั้ง' : 'วันที่ติดตั้งคืน'}
                                 </label>
                                 <input type="date"
-                                       value={isRepair ? form.resolved_at : form.reinstalled_at}
-                                       onChange={e => set(isRepair ? 'resolved_at' : 'reinstalled_at', e.target.value)}
+                                       value={isRemoval ? form.reinstalled_at : form.resolved_at}
+                                       onChange={e => set(isRemoval ? 'reinstalled_at' : 'resolved_at', e.target.value)}
                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"/>
                             </div>
                         )}
 
-                        {/* ตำแหน่งใหม่ (removal) */}
-                        {!isRepair && (
+                        {/* ตำแหน่งใหม่ (ถอด) */}
+                        {isRemoval && (
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">ตำแหน่งใหม่ (ถ้าย้าย)</label>
                                 <input type="text" value={form.new_location} onChange={e => set('new_location', e.target.value)}
@@ -339,7 +368,7 @@ return createPortal(
                     <button onClick={handleSubmit} disabled={loading}
                             className="flex-1 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
                         {loading ? 'กำลังบันทึก...' : isEdit ? 'บันทึก' :
-                            `${isRepair ? 'เพิ่มบันทึกซ่อม' : 'บันทึกการถอด'}${selectedCams.length > 1 ? ` (${selectedCams.length} ตัว)` : ''}`}
+                            `${submitText}${selectedCams.length > 1 ? ` (${selectedCams.length} ตัว)` : ''}`}
                     </button>
                 </div>
             </div>

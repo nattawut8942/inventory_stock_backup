@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { X, Upload } from 'lucide-react';
 import { API_BASE, API_URL } from '../../config/api';
+import AlertModal from '../AlertModal';
+
+function kind_message_rack(d) { return `ลบ Rack "${d?.name}" ?\nกล้องใน Rack นี้จะถูก unlink`; }
 
 export default function RackFormModal({ mode, data, layouts, selectedLayoutId, onClose, onSave }) {
     const isEdit = mode === 'edit';
@@ -11,6 +14,7 @@ export default function RackFormModal({ mode, data, layouts, selectedLayoutId, o
     const [iconPreview, setIconPreview] = useState(null);
     const [loading,     setLoading]     = useState(false);
     const [error,       setError]       = useState('');
+    const [confirmDelete, setConfirmDelete] = useState(false);
 
     useEffect(() => {
         if (isEdit && data) {
@@ -48,11 +52,15 @@ export default function RackFormModal({ mode, data, layouts, selectedLayoutId, o
     };
 
     const handleDelete = async () => {
-        if (!confirm(`ลบ Rack "${data.name}" ?\nกล้องใน Rack นี้จะถูก unlink`)) return;
+        setConfirmDelete(false);
         setLoading(true);
         try {
-            await fetch(`${API_BASE}/cctv/racks/${data.id}`, { method: 'DELETE' });
+            const r = await fetch(`${API_BASE}/cctv/racks/${data.id}`, { method: 'DELETE' });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok || d.success === false) throw new Error(d.error || `HTTP ${r.status}`);
             onSave();
+        } catch (err) {
+            window.alert(`ลบ Rack ไม่สำเร็จ: ${err.message}`);
         } finally {
             setLoading(false);
         }
@@ -60,6 +68,16 @@ export default function RackFormModal({ mode, data, layouts, selectedLayoutId, o
 
     return (
         <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}>
+            <AlertModal
+                isOpen={confirmDelete}
+                type="danger"
+                title="ยืนยันการลบ"
+                message={kind_message_rack(data)}
+                confirmText="ลบ"
+                cancelText="ยกเลิก"
+                onConfirm={handleDelete}
+                onCancel={() => setConfirmDelete(false)}
+            />
             <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
 
                 {/* Header */}
@@ -141,7 +159,7 @@ export default function RackFormModal({ mode, data, layouts, selectedLayoutId, o
                 <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center bg-gray-50 rounded-b-2xl">
                     <div>
                         {isEdit && (
-                            <button onClick={handleDelete} disabled={loading}
+                            <button onClick={() => setConfirmDelete(true)} disabled={loading}
                                     className="text-sm text-red-500 hover:text-red-700 font-medium disabled:opacity-50">
                                 ลบ Rack
                             </button>

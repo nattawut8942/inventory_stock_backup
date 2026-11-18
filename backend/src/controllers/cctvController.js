@@ -3,6 +3,7 @@ import { getPool } from '../config/db.js';
 import path from 'path';
 import fs from 'fs';
 import net from 'net';
+import { notifyNewlyOffline } from '../cctv/cctvAlertService.js';
 
 // ─── Upload (icon กล้อง / rack / switch) ───────────────────────────────────
 // ✅ ใช้ express-fileupload แทน multer (multer ชนกับ express-fileupload global middleware)
@@ -463,10 +464,12 @@ export const updateCameraStatus = async (req, res) => {
         const { id } = req.params;
         const { status } = req.body;
         const pool = await getPool();
-        await pool.request()
+        const r = await pool.request()
             .input('id',     sql.Int,          id)
             .input('status', sql.NVarChar(20), status)
-            .query('UPDATE dbo.cctv_cameras SET status=@status, updated_at=GETDATE() WHERE id=@id');
+            .query('UPDATE dbo.cctv_cameras SET status=@status, updated_at=GETDATE() OUTPUT deleted.status AS prev_status WHERE id=@id');
+        const prev = r.recordset?.[0]?.prev_status ?? null;
+        if (prev !== status) await recordStatusEvent(pool, id, status, prev, 'manual');
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -556,6 +559,34 @@ export const updateCamera = async (req, res) => {
     }
 };
 
+// ── ผูก/ถอดกล้องหลายตัวกับ rack (แก้เฉพาะ rack_id; rack_id = null คือถอดออก; ข้ามโรงได้) ──
+export const setCamerasRack = async (req, res) => {
+    try {
+        const { camera_ids, rack_id } = req.body || {};
+        const ids = Array.isArray(camera_ids) ? [...new Set(camera_ids.map(v => parseInt(v, 10)))] : [];
+        if (!ids.length || ids.some(v => !Number.isInteger(v))) {
+            return res.status(400).json({ success: false, error: "camera_ids ต้องเป็นรายการ id ของกล้อง" });
+        }
+        const rackVal = rack_id === null || rack_id === undefined || rack_id === "" ? null : parseInt(rack_id, 10);
+        if (rackVal !== null && !Number.isInteger(rackVal)) {
+            return res.status(400).json({ success: false, error: "rack_id ไม่ถูกต้อง" });
+        }
+        const pool = await getPool();
+        if (rackVal !== null) {
+            const rk = await pool.request().input("rid", sql.Int, rackVal)
+                .query("SELECT id FROM dbo.cctv_racks WHERE id = @rid");
+            if (!rk.recordset.length) return res.status(404).json({ success: false, error: "ไม่พบ Rack นี้" });
+        }
+        const req2 = pool.request().input("rack", sql.Int, rackVal);
+        const names = ids.map((id, i) => { req2.input("c" + i, sql.Int, id); return "@c" + i; });
+        await req2.query(`UPDATE dbo.cctv_cameras SET rack_id = @rack, updated_at = GETDATE()
+                          WHERE id IN (${names.join(",")})`);
+        res.json({ success: true, updated: ids.length });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
 export const updateCameraLocation = async (req, res) => {
     try {
         const { id } = req.params;
@@ -581,15 +612,19 @@ export const updateCameraLocation = async (req, res) => {
                 .input('factory_layout_id',sql.Int,         factory_layout_id || null)
                 .input('location_x',       sql.Float,       parseFloat(location_x))
                 .input('location_y',       sql.Float,       parseFloat(location_y))
+                // ⚠️ แก้บั๊ก: การลากย้ายกล้องไม่ส่ง fov_* มา เดิมจึงล้างทิศทาง FOV เป็น NULL ทุกครั้ง
+                // ตอนนี้จะแก้ FOV เฉพาะเมื่อ client ส่งค่า fov_direction มาจริง (undefined = คงค่าเดิม)
+                .input('has_fov',          sql.Bit,          fov_direction !== undefined ? 1 : 0)
                 .input('fov_direction',    sql.NVarChar(20), fov_direction || null)
+                .input('has_spread',       sql.Bit,          fov_spread !== undefined ? 1 : 0)
                 .input('fov_spread',       sql.Int,          parseInt(fov_spread) || 60)
                 .query(`
                     UPDATE dbo.cctv_cameras
                     SET factory_layout_id = @factory_layout_id,
                         location_x        = @location_x,
                         location_y        = @location_y,
-                        fov_direction     = @fov_direction,
-                        fov_spread        = @fov_spread,
+                        fov_direction     = CASE WHEN @has_fov = 1 THEN @fov_direction ELSE fov_direction END,
+                        fov_spread        = CASE WHEN @has_spread = 1 THEN @fov_spread ELSE fov_spread END,
                         updated_at        = GETDATE()
                     WHERE id = @id
                 `);
@@ -660,6 +695,8 @@ export const pingCameraById = async (req, res) => {
             .input('id',     sql.Int,         id)
             .input('status', sql.NVarChar(20), status)
             .query('UPDATE dbo.cctv_cameras SET status=@status, last_ping=GETDATE() WHERE id=@id');
+        await recordDailyPing(pool, id, alive);
+        if (currentStatus !== status) await recordStatusEvent(pool, id, status, currentStatus, "ping");
 
         res.json({ success: true, status, ip_address });
     } catch (err) {
@@ -667,33 +704,166 @@ export const pingCameraById = async (req, res) => {
     }
 };
 
-// ── Ping ทุกกล้องพร้อมกัน (เรียกจาก cron หรือ manual) ───────────────────
+// ── จำกัดจำนวน ping ที่รันพร้อมกัน (กัน server/เครือข่ายโหลดเมื่อมีกล้องหลายร้อยตัว) ──
+const PING_CONCURRENCY = 20;
+async function mapWithLimit(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    const worker = async () => {
+        while (next < items.length) {
+            const i = next++;
+            out[i] = await fn(items[i]);
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return out;
+}
+
+// ส่งแจ้งเตือนเฉพาะกล้องที่เพิ่งเปลี่ยนจาก online → offline (ไม่บล็อกการตอบกลับ และไม่ทำให้ ping ล้มเหลว)
+function notifyOfflineSafe(results) {
+    const newlyOffline = results.filter(r => r.status === 'offline' && r.prev_status === 'online');
+    if (!newlyOffline.length) return;
+    notifyNewlyOffline(newlyOffline).catch(err => console.warn('[CCTV] ส่งแจ้งเตือน offline ไม่สำเร็จ:', err.message));
+}
+
+// บันทึกประวัติเมื่อสถานะเปลี่ยน (ล้มเหลวได้โดยไม่กระทบการทำงานหลัก)
+async function recordStatusEvent(pool, camId, status, prev, source) {
+    try {
+        await pool.request()
+            .input("id", sql.Int, camId)
+            .input("status", sql.NVarChar(20), status)
+            .input("prev", sql.NVarChar(20), prev ?? null)
+            .input("source", sql.NVarChar(20), source)
+            .query("INSERT INTO dbo.cctv_status_events (camera_id, status, prev_status, source) VALUES (@id, @status, @prev, @source)");
+    } catch (err) {
+        console.warn("[CCTV] recordStatusEvent ล้มเหลว (รัน migration 2026-11-18_cctv_status_events.sql หรือยัง?):", err.message);
+    }
+}
+
+// บันทึกผล ping ลงสรุปรายวัน (uptime) — ล้มเหลวได้โดยไม่กระทบการ ping (เช่น ยังไม่ได้รัน migration)
+async function recordDailyPing(pool, camId, alive) {
+    try {
+        await pool.request()
+            .input('id', sql.Int, camId)
+            .input('on', sql.Int, alive ? 1 : 0)
+            .query(`MERGE dbo.cctv_status_daily AS t
+                    USING (SELECT @id AS camera_id, CAST(GETDATE() AS DATE) AS [day]) AS s
+                    ON t.camera_id = s.camera_id AND t.[day] = s.[day]
+                    WHEN MATCHED THEN UPDATE SET online_count = t.online_count + @on, total_count = t.total_count + 1
+                    WHEN NOT MATCHED THEN INSERT (camera_id, [day], online_count, total_count)
+                        VALUES (@id, CAST(GETDATE() AS DATE), @on, 1);`);
+    } catch (err) {
+        console.warn('[CCTV] recordDailyPing ล้มเหลว (รัน migration 2026-11-18_cctv_status_daily.sql หรือยัง?):', err.message);
+    }
+}
+
+// ping + บันทึกผลกล้องเดียว (ใช้ร่วมกันทุก endpoint ที่ ping หลายกล้อง)
+// OUTPUT deleted.status คืนสถานะเดิม เพื่อตรวจว่าเพิ่งเปลี่ยนเป็น offline หรือไม่ (ใช้ส่งแจ้งเตือน)
+async function pingAndRecord(pool, cam) {
+    const alive  = await pingCamera(cam.ip_address);
+    const status = alive ? 'online' : 'offline';
+    const r = await pool.request()
+        .input('id',     sql.Int,          cam.id)
+        .input('status', sql.NVarChar(20), status)
+        .query(`UPDATE dbo.cctv_cameras SET status=@status, last_ping=GETDATE()
+                OUTPUT deleted.status AS prev_status
+                WHERE id=@id`);
+    await recordDailyPing(pool, cam.id, alive);
+    const prev = r.recordset?.[0]?.prev_status ?? null;
+    if (prev !== status) await recordStatusEvent(pool, cam.id, status, prev, "ping");
+    return { id: cam.id, ip_address: cam.ip_address, name: cam.name, status, prev_status: prev };
+}
+
+// ── Ping ทุกกล้องทั้งระบบ (cron หรือ manual) ─────────────────────────────
 export const pingAllCameras = async (req, res) => {
     try {
         const pool = await getPool();
         // ข้ามกล้องที่ removed หรือ retired
         const cameras = await pool.request()
-            .query(`SELECT id, ip_address FROM dbo.cctv_cameras
+            .query(`SELECT id, name, ip_address FROM dbo.cctv_cameras
                     WHERE ip_address IS NOT NULL
                     AND status NOT IN ('removed','retired')`);
 
-        const results = await Promise.all(
-            cameras.recordset.map(async cam => {
-                const alive  = await pingCamera(cam.ip_address);
-                const status = alive ? 'online' : 'offline';
-                await pool.request()
-                    .input('id',     sql.Int,          cam.id)
-                    .input('status', sql.NVarChar(20), status)
-                    .query('UPDATE dbo.cctv_cameras SET status=@status, last_ping=GETDATE() WHERE id=@id');
-                return { id: cam.id, ip_address: cam.ip_address, status };
-            })
-        );
-
+        const results = await mapWithLimit(cameras.recordset, PING_CONCURRENCY, cam => pingAndRecord(pool, cam));
+        notifyOfflineSafe(results);
         res.json({ success: true, total: results.length, results });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
+
+// ── Ping เฉพาะกล้องใน layout (ฝั่ง server ทั้งหมด ไม่ต้องยิงจาก browser ทีละตัว) ──
+export const pingLayoutCameras = async (req, res) => {
+    try {
+        const layoutId = parseInt(req.params.layout_id, 10);
+        if (!Number.isInteger(layoutId)) return res.status(400).json({ success: false, error: 'layout_id ไม่ถูกต้อง' });
+        const pool = await getPool();
+        const cameras = await pool.request()
+            .input('layout', sql.Int, layoutId)
+            .query(`SELECT id, name, ip_address FROM dbo.cctv_cameras
+                    WHERE factory_layout_id = @layout
+                    AND ip_address IS NOT NULL
+                    AND status NOT IN ('removed','retired')`);
+
+        const results = await mapWithLimit(cameras.recordset, PING_CONCURRENCY, cam => pingAndRecord(pool, cam));
+        notifyOfflineSafe(results);
+        res.json({ success: true, layout_id: layoutId, total: results.length, results });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+// ── Uptime รายกล้อง (รวมจากสรุปรายวัน) ─────────────────────────────────
+const pad2 = (n) => String(n).padStart(2, '0');
+const fmtDay = (d) => (d instanceof Date ? `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` : String(d));
+
+export const getCameraUptime = async (req, res) => {
+    try {
+        const days = Math.min(90, Math.max(1, parseInt(req.query.days, 10) || 14));
+        const pool = await getPool();
+        const r = await pool.request()
+            .input('days', sql.Int, days)
+            .query(`SELECT camera_id, [day], online_count, total_count FROM dbo.cctv_status_daily
+                    WHERE [day] >= DATEADD(day, -@days, CAST(GETDATE() AS DATE))`);
+
+        const byCam = {};
+        for (const row of r.recordset) {
+            if (!byCam[row.camera_id]) byCam[row.camera_id] = { online: 0, total: 0, days: [] };
+            const o = byCam[row.camera_id];
+            o.online += row.online_count;
+            o.total += row.total_count;
+            o.days.push({ day: fmtDay(row.day), online: row.online_count, total: row.total_count });
+        }
+        const data = Object.entries(byCam).map(([id, o]) => ({
+            camera_id: Number(id),
+            uptime_pct: o.total ? Math.round((o.online / o.total) * 1000) / 10 : null,
+            samples: o.total,
+            days: o.days.sort((a, b) => a.day.localeCompare(b.day)),
+        }));
+        res.json({ success: true, days, data });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+// ── ประวัติการเปลี่ยนสถานะของกล้องตัวเดียว (สำหรับไทม์ไลน์ใน modal) ──
+export const getCameraStatusHistory = async (req, res) => {
+    try {
+        const camId = parseInt(req.params.id, 10);
+        if (!Number.isInteger(camId)) return res.status(400).json({ success: false, error: "id ไม่ถูกต้อง" });
+        const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30));
+        const pool = await getPool();
+        const r = await pool.request()
+            .input("id", sql.Int, camId)
+            .input("days", sql.Int, days)
+            .query(`SELECT id, status, prev_status, source, changed_at FROM dbo.cctv_status_events
+                    WHERE camera_id = @id AND changed_at >= DATEADD(day, -@days, GETDATE())
+                    ORDER BY changed_at DESC`);
+        res.json({ success: true, data: r.recordset });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
 // ── Maintenance Logs (repair + removal รวม table เดียว) ──────────────────
 export const getMaintenanceLogs = async (req, res) => {
     try {
@@ -712,6 +882,19 @@ export const getMaintenanceLogs = async (req, res) => {
             `);
         res.json({ success: true, data: result.recordset });
     } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+// ตั้งสถานะกล้องทุกตัวที่อยู่ในบันทึก (camera_id ตัวหลัก + camera_ids ที่เลือกหลายตัว)
+const camIdsOf = (camera_id, camera_ids) => [...new Set(
+    [camera_id, ...String(camera_ids || '').split(',')].map(Number).filter(n => Number.isInteger(n) && n > 0)
+)];
+const setCamerasStatus = async (pool, ids, status) => {
+    for (const id of ids) {
+        await pool.request()
+            .input('id', sql.Int, id)
+            .input('status', sql.NVarChar(20), status)
+            .query(`UPDATE dbo.cctv_cameras SET status=@status, updated_at=GETDATE() WHERE id=@id`);
+    }
 };
 
 export const createMaintenanceLog = async (req, res) => {
@@ -738,7 +921,7 @@ export const createMaintenanceLog = async (req, res) => {
                 .input('reason',        sql.NVarChar(50),      reason        || null)
                 .input('description',   sql.NVarChar(sql.MAX), description   || null)
                 .input('solution',      sql.NVarChar(sql.MAX), solution      || null)
-                .input('status',        sql.NVarChar(20),      status        || (log_type === 'removal' ? 'removed' : 'pending'))
+                .input('status',        sql.NVarChar(20),      status        || (log_type === 'removal' ? 'removed' : log_type === 'install' ? 'installed' : 'pending'))
                 .input('factory_name',  sql.NVarChar(200),     factory_name  || null)
                 .input('location_x',    sql.Float,             location_x    ?? null)
                 .input('location_y',    sql.Float,             location_y    ?? null)
@@ -763,15 +946,8 @@ export const createMaintenanceLog = async (req, res) => {
                 `);
 
             // ── sync camera status ─────────────────────────────────────
-            if (camera_id) {
-                let camStatus = null;
-                if (log_type === 'removal') camStatus = 'removed';
-                if (camStatus) {
-                    await pool.request()
-                        .input('id', sql.Int, camera_id)
-                        .input('status', sql.NVarChar(20), camStatus)
-                        .query(`UPDATE dbo.cctv_cameras SET status=@status, updated_at=GETDATE() WHERE id=@id`);
-                }
+            if (log_type === 'removal') {
+                await setCamerasStatus(pool, camIdsOf(camera_id, camera_ids), 'removed');
             }
 
             return result.recordset[0].id;
@@ -794,7 +970,7 @@ export const updateMaintenanceLog = async (req, res) => {
         // ดึง camera_id เพื่อ sync status
         const existing = await pool.request()
             .input('id', sql.Int, id)
-            .query('SELECT camera_id, log_type FROM dbo.cctv_maintenance_logs WHERE id=@id');
+            .query('SELECT camera_id, camera_ids, log_type FROM dbo.cctv_maintenance_logs WHERE id=@id');
         const log = existing.recordset[0];
 
         await pool.request()
@@ -822,17 +998,14 @@ export const updateMaintenanceLog = async (req, res) => {
         if (log?.camera_id) {
             let camStatus = null;
             if (log.log_type === 'removal') {
-                if (status === 'reinstalled') camStatus = 'offline';
+                if (status === 'reinstalled') camStatus = 'online';
                 else if (status === 'retired')     camStatus = 'retired';
                 else                               camStatus = 'removed';
             } else if (log.log_type === 'repair') {
-                if (status === 'resolved') camStatus = 'offline';
+                if (status === 'resolved') camStatus = 'online';
             }
             if (camStatus) {
-                await pool.request()
-                    .input('id',     sql.Int,          log.camera_id)
-                    .input('status', sql.NVarChar(20), camStatus)
-                    .query(`UPDATE dbo.cctv_cameras SET status=@status, updated_at=GETDATE() WHERE id=@id`);
+                await setCamerasStatus(pool, camIdsOf(log.camera_id, log.camera_ids), camStatus);
             }
         }
 
@@ -844,8 +1017,27 @@ export const deleteMaintenanceLog = async (req, res) => {
     try {
         const { id } = req.params;
         const pool = await getPool();
+        // ก่อนลบ: จำกล้องที่ผูกกับบันทึกนี้ไว้ เพื่อคืนสถานะถ้าไม่เหลือบันทึกถอดที่ยังค้างอยู่
+        const found = await pool.request().input('id', sql.Int, id)
+            .query('SELECT camera_id, camera_ids, log_type FROM dbo.cctv_maintenance_logs WHERE id=@id');
+        const old = found.recordset[0];
         await pool.request().input('id', sql.Int, id)
             .query('DELETE FROM dbo.cctv_maintenance_logs WHERE id=@id');
+
+        if (old?.log_type === 'removal') {
+            for (const camId of camIdsOf(old.camera_id, old.camera_ids)) {
+                // ยังมีบันทึกถอดที่ยังไม่กลับของกล้องตัวนี้อยู่หรือไม่
+                const still = await pool.request().input('cid', sql.Int, camId).query(`
+                    SELECT COUNT(*) AS n FROM dbo.cctv_maintenance_logs
+                    WHERE log_type = 'removal' AND status IN ('removed', 'repairing')
+                      AND (camera_id = @cid OR (',' + ISNULL(camera_ids, '') + ',') LIKE '%,' + CAST(@cid AS VARCHAR(20)) + ',%')`);
+                if (still.recordset[0].n === 0) {
+                    // คืนเป็นออนไลน์ เฉพาะกล้องที่ยังค้างสถานะถอดออก (ping จะยืนยันสถานะจริงอีกครั้ง)
+                    await pool.request().input('cid', sql.Int, camId)
+                        .query(`UPDATE dbo.cctv_cameras SET status='online', updated_at=GETDATE() WHERE id=@cid AND status='removed'`);
+                }
+            }
+        }
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -884,7 +1076,7 @@ export const exportMaintenanceLogs = async (req, res) => {
         const csv = [
             headers.map(escape).join(','),
             ...rows.map(r => [
-                r.id, r.log_type === 'repair' ? 'ซ่อม' : 'ถอด',
+                r.id, r.log_type === 'repair' ? 'ซ่อม' : r.log_type === 'install' ? 'ติดตั้ง' : 'ถอด',
                 r.camera_name, r.ip_address, r.factory_name,
                 r.issue_type, r.reason, r.description, r.status,
                 r.assigned_to, r.reported_by,

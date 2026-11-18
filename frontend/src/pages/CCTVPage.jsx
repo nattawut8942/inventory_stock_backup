@@ -10,558 +10,18 @@ import SwitchFormModal from '../components/cctv/SwitchFormModal';
 import CCTVLocationModal from '../components/cctv/CCTVLocationModal';
 import AlertModal from '../components/AlertModal';
 import MaintenanceLogModal from '../components/cctv/MaintenanceLogModal';
+import CCTVReportView from '../components/cctv/CCTVReportView';
 import Portal from '../components/Portal';
 import { drawCCTVIcon } from '../components/cctv/cctvIconUtils';
+import { STATUS_COLOR, FOV_ANGLE_MAP, getFovAngle, drawFovCone, drawCornerFrame } from '../components/cctv/cctvCanvasUtils';
+import { DataQualityPanel } from '../components/cctv/DataQualityPanel';
+import { CameraListSection } from '../components/cctv/CameraListSection';
+import { CameraTimeline } from '../components/cctv/CameraTimeline';
+import { RackCameraPicker } from '../components/cctv/RackCameraPicker';
+import { MaintenanceDetailModal } from '../components/cctv/MaintenanceDetailModal';
+import { TooltipPortal } from '../components/cctv/TooltipPortal';
+import { GlobalSearchModal } from '../components/cctv/GlobalSearchModal';
 
-// ── SearchInput แยก component เพื่อไม่ให้ CCTVPage re-render ทุก keystroke ──
-function CameraSearchInput({ value, onChange, onClear }) {
-    const [local, setLocal] = useState(value);
-    const timerRef = useRef(null);
-
-    useEffect(() => { if (value === '') setLocal(''); }, [value]);
-
-    const handleChange = (e) => {
-        const v = e.target.value;
-        setLocal(v);
-        clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => onChange(v), 150);
-    };
-
-    return (
-        <div className="relative">
-            <input
-                type="text"
-                placeholder="ค้นหา ชื่อ, IP, model, asset..."
-                value={local}
-                onChange={handleChange}
-                className="pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg outline-none focus:border-blue-400 w-52 bg-white"
-            />
-            <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
-            {local && (
-                <button onClick={() => { setLocal(''); onClear(); }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                    <X size={11} />
-                </button>
-            )}
-        </div>
-    );
-}
-
-const STATUS_COLOR = { online: '#16a34a', offline: '#dc2626', unknown: '#9ca3af', removed: '#6b7280', retired: '#374151' };
-
-// แปลง fov_direction string → canvas angle (องศา)
-const FOV_ANGLE_MAP = {
-    N: 270, NNE: 292.5, NE: 315, ENE: 337.5,
-    E: 0, ESE: 22.5, SE: 45, SSE: 67.5,
-    S: 90, SSW: 112.5, SW: 135, WSW: 157.5,
-    W: 180, WNW: 202.5, NW: 225, NNW: 247.5,
-};
-
-function getFovAngle(fovDirection) {
-    if (!fovDirection) return null;
-    if (fovDirection.startsWith('CUSTOM_')) return parseFloat(fovDirection.replace('CUSTOM_', ''));
-    return FOV_ANGLE_MAP[fovDirection] ?? null;
-}
-
-function drawFovCone(ctx, px, py, angleDeg, spreadDeg = 60, len = 80,
-    fill = 'rgba(59,130,246,0.18)', stroke = 'rgba(59,130,246,0.55)') {
-    ctx.save();
-    ctx.beginPath();
-    if (spreadDeg >= 360) {
-        ctx.arc(px, py, len, 0, Math.PI * 2);
-    } else {
-        const rad = angleDeg * (Math.PI / 180);
-        const half = (spreadDeg / 2) * (Math.PI / 180);
-        const x1 = px + Math.cos(rad - half) * len;
-        const y1 = py + Math.sin(rad - half) * len;
-        ctx.moveTo(px, py);
-        ctx.lineTo(x1, y1);
-        ctx.arc(px, py, len, rad - half, rad + half);
-        ctx.closePath();
-    }
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-    ctx.restore();
-}
-
-function drawCornerFrame(ctx, cx, cy, halfSize, color, lineLen = 16, lineWidth = 3) {
-    const x0 = cx - halfSize, x1 = cx + halfSize;
-    const y0 = cy - halfSize, y1 = cy + halfSize;
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth;
-    ctx.lineCap = 'round';
-    // มุมบนซ้าย
-    ctx.beginPath(); ctx.moveTo(x0, y0 + lineLen); ctx.lineTo(x0, y0); ctx.lineTo(x0 + lineLen, y0); ctx.stroke();
-    // มุมบนขวา
-    ctx.beginPath(); ctx.moveTo(x1 - lineLen, y0); ctx.lineTo(x1, y0); ctx.lineTo(x1, y0 + lineLen); ctx.stroke();
-    // มุมล่างขวา
-    ctx.beginPath(); ctx.moveTo(x1, y1 - lineLen); ctx.lineTo(x1, y1); ctx.lineTo(x1 - lineLen, y1); ctx.stroke();
-    // มุมล่างซ้าย
-    ctx.beginPath(); ctx.moveTo(x0 + lineLen, y1); ctx.lineTo(x0, y1); ctx.lineTo(x0, y1 - lineLen); ctx.stroke();
-    ctx.restore();
-}
-
-
-// ── CameraListSection — แยก component เพื่อให้ search/listSearch state
-// ไม่อยู่ใน CCTVPage และไม่ทำให้ CCTVPage re-render เมื่อพิมพ์ค้นหา ──────────
-const CameraListSection = ({ cameras, currentName, listLocFilter, setListLocFilter,
-    listPage, setListPage, selectedCam, setSelectedCam, setDetailModal,
-    setLocationModal, setCamModal, fullUrl, selectedLayout, onJumpToCamera }) => {
-    const canCreateCctv = useCanAct('cctv', 'create');
-    const canEditCctv = useCanAct('cctv', 'edit');
-    const canDeleteCctv = useCanAct('cctv', 'delete');
-
-    const [search, setSearch] = useState('');
-    const ITEMS = 20;
-
-    // reset search เมื่อ layout เปลี่ยน
-    useEffect(() => { setSearch(''); setListPage(1); }, [selectedLayout]);
-
-    const noLoc = cameras.filter(c => c.location_x === null || c.location_y === null);
-    const byLoc = listLocFilter === 'no-location' ? noLoc
-        : listLocFilter === 'has-location' ? cameras.filter(c => c.location_x !== null)
-            : cameras;
-    const displayed = search.trim()
-        ? byLoc.filter(c => {
-            const q = search.toLowerCase();
-            return (c.name || '').toLowerCase().includes(q)
-                || (c.ip_address || '').toLowerCase().includes(q)
-                || (c.model || '').toLowerCase().includes(q)
-                || (c.fix_asset || '').toLowerCase().includes(q)
-                || (c.rack_name || '').toLowerCase().includes(q)
-                || (c.switch_name || '').toLowerCase().includes(q)
-                || (c.layout_name || '').toLowerCase().includes(q);
-        })
-        : byLoc;
-
-    const totalPages = Math.max(1, Math.ceil(displayed.length / ITEMS));
-    const paginated = displayed.slice((listPage - 1) * ITEMS, listPage * ITEMS);
-
-    return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-gray-600">รายการกล้องทั้งหมด — {currentName}</span>
-                    {canCreateCctv && <button onClick={() => setCamModal({ mode: 'add' })}
-                        className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">
-                        <Plus size={11} /> เพิ่มกล้อง
-                    </button>}
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                    {/* Search — local state ไม่กระทบ CCTVPage */}
-                    <div className="relative">
-                        <input type="text" placeholder="ค้นหา ชื่อ, IP, model, asset..."
-                            value={search}
-                            onChange={e => { setSearch(e.target.value); setListPage(1); }}
-                            className="pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg outline-none focus:border-blue-400 w-52 bg-white" />
-                        <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
-                        {search && <button onClick={() => { setSearch(''); setListPage(1); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X size={11} /></button>}
-                    </div>
-                    {noLoc.length > 0 && (
-                        <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">⚠️ {noLoc.length} ยังไม่มีตำแหน่ง</span>
-                    )}
-                    {[
-                        { id: 'all', label: `ทั้งหมด (${cameras.length})` },
-                        { id: 'has-location', label: `มีตำแหน่ง (${cameras.length - noLoc.length})` },
-                        { id: 'no-location', label: `ยังไม่มี (${noLoc.length})` },
-                    ].map(f => (
-                        <button key={f.id} onClick={() => { setListLocFilter(f.id); setListPage(1); }}
-                            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${listLocFilter === f.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-200 hover:border-blue-300'}`}>
-                            {f.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
-                        <colgroup>
-                            <col style={{ width: 36 }} /><col style={{ width: '17%' }} /><col style={{ width: '10%' }} />
-                            <col style={{ width: '13%' }} /><col style={{ width: '9%' }} /><col style={{ width: '9%' }} />
-                            <col style={{ width: '9%' }} /><col style={{ width: '10%' }} /><col style={{ width: '9%' }} /><col style={{ width: 64 }} />
-                        </colgroup>
-                        <thead>
-                            <tr className="border-b border-gray-100 text-xs text-gray-400 font-medium bg-gray-50">
-                                <th className="px-3 py-2" /><th className="px-3 py-2 text-left">ชื่อ / IP</th>
-                                <th className="px-3 py-2 text-left">Model</th><th className="px-3 py-2 text-left">Rack / Switch</th>
-                                <th className="px-3 py-2 text-left">Fix Asset</th><th className="px-3 py-2 text-left">Status</th>
-                                <th className="px-3 py-2 text-left">Factory</th>
-                                <th className="px-3 py-2 text-left">Server Record</th>
-                                <th className="px-3 py-2 text-left">ตำแหน่ง</th><th className="px-3 py-2" />
-                                <th className="px-3 py-2" />
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50">
-                            {paginated.map(cam => {
-                                const hasLoc = cam.location_x !== null && cam.location_y !== null;
-                                const isSel = selectedCam === cam.id;
-                                return (
-                                    <tr key={cam.id}
-                                        onClick={() => onJumpToCamera(cam)}
-                                        className={`transition-colors cursor-pointer ${isSel ? 'bg-amber-50' : !hasLoc ? 'bg-amber-50/30 hover:bg-amber-50/60' : 'hover:bg-gray-50'}`}>
-                                        <td className="px-3 py-2">
-                                            <div className="w-7 h-7 rounded-md flex items-center justify-center overflow-hidden"
-                                                style={{ background: `${STATUS_COLOR[cam.status]}22` }}>
-                                                {cam.icon_url ? <img src={fullUrl(cam.icon_url)} className="w-full h-full object-cover" /> : <span className="text-sm">📹</span>}
-                                            </div>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <div className={`font-medium truncate text-xs ${isSel ? 'text-amber-700' : 'text-gray-900'}`}>{cam.name}</div>
-                                            <div className="text-[11px] text-gray-400">{cam.ip_address || '—'}</div>
-                                        </td>
-                                        <td className="px-3 py-2 text-gray-600 text-xs truncate">{cam.model || '—'}</td>
-                                        <td className="px-3 py-2">
-                                            {cam.rack_name && <div className="text-xs font-medium text-purple-700 truncate">{cam.rack_name}</div>}
-                                            {cam.switch_name && <div className="text-[11px] text-gray-400 truncate">{cam.switch_name}</div>}
-                                            {!cam.rack_name && <span className="text-xs text-gray-300">—</span>}
-                                        </td>
-                                        <td className="px-3 py-2 text-gray-600 text-xs">{cam.fix_asset || '—'}</td>
-                                        <td className="px-3 py-2">
-                                            <span className={`inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded-full ${cam.status === 'online' ? 'bg-green-100 text-green-700' :
-                                                cam.status === 'offline' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
-                                                <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_COLOR[cam.status] }} />
-                                                {cam.status}
-                                            </span>
-                                        </td>
-                                        {/* Factory — ย้ายมาก่อนตำแหน่ง */}
-                                        <td className="px-3 py-2 text-gray-600 text-xs whitespace-normal leading-tight">{cam.layout_name || '—'}</td>
-                                        {/* Server Record */}
-                                        <td className="px-3 py-2 text-xs">
-                                            {cam.record_server_name
-                                                ? <span className="text-teal-700 font-medium truncate block">{cam.record_server_name}</span>
-                                                : <span className="text-gray-300">—</span>
-                                            }
-                                        </td>
-                                        {/* ตำแหน่ง */}
-                                        <td className="px-3 py-2">
-                                            {hasLoc
-                                                ? <span className="inline-flex items-center gap-1 text-[11px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full"><MapPin size={9} /> มีแล้ว</span>
-                                                : <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full font-medium"><MapPin size={9} /> ยังไม่มี</span>
-                                            }
-                                        </td>
-                                        <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
-                                            <div className="flex gap-1 justify-end">
-                                                {setLocationModal && (
-                                                    <button onClick={() => setLocationModal(cam)} title="ตำแหน่ง"
-                                                        className={`p-1 rounded transition-colors ${!hasLoc ? 'text-amber-500 hover:bg-amber-50' : 'text-blue-400 hover:bg-blue-50'}`}>
-                                                        <MapPin size={12} />
-                                                    </button>
-                                                )}
-                                                {canEditCctv && <button onClick={() => setCamModal({ mode: 'edit', data: cam })} title="แก้ไข"
-                                                    className="p-1 rounded hover:bg-gray-100 text-gray-400">✏️</button>}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                            {!paginated.length && (
-                                <tr><td colSpan={10} className="text-center py-8 text-gray-400 text-sm">
-                                    {listLocFilter === 'no-location' ? '🎉 กล้องทุกตัวมีตำแหน่งแล้ว!' : 'ยังไม่มีกล้องใน Factory นี้'}
-                                </td></tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-                {totalPages > 1 && (
-                    <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 bg-gray-50">
-                        <span className="text-xs text-gray-500">แสดง {((listPage - 1) * ITEMS) + 1}–{Math.min(listPage * ITEMS, displayed.length)} จาก {displayed.length} รายการ</span>
-                        <div className="flex items-center gap-1">
-                            <button onClick={() => setListPage(1)} disabled={listPage === 1} className="px-2 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-white">«</button>
-                            <button onClick={() => setListPage(p => Math.max(1, p - 1))} disabled={listPage === 1} className="px-2 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-white">‹</button>
-                            {Array.from({ length: totalPages }, (_, i) => i + 1)
-                                .filter(p => p === 1 || p === totalPages || Math.abs(p - listPage) <= 1)
-                                .reduce((acc, p, idx, arr) => { if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...'); acc.push(p); return acc; }, [])
-                                .map((p, i) => p === '...'
-                                    ? <span key={`e${i}`} className="px-1.5 text-xs text-gray-400">…</span>
-                                    : <button key={p} onClick={() => setListPage(p)} className={`px-2.5 py-1 text-xs rounded border transition-colors ${listPage === p ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 hover:bg-white'}`}>{p}</button>
-                                )}
-                            <button onClick={() => setListPage(p => Math.min(totalPages, p + 1))} disabled={listPage === totalPages} className="px-2 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-white">›</button>
-                            <button onClick={() => setListPage(totalPages)} disabled={listPage === totalPages} className="px-2 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-white">»</button>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
-// ── Camera Maintenance Log History ───────────────────────────────────────
-function CameraMaintenanceLogs({ cameraId, apiBase }) {
-    const [logs, setLogs] = useState([]);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        if (!cameraId) return;
-        setLoading(true);
-        fetch(`${apiBase}/cctv/maintenance-logs?camera_id=${cameraId}`)
-            .then(r => r.json())
-            .then(d => { if (d.success) setLogs(d.data); })
-            .finally(() => setLoading(false));
-    }, [cameraId]);
-
-    if (loading) return <div className="text-xs text-gray-400 py-2">กำลังโหลดประวัติ...</div>;
-    if (!logs.length) return (
-        <div>
-            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">ประวัติการแก้ไข</div>
-            <div className="text-xs text-gray-400 bg-gray-50 rounded-xl px-4 py-3">ยังไม่มีประวัติ</div>
-        </div>
-    );
-
-    const statusLabel = {
-        pending: 'รอดำเนินการ', in_progress: 'กำลังซ่อม',
-        waiting_parts: 'รอของ', resolved: 'แก้แล้ว',
-        removed: 'ถอดออก', repairing: 'ส่งซ่อม',
-        reinstalled: 'ติดตั้งคืน', retired: 'เลิกใช้',
-    };
-    const statusCls = {
-        pending: 'bg-yellow-100 text-yellow-700', in_progress: 'bg-blue-100 text-blue-700',
-        waiting_parts: 'bg-orange-100 text-orange-700', resolved: 'bg-green-100 text-green-700',
-        removed: 'bg-gray-100 text-gray-600', repairing: 'bg-blue-100 text-blue-700',
-        reinstalled: 'bg-green-100 text-green-700', retired: 'bg-slate-100 text-slate-600',
-    };
-
-    return (
-        <div>
-            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
-                ประวัติการแก้ไข ({logs.length})
-            </div>
-            <div className="space-y-2">
-                {logs.map(log => (
-                    <div key={log.id} className="bg-gray-50 rounded-xl px-3 py-2.5 text-xs">
-                        <div className="flex items-center justify-between mb-1">
-                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${log.log_type === 'repair' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
-                                {log.log_type === 'repair' ? '🔧 ซ่อม' : '📤 ถอด'}
-                            </span>
-                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${statusCls[log.status] || 'bg-gray-100 text-gray-600'}`}>
-                                {statusLabel[log.status] || log.status}
-                            </span>
-                        </div>
-                        <div className="text-gray-600">{log.issue_type || log.reason || '—'}</div>
-                        {log.description && <div className="text-gray-500 mt-0.5 truncate">{log.description}</div>}
-                        <div className="flex items-center justify-between mt-1 text-[10px] text-gray-400">
-                            <span>{log.assigned_to || log.reported_by || '—'}</span>
-                            <span>{new Date(log.reported_at).toLocaleDateString('th-TH')}</span>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-// ── Maintenance Detail Modal ──────────────────────────────────────────────
-function MaintenanceDetailModal({ data, onClose }) {
-    if (!data) return null;
-
-    const isRepair = data.log_type === 'repair';
-    const camList  = (data.camera_names || data.camera_name || '').split(',').map(s => s.trim()).filter(Boolean);
-
-    const statusConfig = {
-        pending:       { label: 'รอดำเนินการ',    cls: 'bg-yellow-100 text-yellow-700' },
-        in_progress:   { label: 'กำลังซ่อม',     cls: 'bg-blue-100 text-blue-700' },
-        waiting_parts: { label: 'รอของ/รออะไหล่', cls: 'bg-orange-100 text-orange-700' },
-        resolved:      { label: 'แก้ไขแล้ว',     cls: 'bg-green-100 text-green-700' },
-        removed:       { label: 'ถอดออกแล้ว',    cls: 'bg-red-100 text-red-700' },
-        repairing:     { label: 'ส่งซ่อมอยู่',   cls: 'bg-blue-100 text-blue-700' },
-        reinstalled:   { label: 'ติดตั้งคืนแล้ว', cls: 'bg-green-100 text-green-700' },
-        retired:       { label: 'เลิกใช้งาน',    cls: 'bg-gray-100 text-gray-600' },
-    };
-    const st = statusConfig[data.status] || { label: data.status, cls: 'bg-gray-100 text-gray-600' };
-
-    const Row = ({ label, value }) => value ? (
-        <div className="flex gap-3 py-2 border-b border-gray-50 last:border-0">
-            <span className="text-xs text-gray-400 w-28 flex-shrink-0">{label}</span>
-            <span className="text-xs text-gray-800 flex-1">{value}</span>
-        </div>
-    ) : null;
-
-    return createPortal(
-        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', padding: 16 }}>
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
-                {/* Header */}
-                <div className={`flex items-center justify-between px-6 py-4 rounded-t-2xl ${isRepair ? 'bg-blue-50' : 'bg-orange-50'}`}>
-                    <div className="flex items-center gap-2">
-                        <span className="text-2xl">{isRepair ? '🔧' : '📤'}</span>
-                        <div>
-                            <div className="font-bold text-gray-800">{isRepair ? 'บันทึกการซ่อม' : 'บันทึกการถอด'}</div>
-                            <div className="text-xs text-gray-500">#{data.id} · {data.reported_at ? new Date(data.reported_at).toLocaleString('th-TH') : ''}</div>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${st.cls}`}>{st.label}</span>
-                        <button onClick={onClose} className="p-1.5 hover:bg-white/50 rounded-lg text-gray-400 text-lg">✕</button>
-                    </div>
-                </div>
-
-                <div className="overflow-y-auto px-6 py-4 space-y-4">
-                    {/* กล้อง */}
-                    <div>
-                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">กล้อง ({camList.length} ตัว)</div>
-                        <div className="bg-gray-50 rounded-xl p-3 grid grid-cols-2 gap-x-4 gap-y-1">
-    {camList.map((name, i) => (
-        <div key={i} className="text-xs font-medium text-gray-700 truncate" title={name}>• {name}</div>
-    ))}
-</div>
-                    </div>
-
-                    {/* ข้อมูลหลัก */}
-                    <div>
-                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">รายละเอียด</div>
-                        <div className="bg-gray-50 rounded-xl px-4 py-2">
-                            <Row label="Factory"          value={data.factory_name} />
-                            <Row label={isRepair ? 'ประเภทปัญหา' : 'เหตุผล'} value={data.issue_type || data.reason} />
-                            <Row label="รายละเอียดปัญหา"  value={data.description} />
-                            <Row label={isRepair ? 'วิธีแก้ไข' : 'หมายเหตุการถอด'} value={data.solution} />
-                            <Row label="หมายเหตุ"          value={data.remark} />
-                        </div>
-                    </div>
-
-                    {/* วันที่ */}
-                    <div>
-                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">วันที่</div>
-                        <div className="bg-gray-50 rounded-xl px-4 py-2">
-                            <Row label="วันที่แจ้ง"        value={data.reported_at    ? new Date(data.reported_at).toLocaleDateString('th-TH')    : null} />
-                            <Row label="วันที่แก้ไข"       value={data.resolved_at    ? new Date(data.resolved_at).toLocaleDateString('th-TH')    : null} />
-                            <Row label="วันที่ติดตั้งคืน"  value={data.reinstalled_at ? new Date(data.reinstalled_at).toLocaleDateString('th-TH') : null} />
-                        </div>
-                    </div>
-
-                    {/* ผู้ดำเนินการ */}
-                    <div>
-                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">ผู้ดำเนินการ</div>
-                        <div className="bg-gray-50 rounded-xl px-4 py-2">
-                            <Row label="ผู้รับผิดชอบ"  value={data.assigned_to?.toUpperCase()} />
-                            <Row label="ผู้แจ้ง"        value={data.reported_by?.toUpperCase()} />
-                            {!isRepair && <Row label="ตำแหน่งใหม่" value={data.new_location} />}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex gap-3 px-6 py-4 border-t border-gray-100">
-                    <button onClick={onClose} className="flex-1 py-2 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">ปิด</button>
-                </div>
-            </div>
-        </div>,
-        document.body
-    );
-}
-
-// ── Snapshot Tooltip Portal ───────────────────────────────────────────────
-function TooltipPortal({ tooltip, canvasRef }) {
-    const TW = 280, TH = 210, margin = 12;
-    const canvasEl = canvasRef.current;
-    const canvasRect = canvasEl ? canvasEl.getBoundingClientRect() : null;
-
-    let left = tooltip.x + 16;
-    let top = tooltip.y - 10;
-
-    if (canvasRect) {
-        if (left + TW > canvasRect.right - margin) left = tooltip.x - TW - 16;
-        if (left < canvasRect.left + margin) left = canvasRect.left + margin;
-        if (top + TH > canvasRect.bottom - margin) top = canvasRect.bottom - TH - margin;
-        if (top < canvasRect.top + margin) top = canvasRect.top + margin;
-    }
-
-    return (
-        <Portal>
-            <div style={{ position: 'fixed', left, top, zIndex: 99990, pointerEvents: 'none' }}>
-                <div className="bg-gray-900 rounded-xl overflow-hidden shadow-2xl border border-white/10"
-                    style={{ width: TW }}>
-                    <img src={`${API_URL}${tooltip.cam.snapshot_url}`}
-                        alt={tooltip.cam.name}
-                        className="w-full object-cover"
-                        style={{ maxHeight: 160 }} />
-                    <div className="px-3 py-2">
-                        <div className="text-white text-xs font-semibold truncate">{tooltip.cam.name}</div>
-                        <div className="flex items-center gap-1.5 mt-1">
-                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                                style={{ background: STATUS_COLOR[tooltip.cam.status] }} />
-                            <span className="text-[11px] text-gray-400">{tooltip.cam.status}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </Portal>
-    );
-}
-
-// ── Global Camera Search Modal ────────────────────────────────────────────
-function GlobalSearchModal({ cameras, onSelect, onClose }) {
-    const [query, setQuery] = useState('');
-    const inputRef = useRef(null);
-
-    useEffect(() => { inputRef.current?.focus(); }, []);
-
-    const q = query.trim().toLowerCase();
-    const results = (q
-        ? cameras.filter(c =>
-            (c.name || '').toLowerCase().includes(q) ||
-            (c.ip_address || '').toLowerCase().includes(q) ||
-            (c.model || '').toLowerCase().includes(q) ||
-            (c.fix_asset || '').toLowerCase().includes(q) ||
-            (c.rack_name || '').toLowerCase().includes(q) ||
-            (c.switch_name || '').toLowerCase().includes(q) ||
-            (c.layout_name || '').toLowerCase().includes(q)
-        )
-        : cameras
-    ).slice(0, 30);
-
-    return createPortal(
-        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', padding: 16, paddingTop: '10vh' }}
-            onClick={onClose}
-            onKeyDown={e => e.key === 'Escape' && onClose()}>
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden" style={{ maxHeight: '70vh' }}
-                onClick={e => e.stopPropagation()}>
-                <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 flex-shrink-0">
-                    <Search size={16} className="text-gray-400 flex-shrink-0" />
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        value={query}
-                        onChange={e => setQuery(e.target.value)}
-                        placeholder="ค้นหากล้อง ชื่อ, IP, model, asset, rack, factory..."
-                        className="flex-1 outline-none text-sm bg-transparent"
-                    />
-                    <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full text-gray-400 flex-shrink-0">
-                        <X size={16} />
-                    </button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto">
-                    {results.length ? results.map(cam => {
-                        const hasLoc = cam.location_x !== null && cam.location_y !== null;
-                        return (
-                            <button key={cam.id}
-                                onClick={() => onSelect(cam)}
-                                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 text-left border-b border-gray-50 last:border-0 transition-colors">
-                                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: STATUS_COLOR[cam.status] }} />
-                                <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium text-gray-800 truncate">{cam.name}</div>
-                                    <div className="text-[11px] text-gray-400 truncate">
-                                        {cam.ip_address || '—'} · {cam.layout_name || 'ไม่ระบุ Factory'}
-                                        {cam.rack_name && ` · ${cam.rack_name}`}
-                                    </div>
-                                </div>
-                                {!hasLoc && (
-                                    <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full flex-shrink-0">ไม่มีตำแหน่ง</span>
-                                )}
-                            </button>
-                        );
-                    }) : (
-                        <div className="text-center py-8 text-gray-400 text-sm">ไม่พบกล้องที่ตรงกับคำค้นหา</div>
-                    )}
-                </div>
-            </div>
-        </div>,
-        document.body
-    );
-}
 
 
 function CCTVPage() {
@@ -577,12 +37,20 @@ function CCTVPage() {
     const [allCameras, setAllCameras] = useState([]);
     const [allRacks, setAllRacks] = useState([]);   // rack ทุกตัวจาก DB
     const [allSwitches, setAllSwitches] = useState([]);
+    const [allRecordServers, setAllRecordServers] = useState([]);
+    const [uptimeMap, setUptimeMap] = useState({}); // camera_id → { uptime_pct, days[] }
     const [hoveredCam, setHoveredCam] = useState(null);
     const [selectedCam, setSelectedCam] = useState(null);
     const [showLines, setShowLines] = useState(false);
     const [imageLoaded, setImageLoaded] = useState(false);
     const [pinging, setPinging] = useState(false);
     const pulseRef = useRef(0);
+    const [mapZoom, setMapZoom] = useState(1);            // ระดับซูมแผนผัง (1–3)
+    const [layers, setLayers] = useState({ fov: true, labels: true, racks: true }); // ชั้นข้อมูลที่แสดงบนแผนที่
+    const mapZoomRef = useRef(1);                         // ใช้ใน listener ของ wheel (อ่านค่าล่าสุดเสมอ)
+    const changeMapZoomRef = useRef(null);
+    const mapViewportRef = useRef(null);                  // กรอบที่เลื่อนได้เมื่อซูม
+    const pendingZoomScrollRef = useRef(null);            // จุดกลางที่ต้องคงไว้หลังเปลี่ยน zoom
     const [activeTab, setActiveTab] = useState('map');
     const [tooltip, setTooltip] = useState(null);
 
@@ -693,7 +161,70 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
 
 
     useEffect(() => { fetchLayouts(); fetchCameras(); fetchRacks(); fetchSwitches(); fetchMaintenanceLogs(); }, []);
+    useEffect(() => {
+        fetch(`${API_BASE}/cctv/record-servers`).then(r => r.json())
+            .then(d => { if (d.success) setAllRecordServers(d.data); }).catch(() => {});
+        fetch(`${API_BASE}/cctv/uptime?days=14`).then(r => r.json())
+            .then(d => {
+                if (!d.success) return;
+                setUptimeMap(Object.fromEntries(d.data.map(u => [u.camera_id, u])));
+            }).catch(() => {});
+    }, []);
     useEffect(() => { if (selectedLayout) { setImageLoaded(false); setListPage(1); } }, [selectedLayout]);
+    useEffect(() => { setMapZoom(1); }, [selectedLayout]);
+
+    // คงจุดกลางของภาพไว้เมื่อเปลี่ยนระดับซูม
+    useEffect(() => {
+        const vp = mapViewportRef.current;
+        const p = pendingZoomScrollRef.current;
+        if (!vp || !p) return;
+        vp.scrollLeft = p.cx * vp.scrollWidth - vp.clientWidth / 2;
+        vp.scrollTop = p.cy * vp.scrollHeight - vp.clientHeight / 2;
+        pendingZoomScrollRef.current = null;
+    }, [mapZoom]);
+
+    const changeMapZoom = (z) => {
+        const vp = mapViewportRef.current;
+        const nz = Math.min(3, Math.max(1, Math.round(z * 2) / 2));
+        if (vp && vp.scrollWidth && vp.scrollHeight) {
+            pendingZoomScrollRef.current = {
+                cx: (vp.scrollLeft + vp.clientWidth / 2) / vp.scrollWidth,
+                cy: (vp.scrollTop + vp.clientHeight / 2) / vp.scrollHeight,
+            };
+        }
+        setMapZoom(nz);
+    };
+    mapZoomRef.current = mapZoom;
+    changeMapZoomRef.current = changeMapZoom;
+
+    // Ctrl + เลื่อนเมาส์ = ซูมเข้า/ออก (ไม่ดักการเลื่อนปกติ)
+    useEffect(() => {
+        const vp = mapViewportRef.current;
+        if (!vp) return;
+        const onWheel = (e) => {
+            if (!e.ctrlKey) return;
+            e.preventDefault();
+            changeMapZoomRef.current(mapZoomRef.current + (e.deltaY < 0 ? 0.5 : -0.5));
+        };
+        vp.addEventListener('wheel', onWheel, { passive: false });
+        return () => vp.removeEventListener('wheel', onWheel);
+    }, [activeTab, imageLoaded, selectedLayout]);
+
+    // โฟกัสกล้องที่เลือก: ซูมอย่างน้อย 200% แล้วเลื่อนให้กล้องอยู่กลางกรอบ
+    const focusSelected = () => {
+        const cam = allCameras.find(c => c.id === selectedCam);
+        if (!cam || cam.location_x == null) return;
+        const cx = cam.location_x / 100, cy = cam.location_y / 100;
+        const z = Math.max(mapZoom, 2);
+        const vp = mapViewportRef.current;
+        if (z === mapZoom && vp) {
+            vp.scrollLeft = cx * vp.scrollWidth - vp.clientWidth / 2;
+            vp.scrollTop = cy * vp.scrollHeight - vp.clientHeight / 2;
+        } else {
+            pendingZoomScrollRef.current = { cx, cy };
+            setMapZoom(z);
+        }
+    };
 
 
 
@@ -714,6 +245,10 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
             canvas.height = img.naturalHeight;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
+
+            // ขนาดแสดงผลจริงบนหน้าจอ (px หน้าจอต่อ 1 px ของภาพ) — ใช้ให้ marker/label คงขนาดบนจอไม่ว่าซูมเท่าไร
+            const screenScale = canvas.clientWidth > 0 ? canvas.clientWidth / canvas.width : 1;
+            const placedLabels = []; // กล่องป้ายที่วาดแล้ว ใช้กันป้ายซ้อนทับกัน
 
             // ตำแหน่งกล้อง — ถ้ากำลังลากตัวนี้อยู่ ให้ใช้ตำแหน่งล่าสุดจาก dragPosRef แทนค่าจาก DB
             const getCamPos = (cam) => {
@@ -754,7 +289,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
             });
 
             // ── วาด Rack pins ─────────────────────────────────────────
-            racks.forEach(rack => {
+            if (layers.racks) racks.forEach(rack => {
                 if (rack.location_x == null || rack.location_y == null) return;
                 const px = (canvas.width * rack.location_x) / 100;
                 const py = (canvas.height * rack.location_y) / 100;
@@ -791,7 +326,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
             // ── วาด FOV cones ─────────────────────────────────────────
             const fovLen = Math.min(canvas.width, canvas.height) * 0.06;
             cameras.forEach(cam => {
-                if (cam.location_x === null || !cam.fov_direction) return;
+                if (!layers.fov || cam.location_x === null || !cam.fov_direction) return;
                 const camPos = getCamPos(cam);
                 const px = (canvas.width * camPos.x) / 100;
                 const py = (canvas.height * camPos.y) / 100;
@@ -820,7 +355,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                 const isHover = hoveredCam === cam.id;
                 const isSel = selectedCam === cam.id;
                 const isBeingDragged = draggingRef.current?.id === cam.id && draggingRef.current?.moved;
-                const r = isHover || isSel || isBeingDragged ? 20 : 15
+                const r = (isHover || isSel || isBeingDragged ? 13 : 9) / screenScale; // ~9px บนจอ (ใหญ่ขึ้นเมื่อ hover/เลือก)
                 const dim = showLines && hoveredCam && !isHover && !isSel;
                 const bgColor = isSel ? '#f59e0b' : (STATUS_COLOR[cam.status] || '#9ca3af');
 
@@ -842,6 +377,25 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                 ctx.fillStyle = bgColor;
                 ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
                 ctx.strokeStyle = 'white'; ctx.lineWidth = 3; ctx.stroke();
+                // กล้อง offline: วงแดงขยายช้า ๆ ให้เห็นง่ายในภาพรวม
+                if (cam.status === 'offline' && !dim) {
+                    const grow = 6 + 6 * (0.5 + 0.5 * Math.sin(pulse * 0.8));
+                    ctx.save();
+                    ctx.strokeStyle = '#dc2626';
+                    ctx.lineWidth = 2;
+                    ctx.globalAlpha = 0.6 * (1 - (grow - 6) / 12);
+                    ctx.beginPath(); ctx.arc(px, py, r + grow / screenScale, 0, Math.PI * 2); ctx.stroke();
+                    ctx.restore();
+                }
+                // กล้องที่ยังไม่ตั้งทิศทาง FOV: วงสีเหลืองเส้นประรอบจุด เพื่อให้รู้ว่าไม่ได้ขึ้นรัศมีเพราะยังไม่ได้ตั้งค่า
+                if (!cam.fov_direction && !dim) {
+                    ctx.save();
+                    ctx.setLineDash([5, 4]);
+                    ctx.strokeStyle = '#f59e0b';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.arc(px, py, r + 7 / screenScale, 0, Math.PI * 2); ctx.stroke();
+                    ctx.restore();
+                }
                 ctx.globalAlpha = dim ? 0.25 : 1;
 
                 if (isSel) {
@@ -881,6 +435,19 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                 // icon กระพริบตาม bgAlpha ด้วย
                 ctx.globalAlpha = dim ? 0.25 : bgAlpha;
                 drawCCTVIcon(ctx, px, py, r, cam.icon_type || 'bullet', bgColor, 'white');
+                // รูปร่างแยกสถานะ: กล้อง offline มีเครื่องหมาย × ทับไอคอน (ไม่พึ่งสีอย่างเดียว)
+                if (cam.status === 'offline' && !dim) {
+                    const k = (r * 0.45);
+                    ctx.save();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = Math.max(2, 2.5 / screenScale);
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(px - k, py - k); ctx.lineTo(px + k, py + k);
+                    ctx.moveTo(px + k, py - k); ctx.lineTo(px - k, py + k);
+                    ctx.stroke();
+                    ctx.restore();
+                }
                 ctx.globalAlpha = 1;
                 ctx.shadowBlur = 0;
                 ctx.restore();
@@ -889,15 +456,25 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                 ctx.save();
                 ctx.globalAlpha = dim ? 0.25 : 1;
                 const labelText = cam.name;
-                const fontSize = isSel ? 18 : (isHover ? 14 : 13);
+                const fontSize = (isSel ? 14 : isHover ? 13 : 12) / screenScale;
                 ctx.font = `bold ${fontSize}px Arial`;
                 ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-                const tw = ctx.measureText(labelText).width + 8;
-                const ly = py + r + 9;
-                ctx.fillStyle = isSel ? '#f59e0b' : isHover ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.65)';
-                ctx.beginPath(); ctx.roundRect(px - tw / 2, ly, tw, fontSize + 6, 4); ctx.fill();
-                ctx.fillStyle = 'white';
-                ctx.fillText(labelText, px, ly + 3);
+                const tw = ctx.measureText(labelText).width + 8 / screenScale;
+                const th = fontSize + 6 / screenScale;
+                const ly = py + r + 6 / screenScale;
+                // ไม่ให้ป้ายล้นขอบแผนที่: เลื่อนจุดกึ่งกลางของป้ายเข้ามาให้พอดีในภาพ
+                const lx = Math.min(Math.max(px, tw / 2 + 2), canvas.width - tw / 2 - 2);
+                // กันป้ายซ้อนทับกัน: ข้ามป้ายที่ชนกับป้ายที่วาดไปแล้ว (ยกเว้นกล้องที่เลือก/hover/กำลังลาก)
+                const forced = isSel || isHover || isBeingDragged;
+                const collides = placedLabels.some(b =>
+                    lx - tw / 2 < b.x + b.w && lx + tw / 2 > b.x && ly < b.y + b.h && ly + th > b.y);
+                if (layers.labels && (forced || !collides)) {
+                    placedLabels.push({ x: lx - tw / 2, y: ly, w: tw, h: th });
+                    ctx.fillStyle = isSel ? '#f59e0b' : isHover ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.65)';
+                    ctx.beginPath(); ctx.roundRect(lx - tw / 2, ly, tw, th, 4 / screenScale); ctx.fill();
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(labelText, lx, ly + 3 / screenScale);
+                }
                 ctx.restore();
             });
 
@@ -907,7 +484,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
         animFrame = requestAnimationFrame(draw);
         return () => cancelAnimationFrame(animFrame);
 
-    }, [imageLoaded, cameras, racks, hoveredCam, selectedCam, selectedRackId, showLines]);
+    }, [imageLoaded, cameras, racks, hoveredCam, selectedCam, selectedRackId, showLines, layers]);
 
     // ── Canvas events ─────────────────────────────────────────────────────
     // ── Drag-to-move ตำแหน่งกล้อง ─────────────────────────────────────────
@@ -1038,7 +615,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
         // แปลงพิกเซลเมาส์ที่คลิก ให้ตรงกับพิกเซลจริงภายในเนื้อผ้า Canvas
         const mx = (e.clientX - rect.left - offsetX) * (canvas.width / renderedWidth);
         const my = (e.clientY - rect.top - offsetY) * (canvas.height / renderedHeight);
-        const CLICK_RADIUS = 20;
+        const CLICK_RADIUS = 14 * canvas.width / renderedWidth; // ~14px บนจอ ไม่ว่าซูมเท่าไร
 
         return cameras.find(cam => {
             if (cam.location_x === null || cam.location_y === null) return false;
@@ -1081,6 +658,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
 
     const handleClick = (e) => {
         if (suppressClickRef.current) { suppressClickRef.current = false; return; } // เพิ่งลากเสร็จ ไม่ต้องเปิด modal
+        if (linkRack) { const c = getHitCamera(e); if (c) handleLinkClick(c); return; } // โหมดผูกกล้อง
         const cam = getHitCamera(e);
         if (cam) {
             setSelectedCam(cam.id);
@@ -1109,7 +687,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                     if (!isToggleOff) {
                         setRackDetailModal({
                             ...rack,
-                            cameras: cameras.filter(c => c.rack_id === rack.id),
+                            cameras: allCameras.filter(c => c.rack_id === rack.id),
                             switches: allSwitches.filter(s => s.rack_id === rack.id),
                         });
                     } else {
@@ -1125,11 +703,22 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
 
     // ── Ping all ──────────────────────────────────────────────────────────
     const handlePingAll = async () => {
+        pingRunningRef.current = true;
         setPinging(true);
+        // server ping ทั้งระบบในคำขอเดียว จึงแสดงความคืบหน้าเป็นแบบไม่ระบุจำนวนที่เสร็จ
+        const total = allCameras.filter(c => c.ip_address && c.status !== 'removed' && c.status !== 'retired').length;
+        setPingProgress({ done: null, total, label: 'Ping ทั้งระบบ' });
         try {
-            await fetch(`${API_BASE}/cctv/ping-all`, { method: 'POST' });
+            const r = await fetch(`${API_BASE}/cctv/ping-all`, { method: 'POST' });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok || d.success === false) throw new Error(d.error || `HTTP ${r.status}`);
+            finishPing(d.results || [], 'Ping ทั้งระบบ');
             await fetchCameras();
+        } catch (err) {
+            showToast(`Ping ไม่สำเร็จ: ${err.message}`, 'error');
         } finally {
+            pingRunningRef.current = false;
+            setPingProgress(null);
             setPinging(false);
         }
     };
@@ -1137,21 +726,200 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
     // ── Ping by layout ────────────────────────────────────────────────────
     const handlePingLayout = async () => {
         if (!selectedLayout) { handlePingAll(); return; }
-        setPinging(true);
-        try {
-            // ping เฉพาะกล้องใน layout ที่เลือก
-            const camsInLayout = allCameras.filter(c => c.factory_layout_id === selectedLayout && c.ip_address);
-            await Promise.all(camsInLayout.map(c =>
-                fetch(`${API_BASE}/cctv/ping/${c.id}`, { method: 'POST' })
-            ));
-            await fetchCameras();
-        } finally {
-            setPinging(false);
-        }
+        // ping ทีละชุดจากกล้องในโรงนี้ เพื่อให้เห็นความคืบหน้า
+        const cams = allCameras.filter(c => c.factory_layout_id === selectedLayout
+            && c.ip_address && c.status !== 'removed' && c.status !== 'retired');
+        await runPing(cams, `Ping โรงนี้ (${current?.name || ''})`);
     };
 
     // ── Ping รายตัว ───────────────────────────────────────────────────────
     const [pingingId, setPingingId] = useState(null);
+    // ── Ping แบบมีความคืบหน้า + สรุปผล (ปุ่ม ping ที่ยิงทีละกล้องใช้ฟังก์ชันนี้ร่วมกัน) ──
+    const pingRunningRef = useRef(false);                   // กันการเปลี่ยนสถานะตอน auto-refresh ระหว่าง ping
+    const [pingProgress, setPingProgress] = useState(null); // { done (null = ไม่ทราบ), total, label }
+    const [pingReport, setPingReport] = useState(null);     // { label, at, online, offline[], failed, total }
+
+    const finishPing = (results, label) => {
+        skipOfflineToastRef.current = true; // ผลการ ping แสดงในสรุปอยู่แล้ว ไม่ต้องแจ้งซ้ำ
+        const byId = new Map(allCameras.map(c => [c.id, c]));
+        const online = results.filter(r => r.status === 'online').length;
+        const offlineCams = results.filter(r => r.status === 'offline').map(r => byId.get(r.id)).filter(Boolean);
+        const failed = results.filter(r => r.status === 'error').length;
+        setPingReport({ label, at: new Date(), online, offline: offlineCams, failed, total: results.length });
+        showToast(`${label}: ออนไลน์ ${online} · ออฟไลน์ ${offlineCams.length}${failed ? ` · ผิดพลาด ${failed}` : ''} (รวม ${results.length})`,
+            offlineCams.length || failed ? 'warn' : 'ok');
+    };
+
+    const runPing = async (cams, label) => {
+        if (!cams.length) return;
+        pingRunningRef.current = true;
+        setPinging(true);
+        setPingProgress({ done: 0, total: cams.length, label });
+        const results = [];
+        try {
+            for (let i = 0; i < cams.length; i += 10) {
+                const batch = cams.slice(i, i + 10);
+                const res = await Promise.all(batch.map(c =>
+                    fetch(`${API_BASE}/cctv/ping/${c.id}`, { method: 'POST' })
+                        .then(r => r.json()).then(d => ({ id: c.id, status: d.status || 'error' }))
+                        .catch(() => ({ id: c.id, status: 'error' }))));
+                results.push(...res);
+                setPingProgress({ done: results.length, total: cams.length, label });
+            }
+            finishPing(results, label);
+            await fetchCameras();
+        } finally {
+            pingRunningRef.current = false;
+            setPingProgress(null);
+            setPinging(false);
+        }
+    };
+
+    // Ping เฉพาะกล้องที่เลือก (bulk)
+    const pingMany = (cams) => runPing(cams, `Ping ที่เลือก (${cams.length})`);
+    const [statusBusy, setStatusBusy] = useState(false);
+
+    // ── ผูก/ถอดกล้องกับ rack (หลายตัวพร้อมกัน) แล้วรีโหลดรายการกล้องทั้งหมด ──
+    const [rackBusy, setRackBusy] = useState(false);
+
+    // ── โหมดผูกกล้องจากแผนที่: เลือก rack แล้วคลิกกล้องบนแผนที่เพื่อผูก/ถอด ──
+    const [linkRack, setLinkRack] = useState(null);
+    const startLinkMode = (rack) => {
+        setRackDetailModal(null);
+        setLinkRack(rack);
+        setSelectedRackId(rack.id);
+        setSelectedCam(null);
+        setActiveTab("map");
+        if (rack.factory_layout_id && rack.factory_layout_id !== selectedLayout) setSelectedLayout(rack.factory_layout_id);
+        setTimeout(() => mapRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    };
+    const exitLinkMode = () => { setLinkRack(null); setSelectedRackId(null); };
+    const handleLinkClick = (cam) => {
+        const rack = linkRack;
+        const rackName = rack.name.trim();
+        if (cam.rack_id === rack.id) {
+            setAlertModal({
+                isOpen: true, type: "danger", title: "ถอดกล้องออกจาก Rack",
+                message: `ถอด "${cam.name}" ออกจาก ${rackName}?`, confirmText: "ถอด", cancelText: "ยกเลิก",
+                onConfirm: () => { setAlertModal(p => ({ ...p, isOpen: false })); setRackCameras([cam.id], null); },
+                onCancel: () => setAlertModal(p => ({ ...p, isOpen: false })),
+            });
+            return;
+        }
+        if (cam.rack_id) {
+            const other = allRacks.find(r => r.id === cam.rack_id);
+            setAlertModal({
+                isOpen: true, type: "danger", title: "ย้ายกล้องไป Rack นี้?",
+                message: `"${cam.name}" อยู่ที่ ${other ? other.name.trim() : "Rack อื่น"} · ย้ายมาที่ ${rackName}?`,
+                confirmText: "ย้าย", cancelText: "ยกเลิก",
+                onConfirm: () => { setAlertModal(p => ({ ...p, isOpen: false })); setRackCameras([cam.id], rack.id); },
+                onCancel: () => setAlertModal(p => ({ ...p, isOpen: false })),
+            });
+            return;
+        }
+        setRackCameras([cam.id], rack.id);
+    };
+    const setRackCameras = async (cameraIds, rackId) => {
+        setRackBusy(true);
+        try {
+            const r = await fetch(`${API_BASE}/cctv/cameras/rack`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ camera_ids: cameraIds, rack_id: rackId }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok || d.success === false) throw new Error(d.error || `HTTP ${r.status}`);
+            const cr = await (await fetch(`${API_BASE}/cctv/cameras`)).json();
+            if (cr.success) {
+                setAllCameras(cr.data);
+                setRackDetailModal(p => (p ? { ...p, cameras: cr.data.filter(c => c.rack_id === p.id) } : p));
+            }
+            showToast(rackId ? `ผูก ${cameraIds.length} กล้องเข้า rack แล้ว` : `ถอด ${cameraIds.length} กล้องออกจาก rack แล้ว`, "ok");
+        } catch (err) {
+            showToast(`ทำรายการไม่สำเร็จ: ${err.message}`, "error");
+        } finally {
+            setRackBusy(false);
+        }
+    };
+
+    // ── เสียงแจ้งเตือน offline (ปิดไว้เป็นค่าเริ่มต้น จำค่าที่เลือกไว้ในเบราว์เซอร์นี้) ──
+    const [alertSound, setAlertSound] = useState(() => {
+        try { return localStorage.getItem('cctvAlertSound') === '1'; } catch { return false; }
+    });
+    useEffect(() => {
+        try { localStorage.setItem('cctvAlertSound', alertSound ? '1' : '0'); } catch { /* ไม่มี storage ก็ไม่เป็นไร */ }
+    }, [alertSound]);
+    const playAlertBeep = () => {
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return;
+            const ctx = new AC();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = 880;
+            gain.gain.value = 0.15;
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.35);
+            setTimeout(() => ctx.close(), 600);
+        } catch { /* เบราว์เซอร์บางตัวบล็อกเสียงโดยไม่ได้กด */ }
+    };
+
+    // ── Auto-refresh ทุก 60 วินาที (พักระหว่าง ping และเมื่อแท็บถูกซ่อน) ──
+    const [autoRefresh, setAutoRefresh] = useState(true);
+    const [lastUpdated, setLastUpdated] = useState(null);
+    useEffect(() => { if (allCameras.length) setLastUpdated(new Date()); }, [allCameras]);
+    useEffect(() => {
+        if (!autoRefresh) return;
+        const id = setInterval(() => {
+            if (!pingRunningRef.current && !document.hidden) fetchCameras();
+        }, 60000);
+        return () => clearInterval(id);
+    }, [autoRefresh, fetchCameras]);
+
+    // ── แจ้งเตือนในแอปเมื่อมีกล้องเปลี่ยนเป็น offline (ไม่แจ้งตอนโหลดครั้งแรก และไม่ซ้ำกับผล ping ที่เพิ่งสรุป) ──
+    const prevOfflineRef = useRef(null);
+    const skipOfflineToastRef = useRef(false);
+    useEffect(() => {
+        if (!allCameras.length) return; // ยังโหลดไม่เสร็จ — ยังไม่ใช่ข้อมูลจริงให้เทียบ
+        const ids = new Set(allCameras.filter(c => c.status === 'offline').map(c => c.id));
+        const prev = prevOfflineRef.current;
+        prevOfflineRef.current = ids;
+        if (skipOfflineToastRef.current) { skipOfflineToastRef.current = false; return; }
+        if (!prev) return;
+        const newly = allCameras.filter(c => ids.has(c.id) && !prev.has(c.id));
+        if (newly.length) {
+            if (alertSound) playAlertBeep();
+            const names = newly.slice(0, 3).map(c => c.name).join(', ');
+            showToast(`กล้องออฟไลน์ใหม่ ${newly.length} ตัว: ${names}${newly.length > 3 ? ' …' : ''}`, 'warn');
+        }
+    }, [allCameras]);
+
+    // ── ปุ่มลัด: "/" เปิดค้นหากล้อง, Esc ปิดหน้าต่าง ──
+    useEffect(() => {
+        const onKey = (e) => {
+            const tag = (e.target?.tagName || '').toLowerCase();
+            const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable;
+            if (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setGlobalSearchOpen(true); }
+            if (e.key === 'Escape') {
+                if (globalSearchOpen) setGlobalSearchOpen(false);
+                else if (linkRack) { setLinkRack(null); setSelectedRackId(null); }
+                else if (detailModal) setDetailModal(null);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [globalSearchOpen, detailModal, linkRack]);
+    // แจ้งผลแบบ toast ที่หายเอง (แทน alert ที่ต้องกดปิด)
+    const [toast, setToast] = useState(null);
+    const toastTimerRef = useRef(null);
+    const showToast = (message, tone = 'ok') => {
+        clearTimeout(toastTimerRef.current);
+        setToast({ message, tone });
+        toastTimerRef.current = setTimeout(() => setToast(null), 6000);
+    };
     const handlePingSingle = async (camId) => {
         setPingingId(camId);
         try {
@@ -1176,6 +944,44 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
     }, [refreshAll]);
 
     const handleCamModalClose = useCallback(() => setCamModal(null), []);
+
+    // ── ตั้งสถานะกล้องด้วยตนเอง ─────────────────────────────────────────
+    // ถอดออก/เลิกใช้ จะหยุด ping กล้องนั้น จึงต้องยืนยันก่อน ส่วน online/offline ยืนยันไม่ต้อง
+    const applyCamStatus = async (s) => {
+        setStatusBusy(true);
+        try {
+            const r = await fetch(`${API_BASE}/cctv/cameras/${detailModal.id}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: s }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok || d.success === false) throw new Error(d.error || `HTTP ${r.status}`);
+            await fetchCameras();
+            setDetailModal(p => (p ? { ...p, status: s } : p));
+        } catch (err) {
+            setAlertModal({
+                isOpen: true, type: 'danger',
+                title: 'เปลี่ยนสถานะไม่สำเร็จ', message: err.message || 'เกิดข้อผิดพลาด',
+                onConfirm: () => setAlertModal(p => ({ ...p, isOpen: false })),
+            });
+        } finally {
+            setStatusBusy(false);
+        }
+    };
+
+    const requestCamStatus = (s, label) => {
+        if (s !== 'removed' && s !== 'retired') return applyCamStatus(s);
+        setAlertModal({
+            isOpen: true, type: 'danger',
+            title: 'ยืนยันเปลี่ยนสถานะ',
+            message: `ตั้งสถานะเป็น "${label.replace(/^\S+\s/, '')}"? กล้องนี้จะไม่ถูก ping อีกจนกว่าจะเปลี่ยนสถานะกลับ`,
+            confirmText: 'ยืนยัน', cancelText: 'ยกเลิก',
+            onConfirm: () => { setAlertModal(p => ({ ...p, isOpen: false })); applyCamStatus(s); },
+            onCancel: () => setAlertModal(p => ({ ...p, isOpen: false })),
+        });
+    };
+    const rackInfo = Object.fromEntries(allRacks.map(r => [r.id, r])); // rack ทุกโรงตาม id
     const online = allCameras.filter(c => c.status === 'online').length;
     const offline = allCameras.filter(c => c.status === 'offline').length;
     const current = layouts.find(l => l.id === selectedLayout);
@@ -1196,16 +1002,29 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                     <p className="text-slate-500 font-medium pl-[52px]">จัดการกล้องวงจรปิด — แผนผัง Factory</p>
                 </div>
                 <div className="flex gap-2">
+                    <span className="text-[11px] text-slate-400 self-center tabular-nums whitespace-nowrap">
+                        {lastUpdated ? `อัปเดต ${lastUpdated.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+                    </span>
+                    <button onClick={() => setAlertSound(v => !v)} title="เสียงเมื่อมีกล้องออฟไลน์ใหม่"
+                        aria-pressed={alertSound}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-500 hover:bg-gray-50">
+                        {alertSound ? '🔔 เสียงเปิด' : '🔕 เสียงปิด'}
+                    </button>
+                    <button onClick={() => setAutoRefresh(v => !v)} title="รีเฟรชข้อมูลอัตโนมัติทุก 60 วินาที"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-500 hover:bg-gray-50">
+                        {autoRefresh ? '⏸ หยุดรีเฟรช' : '▶ รีเฟรชอัตโนมัติ'}
+                    </button>
                     <button onClick={handlePingLayout} disabled={pinging}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
                         title={selectedLayout ? `Ping เฉพาะ ${current?.name}` : 'Ping ทุก Factory'}>
                         <RefreshCw size={13} className={pinging ? 'animate-spin' : ''} />
-                        {selectedLayout ? `Ping ${current?.name?.split(':')[0] || 'Layout'}` : 'Ping All'}
+                        {selectedLayout ? 'Ping โรงนี้' : 'Ping ทั้งหมด'}
                     </button>
                     {selectedLayout && (
                         <button onClick={handlePingAll} disabled={pinging}
+                            title="Ping กล้องทั้งระบบ"
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50">
-                            <RefreshCw size={13} /> Ping All
+                            <RefreshCw size={13} /> Ping ทั้งระบบ
                         </button>
                     )}
                     {canCreateCctv && <button onClick={() => setCamModal({ mode: 'add' })}
@@ -1215,10 +1034,31 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                 </div>
             </div>
 
+            {/* ── แถบออฟไลน์ตอนนี้ (กดแล้วไปที่กล้องบนแผนที่) ── */}
+            {offline > 0 && (
+                <div className="flex items-center gap-2 flex-wrap rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs">
+                    <span className="font-semibold text-red-700">⚠️ ออฟไลน์ตอนนี้ {offline} ตัว</span>
+                    {allCameras.filter(c => c.status === 'offline').slice(0, 6).map(c => (
+                        <button key={c.id} onClick={() => jumpToCamera(c)}
+                            className="px-2 py-0.5 rounded-full bg-white border border-red-200 text-red-700 hover:bg-red-100">
+                            {c.name}
+                        </button>
+                    ))}
+                    {offline > 6 && <span className="text-red-500">และอีก {offline - 6} ตัว</span>}
+                </div>
+            )}
+
+            {/* ── Skeleton ตอนโหลดครั้งแรก ── */}
+            {layouts.length === 0 && allCameras.length === 0 && (
+                <div className="grid grid-cols-4 gap-2 animate-pulse">
+                    {[0, 1, 2, 3].map(i => <div key={i} className="h-14 rounded-xl bg-slate-200" />)}
+                </div>
+            )}
+
             {/* ── Stats bar — compact ────────────────────────────────────── */}
             <div className="grid grid-cols-4 gap-2">
                 {[
-                    { label: 'ทั้งหมด', value: allCameras.length, icon: Camera, grad: 'from-blue-500 to-blue-600' },
+                    { label: 'ทั้งหมดในระบบ', value: allCameras.length, icon: Camera, grad: 'from-blue-500 to-blue-600' },
                     { label: 'Online', value: online, icon: Wifi, grad: 'from-emerald-500 to-emerald-600' },
                     { label: 'Offline', value: offline, icon: WifiOff, grad: 'from-red-500 to-red-600' },
                     { label: 'Rack', value: allRacks.length, icon: Server, grad: 'from-violet-500 to-purple-600' },
@@ -1248,10 +1088,10 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                 <button key={l.id}
                                     onClick={() => { setSelectedLayout(l.id); setLayoutDropOpen(false); }}
                                     className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all
-                                            ${isSel ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50 border border-transparent'}`}>
-                                    <span className={`text-xs truncate ${isSel ? 'text-blue-700 font-semibold' : 'text-slate-600'}`}>{l.name}</span>
+                                            ${isSel ? 'bg-blue-600 border border-blue-600 shadow-sm' : 'hover:bg-slate-50 border border-transparent'}`}>
+                                    <span className={`text-xs truncate ${isSel ? 'text-white font-semibold' : 'text-slate-600'}`}>{l.name}</span>
                                     <div className="flex items-center gap-1 flex-shrink-0">
-                                        <span className="text-xs font-bold text-slate-700">{count}</span>
+                                        <span className={`text-xs font-bold ${isSel ? 'text-white' : 'text-slate-700'}`}>{count}</span>
                                         {count > 0 && (
                                             <span className={`text-[10px] px-1 rounded-full font-medium
                                                 ${onlineC === count ? 'bg-green-100 text-green-600'
@@ -1274,8 +1114,8 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
     <div className="flex gap-1">
         {[
             { id: 'map', label: '🗺️ Map' },
-            { id: 'repair', label: '🔧 บันทึกซ่อม' },
-            { id: 'removal', label: '📤 บันทึกถอด' },
+            { id: 'maintenance', label: '🛠️ บันทึกซ่อม/ถอด/ติดตั้ง' },
+            { id: 'report', label: '📊 รายงาน' },
         ].map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
@@ -1303,8 +1143,57 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
             {/* ── MAP TAB — map + list below ────────────────────────────── */}
             {activeTab === 'map' && (
                 <div className="space-y-3">
+                    {/* ── แถบโหมดผูกกล้องจากแผนที่ ── */}
+                    {linkRack && (
+                        <div className="flex items-center gap-3 flex-wrap rounded-xl border border-purple-200 bg-purple-50 px-4 py-2.5 text-xs">
+                            <span className="font-semibold text-purple-800">🔗 กำลังผูกกล้องเข้า {linkRack.name.trim()}</span>
+                            <span className="text-purple-700">คลิกกล้องเพื่อผูก · คลิกกล้องที่ผูกอยู่เพื่อถอด · เปลี่ยนโรงเพื่อหากล้องข้ามโรงได้</span>
+                            {linkRack.factory_layout_id !== selectedLayout && (
+                                <button onClick={() => setSelectedLayout(linkRack.factory_layout_id)}
+                                    className="px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-700 hover:bg-purple-100">
+                                    ไปที่โรงของ rack ({linkRack.layout_name || "—"})
+                                </button>
+                            )}
+                            <button onClick={exitLinkMode} className="ml-auto px-3 py-1 rounded-lg bg-purple-600 text-white font-medium hover:bg-purple-700">
+                                เสร็จ (Esc)
+                            </button>
+                        </div>
+                    )}
+                    {/* ── ผล ping ล่าสุด (สรุป + รายชื่อกล้อง offline ที่กดไปดูได้) ── */}
+                    {pingReport && (
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="text-xs font-semibold text-slate-700">
+                                    ผล {pingReport.label} · {pingReport.at.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                                <button onClick={() => setPingReport(null)} className="text-slate-400 hover:text-slate-600" aria-label="ปิดผล ping">
+                                    <X size={14} />
+                                </button>
+                            </div>
+                            <div className="flex gap-3 text-xs mb-2 flex-wrap">
+                                <span className="text-green-700 font-medium">ออนไลน์ {pingReport.online}</span>
+                                <span className="text-red-700 font-medium">ออฟไลน์ {pingReport.offline.length}</span>
+                                {pingReport.failed > 0 && <span className="text-amber-700 font-medium">ผิดพลาด {pingReport.failed}</span>}
+                                <span className="text-slate-400">รวม {pingReport.total}</span>
+                            </div>
+                            {pingReport.offline.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {pingReport.offline.map(c => (
+                                        <button key={c.id} onClick={() => jumpToCamera(c)}
+                                            className="px-2 py-0.5 rounded-full text-[11px] bg-red-50 text-red-700 border border-red-200 hover:bg-red-100">
+                                            {c.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    <DataQualityPanel cameras={cameras} loadCameras={allCameras} recordServers={allRecordServers}
+                        label={current?.name || 'ทุกโรง'} />
                     {/* Map — fit viewport, no scroll */}
                     <div ref={mapRef} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                        <div ref={mapViewportRef} className="overflow-auto" style={{ maxHeight: mapZoom > 1 ? '72vh' : undefined }}>
+                        <div style={{ width: `${mapZoom * 100}%` }}>
                         <div className="relative bg-gray-50" style={{ height: 'auto' }}>
                             {current?.image_url ? (
                                 <>
@@ -1330,6 +1219,8 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                 <div className="text-gray-400 text-sm">ไม่มีแผนผัง</div>
                             )}
                         </div>
+                        </div>
+                        </div>
                         <div className="flex gap-4 px-4 py-2 border-t border-gray-100 text-xs text-gray-500 flex-wrap">
                             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-600 inline-block" />Online</span>
                             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-600 inline-block" />Offline</span>
@@ -1338,17 +1229,50 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                             <span className="flex items-center gap-1.5">
                                 <svg width="14" height="10" viewBox="0 0 16 12"><path d="M8,6 L2,1 A7,7 0 0,1 14,1 Z" fill="rgba(59,130,246,0.3)" stroke="rgba(59,130,246,0.7)" strokeWidth="1" /></svg>FOV
                             </span>
-                            <span className="ml-auto text-gray-400">
+                            <span className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-full border border-dashed border-amber-500 inline-block" />ยังไม่มี FOV
+                            </span>
+                            <div className="flex items-center gap-1">
+                                {[
+                                    { k: 'fov', label: 'FOV' },
+                                    { k: 'labels', label: 'ป้าย' },
+                                    { k: 'racks', label: 'Rack' },
+                                ].map(t => (
+                                    <button key={t.k} onClick={() => setLayers(p => ({ ...p, [t.k]: !p[t.k] }))}
+                                        aria-pressed={layers[t.k]}
+                                        className={`px-2 py-0.5 rounded-full border text-[11px] ${layers[t.k] ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-400 line-through'}`}>
+                                        {t.label}
+                                    </button>
+                                ))}
+                                <button onClick={focusSelected} disabled={!selectedCam}
+                                    className="px-2 py-0.5 rounded-full border border-gray-200 text-[11px] text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                                    🎯 โฟกัส
+                                </button>
+                            </div>
+                            <div className="ml-auto flex items-center gap-2 flex-wrap">
+                                <div className="flex items-center rounded-lg border border-gray-200 overflow-hidden bg-white">
+                                    <button onClick={() => changeMapZoom(mapZoom - 0.5)} disabled={mapZoom <= 1} title="ซูมออก"
+                                        className="px-2 py-0.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40">−</button>
+                                    <button onClick={() => changeMapZoom(1)} title="รีเซ็ตซูม"
+                                        className="px-2 py-0.5 text-[11px] font-semibold text-gray-600 border-x border-gray-200 hover:bg-gray-50 min-w-[52px] tabular-nums">{Math.round(mapZoom * 100)}%</button>
+                                    <button onClick={() => changeMapZoom(mapZoom + 0.5)} disabled={mapZoom >= 3} title="ซูมเข้า"
+                                        className="px-2 py-0.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40">+</button>
+                                </div>
+                            <span className="text-gray-400">
                                 {isStaff
                                     ? 'ลากกล้องเพื่อย้ายตำแหน่ง (บันทึกอัตโนมัติ) · คลิกกล้อง/Rack = รายละเอียด · คลิก Rack ซ้ำ = highlight เส้นสาย'
                                     : 'คลิกกล้อง/Rack = รายละเอียด · คลิก Rack ซ้ำ = highlight เส้นสาย'}
                             </span>
+                            </div>
                         </div>
                     </div>
 
                     {/* Camera list below map */}
                     <CameraListSection
-                        cameras={allCameras}
+                        cameras={cameras}
+                        onPingMany={pingMany}
+                        allCameras={allCameras}
+                        rackInfo={rackInfo}
                         currentName={current?.name}
                         listLocFilter={listLocFilter}
                         setListLocFilter={setListLocFilter}
@@ -1383,7 +1307,8 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                             {racks.map(rack => {
-                                const rackCams = cameras.filter(c => c.rack_id === rack.id);
+                                // กล้องทุกโรงที่เชื่อมกับ rack นี้ (ไม่กรองตามโรงที่เลือก) — กล้องจากโรงอื่นจะมีป้ายบอกโรง
+                                const rackCams = allCameras.filter(c => c.rack_id === rack.id);
                                 const rackSwitches = allSwitches.filter(s => s.rack_id === rack.id);
                                 const isAccess = rack.rack_type !== 'distribution';
                                 return (
@@ -1430,6 +1355,9 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                                         cam.status === 'offline' ? 'bg-red-100 text-red-700' :
                                                             'bg-gray-100 text-gray-500'}`}>
                                                     {cam.name}
+                                                    {cam.factory_layout_id !== rack.factory_layout_id && (
+                                                        <span className="ml-1 opacity-70" title={`อยู่ที่ ${cam.layout_name || 'โรงอื่น'}`}>↗ {cam.layout_name || 'โรงอื่น'}</span>
+                                                    )}
                                                 </span>
                                             ))}
                                             {!rackCams.length && <span className="text-[10px] text-gray-300">ยังไม่มีกล้อง</span>}
@@ -1438,8 +1366,16 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                 );
                             })}
                             {!racks.length && (
-                                <div className="col-span-full text-center py-6 text-gray-400 text-sm bg-white rounded-xl border border-gray-100">
-                                    ยังไม่มี Rack ใน Factory นี้
+                                <div className="col-span-full text-center py-8 bg-white rounded-xl border border-dashed border-gray-200">
+                                    <div className="text-3xl mb-2">🗄️</div>
+                                    <div className="text-sm font-medium text-gray-600">ยังไม่มี Rack ใน Factory นี้</div>
+                                    <div className="text-xs text-gray-400 mt-1 mb-3">เพิ่ม Rack เพื่อจัดกลุ่มกล้องและแสดงเส้นสายบนแผนที่</div>
+                                    {canCreateCctv && (
+                                        <button onClick={() => setRackModal({ mode: 'add' })}
+                                            className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-medium hover:bg-purple-700">
+                                            + เพิ่ม Rack
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -1448,19 +1384,21 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
             )}
 
             {/* ── Tab: บันทึก Maintenance (ซ่อม + ถอด) ────────────────── */}
-            {(activeTab === 'repair' || activeTab === 'removal') && (
+            {activeTab === 'report' && <CCTVReportView />}
+
+            {activeTab === 'maintenance' && (
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                         <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold text-gray-700">
-                                {activeTab === 'repair' ? '🔧 บันทึกการซ่อม' : '📤 บันทึกการถอด'}
+                                🛠️ บันทึกงานกล้อง
                             </span>
                             <div className="flex gap-1">
-                                {['all', 'repair', 'removal'].map(t => (
+                                {['all', 'repair', 'removal', 'install'].map(t => (
                                     <button key={t} onClick={() => setMaintenanceTypeFilter(t)}
                                         className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors
                                                 ${maintenanceTypeFilter === t ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                                        {t === 'all' ? 'ทั้งหมด' : t === 'repair' ? 'ซ่อม' : 'ถอด'}
+                                        {t === 'all' ? 'ทั้งหมด' : t === 'repair' ? 'ซ่อม' : t === 'removal' ? 'ถอด' : 'ติดตั้ง'}
                                     </button>
                                 ))}
                             </div>
@@ -1468,13 +1406,13 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                         <div className="flex items-center gap-2">
                             <input value={maintenanceSearch} onChange={e => setMaintenanceSearch(e.target.value)}
                                 placeholder="ค้นหา..." className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs w-48" />
-                            <button onClick={() => window.open(`${API_BASE}/cctv/maintenance-logs/export?log_type=${activeTab === 'repair' ? 'repair' : 'removal'}`, '_blank')}
+                            <button onClick={() => window.open(`${API_BASE}/cctv/maintenance-logs/export?log_type=${maintenanceTypeFilter === 'all' ? '' : maintenanceTypeFilter}`, '_blank')}
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700">
                                 ⬇️ Export CSV
                             </button>
-                            {canCreateCctv && <button onClick={() => setMaintenanceModal({ mode: 'add', logType: activeTab === 'repair' ? 'repair' : 'removal' })}
+                            {canCreateCctv && <button onClick={() => setMaintenanceModal({ mode: 'add', logType: maintenanceTypeFilter === 'all' ? 'repair' : maintenanceTypeFilter })}
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700">
-                                + {activeTab === 'repair' ? 'เพิ่มบันทึกซ่อม' : 'บันทึกถอด'}
+                                + เพิ่มบันทึก
                             </button>}
                         </div>
                     </div>
@@ -1497,13 +1435,12 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                             {maintenanceLogs
                                 .filter(r => {
                                     const typeOk = maintenanceTypeFilter === 'all' || r.log_type === maintenanceTypeFilter;
-                                    const tabOk = activeTab === 'repair' ? r.log_type === 'repair' : r.log_type === 'removal';
                                     const searchOk = !maintenanceSearch ||
                                         r.camera_names?.toLowerCase().includes(maintenanceSearch.toLowerCase()) ||
                                         r.camera_name?.toLowerCase().includes(maintenanceSearch.toLowerCase()) ||
                                         r.description?.toLowerCase().includes(maintenanceSearch.toLowerCase()) ||
                                         r.factory_name?.toLowerCase().includes(maintenanceSearch.toLowerCase());
-                                    return typeOk && tabOk && searchOk;
+                                    return typeOk && searchOk;
                                 })
                                 .map(r => {
                                     const statusConfig = {
@@ -1515,6 +1452,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                         repairing:     { label: 'ส่งซ่อมอยู่',   cls: 'bg-blue-100 text-blue-700' },
                                         reinstalled:   { label: 'ติดตั้งคืนแล้ว', cls: 'bg-green-100 text-green-700' },
                                         retired:       { label: 'เลิกใช้งาน',    cls: 'bg-gray-100 text-gray-600' },
+                                        installed:     { label: 'ติดตั้งแล้ว',   cls: 'bg-green-100 text-green-700' },
                                     };
                                     const st = statusConfig[r.status] || { label: r.status, cls: 'bg-gray-100 text-gray-600' };
                                     const isRepair = r.log_type === 'repair';
@@ -1526,8 +1464,8 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                     return (
                                         <tr key={r.id} className="hover:bg-gray-50">
                                             <td className="px-4 py-2">
-                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${isRepair ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
-                                                    {isRepair ? '🔧 ซ่อม' : '📤 ถอด'}
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${isRepair ? 'bg-blue-50 text-blue-600' : r.log_type === 'install' ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'}`}>
+                                                    {isRepair ? '🔧 ซ่อม' : r.log_type === 'install' ? '🆕 ติดตั้ง' : '📤 ถอด'}
                                                 </span>
                                             </td>
                                             <td className="px-4 py-2 font-medium text-gray-800 max-w-[160px]">
@@ -1575,9 +1513,9 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                         </tr>
                                     );
                                 })}
-                            {!maintenanceLogs.filter(r => activeTab === 'repair' ? r.log_type === 'repair' : r.log_type === 'removal').length && (
+                            {!maintenanceLogs.filter(r => maintenanceTypeFilter === 'all' || r.log_type === maintenanceTypeFilter).length && (
                                 <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">
-                                    {activeTab === 'repair' ? 'ยังไม่มีบันทึกการซ่อม' : 'ยังไม่มีบันทึกการถอด'}
+                                    ยังไม่มีบันทึก
                                 </td></tr>
                             )}
                         </tbody>
@@ -1591,7 +1529,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                         mode={camModal.mode}
                         data={camModal.data}
                         layouts={layouts}
-                        racks={racks}
+                        racks={allRacks}
                         switches={allSwitches}
                         selectedLayoutId={selectedLayout}
                         onClose={handleCamModalClose}
@@ -1639,7 +1577,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                 <Portal>
                     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
                         onClick={() => { setRackDetailModal(null); setSelectedRackId(null); }}>
-                        <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col overflow-hidden"
+                        <div className="bg-white rounded-2xl w-full max-w-md lg:max-w-4xl shadow-2xl flex flex-col overflow-hidden"
                             style={{ maxHeight: '85vh' }}
                             onClick={e => e.stopPropagation()}>
                             {/* Header */}
@@ -1680,32 +1618,24 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                         </div>
                                     </div>
                                 )}
-                                {/* Cameras */}
+                                {/* Cameras — จัดการกล้องใน rack (ผูก/ถอด ข้ามโรงได้) */}
                                 <div>
                                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                                        <Camera size={11} /> กล้องที่เชื่อมต่อ ({rackDetailModal.cameras?.length || 0})
+                                        <Camera size={11} /> จัดการกล้องใน Rack
+                                        <button onClick={() => startLinkMode(rackDetailModal)}
+                                            className="ml-auto normal-case tracking-normal font-medium text-purple-600 hover:text-purple-800 border border-purple-200 rounded-lg px-2 py-0.5">
+                                            🔗 ผูกกล้องจากแผนที่
+                                        </button>
                                     </div>
-                                    <div className="space-y-1.5">
-                                        {rackDetailModal.cameras?.map(cam => (
-                                            <button key={cam.id}
-                                                onClick={() => { setRackDetailModal(null); setSelectedRackId(null); setSelectedCam(cam.id); setDetailModal(cam); }}
-                                                className="w-full flex items-center justify-between bg-gray-50 hover:bg-gray-100 rounded-lg px-3 py-2 transition-colors text-left">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: STATUS_COLOR[cam.status] }} />
-                                                    <div>
-                                                        <div className="text-sm font-semibold text-gray-800">{cam.name}</div>
-                                                        <div className="text-[11px] text-gray-400">{cam.ip_address || '—'}</div>
-                                                    </div>
-                                                </div>
-                                                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${cam.status === 'online' ? 'bg-green-100 text-green-700' :
-                                                    cam.status === 'offline' ? 'bg-red-100 text-red-700' :
-                                                        'bg-gray-100 text-gray-500'}`}>{cam.status}</span>
-                                            </button>
-                                        ))}
-                                        {!rackDetailModal.cameras?.length && (
-                                            <div className="text-xs text-gray-400 text-center py-3">ยังไม่มีกล้องใน Rack นี้</div>
-                                        )}
-                                    </div>
+                                    <RackCameraPicker
+                                        linked={rackDetailModal.cameras || []}
+                                        allCameras={allCameras}
+                                        rackFactoryId={rackDetailModal.factory_layout_id}
+                                        busy={rackBusy}
+                                        onLink={(ids) => setRackCameras(ids, rackDetailModal.id)}
+                                        onUnlink={(id) => setRackCameras([id], null)}
+                                        onOpenCamera={(cam) => { setRackDetailModal(null); setSelectedRackId(null); setSelectedCam(cam.id); setDetailModal(cam); }}
+                                    />
                                 </div>
                                 {rackDetailModal.remark && (
                                     <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 text-xs text-amber-700">{rackDetailModal.remark}</div>
@@ -1764,6 +1694,60 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                             {/* Body — scrollable */}
                             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 
+                                {/* Uptime 14 วัน — สรุปจากผล ping รายวัน */}
+                                {(() => {
+                                    const u = uptimeMap[detailModal.id];
+                                    return (
+                                        <div className="bg-gray-50 rounded-xl px-3 py-3">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Uptime 14 วัน</span>
+                                                <span className="text-sm font-bold text-slate-700 tabular-nums">{u?.uptime_pct != null ? `${u.uptime_pct}%` : '—'}</span>
+                                            </div>
+                                            {(() => {
+                                                // วาดครบ 14 วันย้อนหลัง วันที่ไม่มีข้อมูลเป็นช่องว่างสีเทา (ไม่ยืดแท่งเดียวเต็มความกว้าง)
+                                                const byDay = Object.fromEntries((u?.days || []).map(d => [d.day, d]));
+                                                const slots = Array.from({ length: 14 }, (_, i) => {
+                                                    const dt = new Date(); dt.setDate(dt.getDate() - (13 - i));
+                                                    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+                                                    return { key, d: byDay[key] };
+                                                });
+                                                return (
+                                                    <>
+                                                        <div className="flex items-end gap-1 h-12">
+                                                            {slots.map(({ key, d }) => {
+                                                                if (!d || !d.total) {
+                                                                    return <div key={key} title={`${key}: ไม่มีข้อมูล`} className="flex-1 h-1.5 rounded-sm bg-gray-200" />;
+                                                                }
+                                                                const p = d.online / d.total;
+                                                                return (
+                                                                    <div key={key} title={`${key}: ${Math.round(p * 100)}% (${d.online}/${d.total} ครั้ง)`}
+                                                                        className={`flex-1 rounded-sm ${p >= 0.95 ? 'bg-green-500' : p >= 0.5 ? 'bg-amber-400' : 'bg-red-500'}`}
+                                                                        style={{ height: `${Math.max(12, p * 100)}%` }} />
+                                                                );
+                                                            })}
+                                                        </div>
+                                                        <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                                                            <span>14 วันก่อน</span>
+                                                            <span>
+                                                                {u?.samples
+                                                                    ? `จาก ${u.samples} ครั้ง${u.samples < 10 ? ' · ข้อมูลยังน้อย' : ''}`
+                                                                    : 'ยังไม่มีข้อมูล — กด Ping เพื่อเริ่มเก็บ'}
+                                                            </span>
+                                                            <span>วันนี้</span>
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* Snapshot ล่าสุด (ถ้ามี) */}
+                                {detailModal.snapshot_url && (
+                                    <img src={`${API_URL}${detailModal.snapshot_url}`} alt={detailModal.name}
+                                        className="w-full rounded-xl border border-gray-100 object-cover max-h-56 bg-gray-50" />
+                                )}
+
                                 {/* Section: ข้อมูลกล้อง */}
                                 <div>
                                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">ข้อมูลกล้อง</div>
@@ -1781,6 +1765,14 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                                     ? `Custom ${detailModal.fov_direction.replace('CUSTOM_', '')}°`
                                                     : detailModal.fov_direction
                                                 : null],
+                                            ['Rack', detailModal.rack_name && (() => {
+                                                const rk = allRacks.find(x => x.id === detailModal.rack_id);
+                                                return rk && rk.factory_layout_id !== detailModal.factory_layout_id
+                                                    ? `${detailModal.rack_name} (อยู่ที่ ${rk.layout_name || 'โรงอื่น'})`
+                                                    : detailModal.rack_name;
+                                            })()],
+                                            ['Switch', detailModal.switch_name],
+                                            ['Record Server', detailModal.record_server_name],
                                         ].map(([k, v]) => v ? (
                                             <div key={k} className="bg-gray-50 rounded-lg px-3 py-2">
                                                 <div className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">{k}</div>
@@ -1840,9 +1832,13 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                             <RefreshCw size={11} className={pingingId === detailModal.id ? 'animate-spin' : ''} />
                                             {pingingId === detailModal.id ? 'กำลัง Ping...' : 'Ping กล้องนี้'}
                                         </button>
+                                        <button onClick={() => { setDetailModal(null); jumpToCamera(detailModal); }}
+                                            className="w-full flex items-center justify-center gap-1.5 py-1.5 border border-blue-100 rounded-lg text-xs font-medium text-blue-600 hover:bg-blue-50 transition-colors">
+                                            🎯 ดูบนแผนที่
+                                        </button>
                                         {/* เปลี่ยนสถานะด้วยตัวเอง (manual status gated by cctv:edit) */}
                                         {canEditCctv && <div className="pt-1 border-t border-gray-200">
-                                            <div className="text-[10px] text-gray-400 mb-1.5">เปลี่ยนสถานะ:</div>
+                                            <div className="text-[10px] text-gray-400 mb-1.5">ตั้งสถานะด้วยตนเอง (ทับผล ping จนกว่าจะ ping ใหม่):</div>
                                             <div className="flex gap-1.5 flex-wrap">
                                                 {[
                                                     { s: 'online', label: '🟢 Online', cls: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
@@ -1851,16 +1847,8 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                                     { s: 'retired', label: '🚫 เลิกใช้', cls: 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100' },
                                                 ].map(({ s, label, cls }) => (
                                                     <button key={s}
-                                                        disabled={detailModal.status === s}
-                                                        onClick={async () => {
-                                                            await fetch(`${API_BASE}/cctv/cameras/${detailModal.id}/status`, {
-                                                                method: 'PATCH',
-                                                                headers: { 'Content-Type': 'application/json' },
-                                                                body: JSON.stringify({ status: s }),
-                                                            });
-                                                            await fetchCameras();
-                                                            setDetailModal(p => ({ ...p, status: s }));
-                                                        }}
+                                                        disabled={statusBusy || detailModal.status === s}
+                                                        onClick={() => requestCamStatus(s, label)}
                                                         className={`px-2 py-1 text-[11px] font-medium border rounded-lg transition-colors
                                                                 disabled:opacity-40 disabled:cursor-not-allowed ${cls}`}>
                                                         {label}
@@ -1872,7 +1860,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                 </div>
 
                                 {/* Section: ประวัติ Maintenance */}
-                                <CameraMaintenanceLogs cameraId={detailModal.id} apiBase={API_BASE} />
+                                <CameraTimeline cameraId={detailModal.id} apiBase={API_BASE} />
 
                                 {/* Section: Remark */}
                                 {detailModal.remark && (
@@ -1908,6 +1896,27 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                     </div>
                 </Portal>
             )}
+            {pingProgress && (
+                <div className="fixed bottom-6 left-6 z-[99997] w-72 rounded-xl bg-white shadow-2xl border border-slate-200 px-4 py-3">
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-2 gap-2">
+                        <span className="truncate">{pingProgress.label}</span>
+                        <span className="tabular-nums whitespace-nowrap">
+                            {pingProgress.done == null ? `${pingProgress.total} กล้อง` : `${pingProgress.done}/${pingProgress.total}`}
+                        </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                        {pingProgress.done == null
+                            ? <div className="h-full w-full bg-blue-500 animate-pulse" />
+                            : <div className="h-full bg-blue-600 transition-all" style={{ width: `${Math.round((pingProgress.done / Math.max(1, pingProgress.total)) * 100)}%` }} />}
+                    </div>
+                </div>
+            )}
+            {toast && (
+                <div role="status" className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[99998] max-w-[90vw] px-4 py-2.5 rounded-xl shadow-2xl text-sm font-medium text-white
+                    ${toast.tone === 'error' ? 'bg-red-600' : toast.tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-600'}`}>
+                    {toast.message}
+                </div>
+            )}
             {layoutDropOpen && (
                 <div className="fixed inset-0 z-40" onClick={() => setLayoutDropOpen(false)} />
             )}
@@ -1922,6 +1931,8 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                         message={alertModal.message}
                         onConfirm={alertModal.onConfirm || (() => setAlertModal(p => ({ ...p, isOpen: false })))}
                         onCancel={alertModal.onCancel}
+                        confirmText={alertModal.confirmText}
+                        cancelText={alertModal.cancelText}
                     />
                 </div>
             </Portal>
@@ -1946,7 +1957,7 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                     onSave={() => { fetchMaintenanceLogs(); fetchCameras(); setMaintenanceModal(null); }}
                 />
             )}
-            {tooltip?.cam?.snapshot_url && <TooltipPortal tooltip={tooltip} canvasRef={canvasRef} />}
+            {tooltip?.cam && <TooltipPortal tooltip={tooltip} canvasRef={canvasRef} />}
             {globalSearchOpen && (
     <GlobalSearchModal
         cameras={allCameras}

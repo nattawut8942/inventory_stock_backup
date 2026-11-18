@@ -1,11 +1,12 @@
 import express from 'express';
+import { getCctvReport } from '../controllers/cctvReportController.js';
 import { requirePerm } from '../middleware/permissionMiddleware.js';
 import {
     getRacks, getRacksByLayout, createRack, updateRack, deleteRack,
     getSwitches, getSwitchesByRack, createSwitch, updateSwitch, deleteSwitch,
     getCameras, getCamerasByLayout,
     createCamera, updateCamera, updateCameraLocation, updateCameraStatus, deleteCamera,
-    pingCameraById, pingAllCameras, reorderLayouts,
+    pingCameraById, pingAllCameras, pingLayoutCameras, reorderLayouts, getCameraUptime, getCameraStatusHistory, setCamerasRack,
     getMaintenanceLogs, createMaintenanceLog, updateMaintenanceLog,
     deleteMaintenanceLog, exportMaintenanceLogs,
     getRecordServers, createRecordServer, updateRecordServer, deleteRecordServer,
@@ -33,12 +34,17 @@ router.get   ('/cctv/cameras/layout/:layout_id',getCamerasByLayout);
 router.post  ('/cctv/cameras', requirePerm('cctv', 'create'),                  createCamera);
 router.put   ('/cctv/cameras/:id', requirePerm('cctv', 'edit'),              updateCamera);
 router.patch ('/cctv/cameras/:id/status', requirePerm('cctv', 'edit'),       updateCameraStatus);
+router.patch ('/cctv/cameras/rack', requirePerm('cctv', 'edit'), setCamerasRack);
 router.patch ('/cctv/cameras/:id/location', requirePerm('cctv', 'edit', { strict: true }),     updateCameraLocation);
 router.delete('/cctv/cameras/:id', requirePerm('cctv', 'delete'),              deleteCamera);
 
 // ─── Ping ──────────────────────────────────────────────────────────────────
 router.post  ('/cctv/ping/:id', requirePerm('cctv', 'view'),                 pingCameraById);
 router.post  ('/cctv/ping-all', requirePerm('cctv', 'view'),                 pingAllCameras);
+router.post  ('/cctv/ping-layout/:layout_id', requirePerm('cctv', 'view'),   pingLayoutCameras);
+router.get   ('/cctv/uptime',                  getCameraUptime);
+router.get   ('/cctv/cameras/:id/status-history', getCameraStatusHistory);
+router.get   ('/cctv/report', requirePerm('cctv', 'view'), getCctvReport);
 
 // ─── Layout Reorder ────────────────────────────────────────────────────────
 router.patch ('/cctv/layouts/reorder', requirePerm('mgmt-factory-layouts', 'edit'),          reorderLayouts);
@@ -58,8 +64,10 @@ router.delete('/cctv/record-servers/:id', requirePerm('mgmt-record-servers', 'de
 
 router.post('/cctv/capture/trigger', requirePerm('cctv', 'edit'), async (req, res) => {
     // ป้องกันคนอื่นสุ่มยิง endpoint นี้เล่น
-    const { secret } = req.body;
-    if (secret !== '613861') {
+    // secret ต้องตั้งใน .env (CCTV_CAPTURE_SECRET) — ถ้าไม่ได้ตั้งจะปิด endpoint นี้ทั้งหมด (fail closed)
+    const expected = process.env.CCTV_CAPTURE_SECRET;
+    const { secret } = req.body || {};
+    if (!expected || typeof secret !== 'string' || secret !== expected) {
         return res.status(403).json({ error: 'Unauthorized' });
     }
 
