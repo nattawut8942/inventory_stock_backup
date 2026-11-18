@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Search, Monitor, Network, Archive, Database, Package, List, LayoutGrid, Edit2, Trash2, X, TrendingUp, TrendingDown, AlertTriangle, DollarSign, HardDrive, Mouse, Droplet, Printer, ShoppingBag, ShoppingCart, Minus, Plus, FileEdit, ScanLine, Check, Truck, Settings, ClipboardList } from 'lucide-react';
+import { Search, Monitor, Network, Archive, Database, Package, List, LayoutGrid, Edit2, Trash2, X, TrendingUp, TrendingDown, AlertTriangle, DollarSign, HardDrive, Mouse, Droplet, Printer, ShoppingBag, ShoppingCart, Minus, Plus, FileEdit, ScanLine, Check, Truck, Settings, ClipboardList, FileBarChart } from 'lucide-react';
 import Barcode from 'react-barcode';
 import { motion, AnimatePresence, animate } from 'motion/react';
 import { useData } from '../context/DataContext';
@@ -12,6 +12,7 @@ import { getBadgeStyle, getColorGradient, getChartColor, getDeviceTypeColor } fr
 import { formatThaiDate } from '../utils/formatDate';
 import { API_BASE, API_URL } from '../config/api';
 import StockCountPage from './StockCountPage';
+import StockReportView from '../components/StockReportView';
 import EmployeeCodeModal from '../components/EmployeeCodeModal';
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
@@ -801,6 +802,9 @@ const handleFileUpload = async (file) => {
           <button onClick={() => setActiveTab('stockcount')} className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${activeTab === 'stockcount' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'}`}>
             <ClipboardList size={18} /> ตรวจนับสต็อก
           </button>
+          <button onClick={() => setActiveTab('report')} className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${activeTab === 'report' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'}`}>
+            <FileBarChart size={18} /> Report
+          </button>
         </div>
 
         {/* ✅ ย้ายมาอยู่ขวาสุดของแถว tab */}
@@ -836,6 +840,8 @@ const handleFileUpload = async (file) => {
       </div>
 
       {activeTab === 'stockcount' && <StockCountPage />}
+
+      {activeTab === 'report' && <StockReportView />}
 
       {activeTab === 'inventory' && (<>
         {/* Stats */}

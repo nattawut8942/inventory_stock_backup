@@ -6,6 +6,7 @@ import {
     getDeviceTypes, createDeviceType, updateDeviceType, deleteDeviceType,
     getForecast, uploadImage, getVendors ,checkFixedAssetCode
 } from '../controllers/productController.js';
+import { getStockReport, getStockMovementReport, getStockAnalysisReport, getStockProcurementReport, getStockCountQualityReport } from '../controllers/stockReportController.js';
 import { getEmployeeByCode } from '../controllers/employeeController.js';
 import { upload } from '../config/multer.js';
 
@@ -22,6 +23,12 @@ router.put('/products/:id', requirePerm('inventory', 'edit', { strict: true }), 
 router.delete('/products/:id', requirePerm('inventory', 'delete', { strict: true }), deleteProduct);
 // Fixed Asset Code
 router.get('/products/check-asset-code/:code', checkFixedAssetCode);
+// Stock Report (Phase 1-5: ภาพรวม, การเคลื่อนไหว, วิเคราะห์, จัดซื้อ, ตรวจนับ/คุณภาพ)
+router.get('/stock/report', requirePerm('inventory', 'view'), getStockReport);
+router.get('/stock/report/movement', requirePerm('inventory', 'view'), getStockMovementReport);
+router.get('/stock/report/analysis', requirePerm('inventory', 'view'), getStockAnalysisReport);
+router.get('/stock/report/procurement', requirePerm('inventory', 'view'), getStockProcurementReport);
+router.get('/stock/report/count-quality', requirePerm('inventory', 'view'), getStockCountQualityReport);
 // Product Operations
 router.post('/products/manual-import', requirePerm('manual-import', 'create', { strict: true }), manualImport);
 router.post('/products/withdraw', requirePerm('inventory', 'withdraw'), withdrawProduct);
