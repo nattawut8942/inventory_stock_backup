@@ -406,12 +406,14 @@ export async function mergeScanResults(pool, rows) {
             last_scan        = source.ts,
             scan_result      = CASE WHEN source.status = 'Active' THEN 'Found' ELSE 'Not Found' END,
             status           = CASE WHEN target.reservation_status = 'reserved' THEN target.status ELSE source.status END,
-            last_seen_active = CASE WHEN source.status = 'Active' THEN source.ts ELSE target.last_seen_active END
+            last_seen_active = CASE WHEN source.status = 'Active' THEN source.ts ELSE target.last_seen_active END,
+            first_seen_active = CASE WHEN source.status = 'Active' AND target.first_seen_active IS NULL THEN source.ts ELSE target.first_seen_active END
         WHEN NOT MATCHED THEN
-          INSERT (ip_address, status, hostname, last_scan, scan_result, reservation_status, last_seen_active)
+          INSERT (ip_address, status, hostname, last_scan, scan_result, reservation_status, last_seen_active, first_seen_active)
           VALUES (source.ip_address, source.status, source.hostname, source.ts,
                   CASE WHEN source.status = 'Active' THEN 'Found' ELSE 'Not Found' END,
                   'available',
+                  CASE WHEN source.status = 'Active' THEN source.ts ELSE NULL END,
                   CASE WHEN source.status = 'Active' THEN source.ts ELSE NULL END);
       `);
     }

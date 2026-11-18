@@ -26,6 +26,7 @@ import {
   getReservedIPs,
   getAlerts,
 } from '../controllers/ipScanController.js';
+import { getIPReport, getIPQuality, getFreeIPs } from '../controllers/ipReportController.js';
 
 const router = express.Router();
 
@@ -77,5 +78,8 @@ router.get('/ip-scan/inactive',         verifyToken, getInactiveIPs);
 router.get('/ip-scan/snapshots',        verifyToken, getSnapshots);
 router.get('/ip-scan/reserved',         verifyToken, getReservedIPs);
 router.get('/ip-scan/alerts',           verifyToken, getAlerts);
+router.get('/ip-scan/report',           verifyToken, getIPReport);
+router.get('/ip-scan/quality',          verifyToken, getIPQuality);
+router.get('/ip-scan/free',             verifyToken, getFreeIPs);
 
 export default router;

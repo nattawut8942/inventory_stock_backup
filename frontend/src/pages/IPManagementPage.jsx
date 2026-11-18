@@ -7,8 +7,12 @@ import {
 import { useAuth, getAuthToken } from '../context/AuthContext';
 import { useCanAct } from '../context/PermissionContext';
 import Portal from '../components/Portal';
+import AlertModal from '../components/AlertModal';
 import { API_BASE } from '../config/api';
 import * as XLSX from 'xlsx-js-style';
+import IPReportView from '../components/ip/IPReportView';
+import IPQualityView from '../components/ip/IPQualityView';
+import FreeIPFinder from '../components/ip/FreeIPFinder';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 // ค่านี้ใช้แสดงผลเท่านั้น — การคำนวณ inactive จริงอยู่ที่ backend (is_inactive)
@@ -62,7 +66,7 @@ const responseError = async (r) => {
 // ── URL state: subnet / filter / view / q อยู่ใน query string ให้แชร์หรือกลับมาที่เดิมได้ ──
 const FILTER_KEYS = ['all', 'active', 'reserved', 'available', 'inactive'];
 // มุมมองหลัก: subnet (ค่าเริ่มต้น), ภาพรวม, ไทม์ไลน์, รายการ inactive
-const MAIN_VIEWS = ['subnet', 'overview', 'owners', 'timeline', 'inactive', 'alerts'];
+const MAIN_VIEWS = ['subnet', 'overview', 'owners', 'timeline', 'inactive', 'alerts', 'report', 'quality'];
 const readUrl = () => {
     try {
         const p = new URLSearchParams(window.location.search);
@@ -247,17 +251,18 @@ const IPDrawer = ({ ip, data, api, onClose, onSave, onReserve, onRelease, actor,
     const macError = form.mac.trim() && !MAC_RE.test(form.mac.trim()) ? 'รูปแบบ MAC ไม่ถูกต้อง เช่น 00:1A:2B:3C:4D:5E' : '';
     const dirty = DRAWER_FIELDS.some(f => form[f.k] !== (data?.[f.api] || ''));
 
+    const [confirmDiscard, setConfirmDiscard] = useState(false);
     const requestClose = useCallback(() => {
         if (busy) return;
-        if (dirty && !window.confirm('มีการแก้ไขที่ยังไม่ได้บันทึก ต้องการปิดหรือไม่?')) return;
+        if (dirty) { setConfirmDiscard(true); return; }
         onClose();
     }, [busy, dirty, onClose]);
 
     useEffect(() => {
-        const h = (e) => { if (e.key === 'Escape' && !document.body.dataset.modalOpen) requestClose(); };
+        const h = (e) => { if (e.key === 'Escape' && !document.body.dataset.modalOpen) { if (confirmDiscard) setConfirmDiscard(false); else requestClose(); } };
         window.addEventListener('keydown', h);
         return () => window.removeEventListener('keydown', h);
-    }, [requestClose]);
+    }, [requestClose, confirmDiscard]);
 
     // owner/remark ส่งเป็นข้อความ (อาจว่าง) ส่วนที่เหลือว่างหมายถึงล้างค่า (null)
     const fields = () => Object.fromEntries(DRAWER_FIELDS.map(f => {
@@ -305,6 +310,16 @@ const IPDrawer = ({ ip, data, api, onClose, onSave, onReserve, onRelease, actor,
 
     return (
         <Portal>
+            <AlertModal
+                isOpen={confirmDiscard}
+                type="danger"
+                title="ปิดโดยไม่บันทึก?"
+                message="มีการแก้ไขที่ยังไม่ได้บันทึก ถ้าปิดตอนนี้การแก้ไขจะหายไป"
+                confirmText="ปิดโดยไม่บันทึก"
+                cancelText="กลับไปแก้ไข"
+                onConfirm={() => { setConfirmDiscard(false); onClose(); }}
+                onCancel={() => setConfirmDiscard(false)}
+            />
             <div className="fixed inset-0 z-[60] bg-slate-900/20" onMouseDown={requestClose} />
             <motion.aside
                 initial={{ x: 480, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 480, opacity: 0 }}
@@ -954,6 +969,7 @@ const IPManagementPage = () => {
     const [addSubnet, setAddSubnet] = useState(false);
     const [toast, setToast] = useState(null);
     const [showExport, setShowExport] = useState(false);
+    const [freeFinder, setFreeFinder] = useState(false);
     const [highlightIP, setHighlightIP] = useState(null);
     const highlightTimerRef = useRef(null);
     const scanPollRef = useRef(null);
@@ -1881,6 +1897,50 @@ const IPManagementPage = () => {
                 </div>
                 {alertsErr && <p className="text-sm text-red-500">โหลดไม่สำเร็จ: {alertsErr}</p>}
 
+                <Section title="Subnet ใช้งานเกือบเต็ม (≥ 90%)" count={(alerts?.nearFull || []).length}
+                    hint="online หรือจองรวมกันตั้งแต่ 90% ของ subnet — ควรวางแผนขยายหรือคืน IP ที่ไม่ใช้">
+                    {(alerts?.nearFull || []).length === 0 ? <p className="px-4 py-6 text-sm text-slate-400 text-center">ไม่มี</p> : (
+                        <div className="divide-y divide-slate-100">
+                            {alerts.nearFull.map(s => (
+                                <button key={s.subnet} onClick={() => { setMainView('subnet'); selectSubnet(s.subnet); }} className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-50">
+                                    <span className="font-mono font-bold text-indigo-600">{s.subnet}.x</span>
+                                    <span className="text-sm text-slate-600">ใช้ {s.used}/{s.total} <b className="text-rose-600">({s.pct}%)</b></span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </Section>
+
+                <Section title="IP ใหม่ที่เพิ่งโผล่ online (3 วันล่าสุด)" count={(alerts?.newIps || []).length}
+                    hint="เพิ่งพบ online เป็นครั้งแรก — ตรวจว่าเป็นเครื่องที่รู้จักหรือไม่ แล้วจอง/บันทึกเจ้าของ">
+                    {(alerts?.newIps || []).length === 0 ? <p className="px-4 py-6 text-sm text-slate-400 text-center">ไม่มี</p> : (
+                        <div className="divide-y divide-slate-100">
+                            {alerts.newIps.map(i => (
+                                <div key={i.ip_address} className="px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
+                                    <IPLink ip={i.ip_address} sub={i.hostname && i.hostname !== '-' ? i.hostname : 'ไม่มีชื่อ'} />
+                                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${i.reservation_status === 'reserved' ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>{i.reservation_status === 'reserved' ? 'จองแล้ว' : 'ไม่ได้จอง'}</span>
+                                    <span className="text-xs text-slate-400 ml-auto">พบครั้งแรก {i.first_seen}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </Section>
+
+                <Section title="MAC ของ IP ที่จองเปลี่ยน (7 วันล่าสุด)" count={(alerts?.macChanged || []).length}
+                    hint="MAC ถูกแก้จากค่าเดิมเป็นค่าใหม่ — อาจเป็นเครื่องถูกสลับหรือพิมพ์ผิด">
+                    {(alerts?.macChanged || []).length === 0 ? <p className="px-4 py-6 text-sm text-slate-400 text-center">ไม่มี</p> : (
+                        <div className="divide-y divide-slate-100">
+                            {alerts.macChanged.map((m, idx) => (
+                                <div key={`${m.ip_address}-${idx}`} className="px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
+                                    <IPLink ip={m.ip_address} />
+                                    <span className="font-mono text-xs text-slate-600">{m.from} → {m.to}</span>
+                                    <span className="text-xs text-slate-400 ml-auto">โดย {m.changed_by} · {m.changed_at}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </Section>
+
                 <Section title="MAC ซ้ำบนหลาย IP" count={macGroups.length}
                     hint="MAC เดียวกันอยู่บน IP มากกว่า 1 — อาจเป็นการตั้ง IP เอง หรือเครื่องถูกย้ายโดยไม่ได้แจ้ง">
                     {macGroups.length === 0 ? <p className="px-4 py-6 text-sm text-slate-400 text-center">ไม่มี</p> : (
@@ -2027,6 +2087,8 @@ const IPManagementPage = () => {
                     { key: 'timeline', label: 'ไทม์ไลน์', icon: Clock, count: null },
                     { key: 'inactive', label: `Inactive >${INACTIVE_THRESHOLD} วัน`, icon: AlertTriangle, count: capacity.inactive },
                     { key: 'alerts', label: 'แจ้งเตือน', icon: AlertTriangle, count: alerts?.total ?? null },
+                    { key: 'quality', label: 'คุณภาพข้อมูล', icon: CheckCircle, count: null },
+                    { key: 'report', label: 'รายงาน', icon: Layers, count: null },
                 ].map(t => {
                     const on = mainView === t.key;
                     return (
@@ -2073,6 +2135,8 @@ const IPManagementPage = () => {
                             <RefreshCw size={14} className={scanning ? 'animate-spin' : ''} />
                             {scanning ? 'กำลังสแกน…' : 'Scan Now'}
                         </button>}
+                        <button onClick={() => setFreeFinder(true)} disabled={!currentSN}
+                            className="px-3 py-2 rounded-xl text-sm font-semibold border bg-white border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40">✨ หา IP ว่าง</button>
                         <button onClick={() => { setSelectMode(v => !v); setSelected(new Set()); }}
                             className={`px-3 py-2 rounded-xl text-sm font-semibold border ${selectMode ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                             {selectMode ? 'เลิกเลือก' : 'เลือกหลายรายการ'}
@@ -2168,6 +2232,9 @@ const IPManagementPage = () => {
             {mainView === 'owners' && renderOwners()}
             {mainView === 'inactive' && renderInactive()}
             {mainView === 'alerts' && renderAlerts()}
+            {mainView === 'report' && <IPReportView api={API} authHeaders={authHeaders} onOpenSubnet={(sn) => { setMainView('subnet'); selectSubnet(sn); }} />}
+            {mainView === 'quality' && <IPQualityView api={API} authHeaders={authHeaders} canEdit={canIpEdit} putIP={putIP} actor={actor} onOpenIP={openIPFromAnywhere} onChanged={refreshAfterWrite} showToast={showToast} />}
+            {freeFinder && currentSN && <FreeIPFinder api={API} authHeaders={authHeaders} subnet={currentSN} canReserve={canIpEdit} onClose={() => setFreeFinder(false)} onPick={(ip) => { setFreeFinder(false); openIPFromAnywhere(ip); }} />}
 
             {/* แถบการทำงานหลายรายการ */}
             <AnimatePresence>
