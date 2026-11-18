@@ -41,6 +41,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
     });
     // ✅ เพิ่ม BG_No ใน default item
     const [poItems, setPoItems] = useState([{ ProductID: null, ItemName: '', QtyOrdered: 1, UnitCost: 0, BG_No: '' }]);
+    const itemsLocked = isEditMode && !!initialData && !["Open", "Pending"].includes(initialData.Status); // ใบที่รับของแล้วล็อกรายการสินค้า
     const [selectedVendor, setSelectedVendor] = useState({ VendorID: null, VendorName: '' });
 
     const sectionRef = useRef(null);
@@ -804,10 +805,12 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                                 <div>
                                     <div className="flex justify-between items-center mb-2">
                                         <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">รายการอุปกรณ์</label>
-                                        <button type="button" onClick={addItem} className="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 text-xs font-bold px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors">
+                                        <button type="button" disabled={itemsLocked} onClick={addItem} className="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 text-xs font-bold px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors">
                                             <Plus size={14} /> เพิ่มรายการ
                                         </button>
                                     </div>
+                                    {itemsLocked && <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">PO นี้รับของไปแล้ว แก้ไขได้เฉพาะหัวใบ (Vendor, Budget No., PR No., วันที่กำหนดส่ง ฯลฯ) รายการสินค้าและจำนวนถูกล็อก</div>}
+                                    <fieldset disabled={itemsLocked} className="contents">
                                     {/* ✅ Header row เพิ่ม BG No. */}
                                     <div className="hidden sm:flex gap-2 items-center px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                         <div className="flex-1">ชื่ออุปกรณ์</div>
@@ -876,6 +879,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                                             </div>
                                         ))}
                                     </div>
+                                    </fieldset>
                                     <p className="text-right text-sm font-bold text-indigo-600 mt-2">ยอดรวม: ฿{getTotalAmount().toLocaleString()}</p>
                                 </div>
 

@@ -438,6 +438,9 @@ const median = (arr) => {
 };
 const avg1 = (arr) => (arr.length ? Math.round((arr.reduce((t, x) => t + x, 0) / arr.length) * 10) / 10 : null);
 
+// รายงาน PO ใช้ข้อมูลและนิยามชุดเดียวกับรายงานจัดซื้อของ Stock
+export const getPOReport = (req, res) => getStockProcurementReport(req, res);
+
 export const getStockProcurementReport = async (req, res) => {
     try {
         const pool = getPool();

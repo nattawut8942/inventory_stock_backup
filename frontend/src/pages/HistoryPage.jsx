@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import { useSearchParams } from 'react-router-dom';
 import {
     Search, Calendar, RefreshCw, AlertTriangle, Download,
     ArrowUp, ArrowDown, ArrowUpDown, TrendingUp, TrendingDown, Package, ClipboardList
@@ -57,7 +58,9 @@ const QUICK_RANGES = [
 
 const HistoryPage = () => {
     const [filter, setFilter] = useState('ALL'); // ALL, IN, OUT
-    const [searchTerm, setSearchTerm] = useState('');
+    // รับคำค้นจากลิงก์ เช่น /history?q=ชื่อสินค้า (ใช้จากหน้าตรวจนับ)
+    const [urlParams] = useSearchParams();
+    const [searchTerm, setSearchTerm] = useState(() => urlParams.get('q') || '');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(20);
     const [sortKey, setSortKey] = useState('TransDate'); // TransDate | Qty | ProductName

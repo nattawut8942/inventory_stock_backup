@@ -191,10 +191,8 @@ export const updatePO = async (req, res) => {
             }
 
             const status = checkRes.recordset[0].Status;
-            if (status !== 'Open' && status !== 'Pending') {
-                await transaction.rollback();
-                return fail(400, { error: 'Cannot edit PO that is already processed (Partial/Completed/Cancelled)' });
-            }
+            // ใบที่รับของแล้ว (Partial/Completed/Cancelled) แก้ได้เฉพาะหัวใบ เพื่อไม่ให้ยอดรับหาย
+            const processed = status !== 'Open' && status !== 'Pending';
 
             // 2. Update Header
             await new sql.Request(transaction)
@@ -220,7 +218,8 @@ export const updatePO = async (req, res) => {
                     WHERE PO_ID = @PO_ID
                 `);
 
-            // 3. Delete All & Re-insert Details
+            // 3. รายการสินค้า: แก้ได้เฉพาะใบที่ยังไม่รับของ (ใบที่รับแล้วคงรายการเดิม)
+            if (!processed) {
             await new sql.Request(transaction)
                 .input('PO_ID', sql.NVarChar, id)
                 .query('DELETE FROM dbo.Stock_PODetails WHERE PO_ID = @PO_ID');
@@ -240,6 +239,8 @@ export const updatePO = async (req, res) => {
                         VALUES
                             (@PO_ID, @ItemName, @ProductID, @QtyOrdered, 0, @UnitCost, @BG_No)
                     `);
+            }
+
             }
 
             // 4. ไฟล์แนบใหม่ (ถ้ามี)

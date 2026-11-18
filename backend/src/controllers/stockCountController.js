@@ -205,8 +205,13 @@ export const updateItem = async (req, res) => {
         }
 
         const session = sessionCheck.recordset[0];
-        if (session.Status === 'Confirmed' && session.DaysOld > 3) {
-            return res.status(403).json({ error: 'Cannot edit: session is older than 3 days' });
+        // รอบที่ปรับยอดสต็อกแล้วห้ามแก้จำนวนนับ (ไม่งั้นจำนวนนับจะไม่ตรงกับสต็อกที่ปรับไปแล้ว)
+        if (session.Status === 'Adjusted') {
+            return res.status(403).json({ error: 'รอบนี้ปรับยอดสต็อกแล้ว แก้ไขจำนวนนับไม่ได้' });
+        }
+        // null = ยังไม่ได้นับ (ล้างค่าได้) ค่าอื่นต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป
+        if (ActualQty !== null && (!Number.isInteger(ActualQty) || ActualQty < 0)) {
+            return res.status(400).json({ error: 'จำนวนนับต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป' });
         }
 
         await pool.request()
@@ -438,9 +443,6 @@ export const editConfirmedSession = async (req, res) => {
             return res.status(403).json({ error: 'Cannot edit: stock has already been adjusted. Please make a new count instead.' });
         }
 
-        if (session.DaysOld > 3) {
-            return res.status(403).json({ error: 'Cannot edit: session is older than 3 days' });
-        }
 
         const transaction = new sql.Transaction(pool);
         await transaction.begin();
@@ -512,6 +514,10 @@ export const deleteSession = async (req, res) => {
         // Anyone may cancel their own Draft count; deleting a Confirmed/Adjusted session is Admin only
         if (session.Status !== 'Draft' && !(await hasPermission(req, 'stock-count', 'delete'))) {
             return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบรอบนับที่ยืนยันแล้ว (ต้องมีสิทธิ์ "ลบ" ของหน้า Stock Count)', code: 'PERMISSION_DENIED', page: 'stock-count', action: 'delete' });
+        }
+        // รอบที่ปรับยอดสต็อกแล้วลบไม่ได้ เพราะยอดสต็อกถูกปรับไปแล้วและไม่มีการย้อนกลับ
+        if (session.Status === 'Adjusted') {
+            return res.status(403).json({ error: 'รอบนี้ปรับยอดสต็อกแล้ว ลบไม่ได้' });
         }
         // Confirmed sessions can only be deleted within 3 days
         if (session.Status === 'Confirmed' && session.DaysOld > 3) {

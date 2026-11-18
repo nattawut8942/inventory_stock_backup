@@ -88,7 +88,7 @@ const StatusBadge = ({ s }) => {
     return <span className={`inline-block px-2 py-0.5 rounded-md border text-[11px] font-bold ${st.badge}`}>{st.label}</span>;
 };
 
-export default function StockProcurementView() {
+export default function StockProcurementView({ endpoint = '/stock/report/procurement' } = {}) {
     const [range, setRange] = useState('12m');
     const [data, setData] = useState(null);
     const [err, setErr] = useState('');
@@ -100,7 +100,7 @@ export default function StockProcurementView() {
             setLoading(true); setErr('');
             try {
                 const p = new URLSearchParams(rangeOf(range));
-                const res = await fetch(`${API_BASE}/stock/report/procurement?${p.toString()}`);
+                const res = await fetch(`${API_BASE}${endpoint}?${p.toString()}`);
                 if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'โหลดรายงานไม่สำเร็จ');
                 const json = await res.json();
                 if (!cancelled) setData(json);
@@ -108,7 +108,7 @@ export default function StockProcurementView() {
             finally { if (!cancelled) setLoading(false); }
         })();
         return () => { cancelled = true; };
-    }, [range]);
+    }, [range, endpoint]);
 
     const exportExcel = () => {
         if (!data) return;

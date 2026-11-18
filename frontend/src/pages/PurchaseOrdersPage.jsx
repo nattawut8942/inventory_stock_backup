@@ -14,6 +14,7 @@ import PurchaseRequestForm from '../components/PurchaseRequestForm';
 import PODetailModal from '../components/PODetailModal';
 
 import { API_BASE } from '../config/api';
+import StockProcurementView from '../components/StockProcurementView';
 
 import { formatThaiDate } from '../utils/formatDate';
 
@@ -102,7 +103,8 @@ const PurchaseOrdersPage = () => {
     const [isEditMode, setIsEditMode] = useState(false);
 
     // Top Level Tabs
-    const [activeTab, setActiveTab] = useState('po-list'); // 'po-list' or 'open-pr'
+    const SHOW_PR_FORM = false; // ซ่อนแท็บ "เปิดใบ PR (A5)" ไว้ — เปลี่ยนเป็น true เพื่อแสดง
+    const [activeTab, setActiveTab] = useState('po-list'); // 'po-list' | 'po-report' | 'open-pr'
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'grid'
     const [selectedPO, setSelectedPO] = useState(null);
     const [modalInitialData, setModalInitialData] = useState(null);
@@ -368,17 +370,17 @@ const PurchaseOrdersPage = () => {
                         <Truck size={size} />
                     </button>
                 )}
-                {statusEditable && (canEditPO || canDeletePO) && (
+                {(canEditPO || (canDeletePO && statusEditable)) && (
                     <>
                         {canEditPO && <button onClick={() => handleEditPO(po)} className={`${btn} text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all`} title="แก้ไข">
                             <Pencil size={size} />
                         </button>}
-                        {canDeletePO && <button onClick={() => handleDeletePO(po)} className={`${btn} text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all`} title="ลบ">
+                        {canDeletePO && statusEditable && <button onClick={() => handleDeletePO(po)} className={`${btn} text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all`} title="ลบ">
                             <Trash2 size={size} />
                         </button>}
                     </>
                 )}
-                {(canEditPO || canDeletePO) && !statusEditable && (
+                {canDeletePO && !statusEditable && (
                     <span className={`${btn} text-slate-300`} title="แก้ไข/ลบไม่ได้ เพราะใบนี้ดำเนินการไปแล้ว">
                         <Lock size={size} />
                     </span>
@@ -419,16 +421,24 @@ const PurchaseOrdersPage = () => {
                     >
                         รายการ PO
                     </button>
-                    <button
+                    {SHOW_PR_FORM && <button
                         onClick={() => setActiveTab('open-pr')}
                         className={`px-5 py-2 rounded-lg font-bold text-sm transition-all duration-300 ${activeTab === 'open-pr' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         เปิดใบ PR (A5)
+                    </button>}
+                    <button
+                        onClick={() => setActiveTab('po-report')}
+                        className={`px-5 py-2 rounded-lg font-bold text-sm transition-all duration-300 ${activeTab === 'po-report' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        📊 รายงาน PO
                     </button>
                 </div>
             </div>
 
-            {activeTab === 'open-pr' ? (
+            {activeTab === 'po-report' ? (
+                <StockProcurementView endpoint="/pos/report" />
+            ) : activeTab === 'open-pr' ? (
                 <div>
                     <PurchaseRequestForm />
                 </div>
