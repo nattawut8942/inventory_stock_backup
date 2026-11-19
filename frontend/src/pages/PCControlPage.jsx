@@ -175,6 +175,12 @@ const PCControlPage = () => {
   const draggingRef = useRef(null); // { key, type, hostname, startClientX, startClientY, startX, startY, moved }
   const containerRef = useRef(null);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false); // โหลดรูปแผนผังไม่ได้ → แสดงข้อความและปุ่มลองใหม่
+  const [imgKey, setImgKey] = useState(0); // เปลี่ยนค่าเพื่อบังคับโหลดรูปใหม่
+  const [zoom, setZoom] = useState(1); // 1 = พอดีความกว้าง, สูงสุด 4
+  const [fitScreen, setFitScreen] = useState(false); // ย่อแผนผังให้สูงพอดีหน้าจอ (ไม่ต้องเลื่อน)
+  const [pendingLayoutId, setPendingLayoutId] = useState(''); // รอยืนยันก่อนย้ายเครื่องไปแผนผังอื่น
+  const [showLabels, setShowLabels] = useState(true); // ซ่อน/แสดงชื่อเครื่องบนจุด
   const filteredDevicesRef = useRef([]); // mirror ของ filteredDevices
   const selectedLayoutIdRef = useRef(null); // mirror ของ selectedLayoutId
 
@@ -280,6 +286,8 @@ const PCControlPage = () => {
             fixAsset: d.fix_asset,
             icon: getPcIcon(d.computer_type),
             user: extractRealUser(d.username),
+            x: d.location_x,
+            y: d.location_y,
             layoutId: l.id,
             layoutName: l.name,
           }));
@@ -290,6 +298,8 @@ const PCControlPage = () => {
             fixAsset: d.fix_asset,
             icon: '🖥️',
             user: extractRealUser(d.username),
+            x: d.location_x,
+            y: d.location_y,
             layoutId: l.id,
             layoutName: l.name,
           }));
@@ -316,13 +326,22 @@ const PCControlPage = () => {
 
   const jumpToDevice = (device) => {
     setGlobalSearchOpen(false);
+    // เครื่องที่ยังไม่มีตำแหน่งบนแผนผัง → ไม่มีจุดให้ไฮไลต์ เปิดรายละเอียดแทนและแจ้งให้ทราบ
+    if (device.x == null || device.y == null) {
+      showToast(`${device.hostname} ยังไม่มีตำแหน่งบนแผนผัง`, 'error');
+      openDeviceDetail(device);
+      return;
+    }
+    // ล้างตัวกรองที่อาจซ่อนเครื่องนี้อยู่ เพื่อให้จุดแสดงแน่นอน
+    setTypeFilter('all');
+    setSearch('');
     if (device.layoutId && device.layoutId !== selectedLayoutId) {
       setSelectedLayoutId(device.layoutId);
     }
     setHighlightKey(device.key);
     setTimeout(() => {
       mapContainerWrapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 100);
+    }, 150);
     setTimeout(() => setHighlightKey(null), 4000);
   };
 
@@ -576,7 +595,25 @@ const PCControlPage = () => {
     }
   };
 
+  // คลิกรายการในลิสต์ → เลื่อนไปหาจุดบนแผนผังและไฮไลต์ (ตัวกรองแสดงอยู่แล้วจึงไม่ต้องล้าง)
+  const focusOnMap = (d) => {
+    if (d.x == null || d.y == null) return;
+    setHighlightKey(d.key);
+    mapContainerWrapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => setHighlightKey(null), 4000);
+  };
+
+  const copyIp = async (ip) => {
+    try {
+      await navigator.clipboard.writeText(ip);
+      showToast(`คัดลอก IP ${ip} แล้ว`);
+    } catch {
+      showToast('คัดลอกไม่สำเร็จ', 'error');
+    }
+  };
+
   const closeModal = () => {
+    setPendingLayoutId('');
     setModalDevice(null);
     setModalData({ inv: null, users: [] });
   };
@@ -592,7 +629,7 @@ const PCControlPage = () => {
           value=""
           disabled={movingLayout}
           onChange={(e) => {
-            if (e.target.value) moveToLayout(e.target.value);
+            if (e.target.value) setPendingLayoutId(e.target.value); // ไปขั้นยืนยันก่อน ไม่ย้ายทันที
           }}
           className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -605,6 +642,33 @@ const PCControlPage = () => {
               </option>
             ))}
         </select>
+        {pendingLayoutId && (
+          <div className="mt-2 rounded-xl bg-amber-50 border border-amber-200 p-3">
+            <p className="text-xs text-amber-800">
+              ย้าย <span className="font-bold">{modalDevice?.hostname}</span> ไปยัง "{layouts.find((l) => l.id === Number(pendingLayoutId))?.name}"?
+              เครื่องจะถูกวางกลางแผนผังใหม่
+            </p>
+            <div className="flex gap-2 mt-2.5">
+              <button
+                onClick={() => {
+                  const id = pendingLayoutId;
+                  setPendingLayoutId('');
+                  moveToLayout(id);
+                }}
+                disabled={movingLayout}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs py-2 rounded-lg transition-colors"
+              >
+                ยืนยันย้าย
+              </button>
+              <button
+                onClick={() => setPendingLayoutId('')}
+                className="flex-1 bg-white border border-slate-200 text-slate-600 font-semibold text-xs py-2 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                ยกเลิก
+              </button>
+            </div>
+          </div>
+        )}
         <p className="text-[11px] text-slate-400 mt-1.5">เลือกแล้วจะย้ายไปวางกลางแผนผังใหม่ ค่อยลากปรับตำแหน่งต่อได้</p>
       </div>
     ) : null;
@@ -684,20 +748,82 @@ const PCControlPage = () => {
         />
       </div>
 
-      {/* ── Map — โชว์รูปแผนผังจริง พร้อมจุดที่ลาก/คลิกได้ ── */}
+      {/* ── แถบควบคุมแผนผัง: ซูม + แสดง/ซ่อนชื่อ ── */}
+      {selectedLayout?.image_url && (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+            <button
+              onClick={() => setZoom((z) => Math.max(1, +(z - 0.5).toFixed(1)))}
+              disabled={zoom <= 1}
+              aria-label="ซูมออก"
+              className="w-8 h-8 rounded-lg text-slate-600 hover:bg-slate-100 disabled:opacity-30 font-bold"
+            >
+              −
+            </button>
+            <span className="min-w-[3.5rem] text-center text-xs font-bold text-slate-600 tabular-nums">{Math.round(zoom * 100)}%</span>
+            <button
+              onClick={() => setZoom((z) => Math.min(4, +(z + 0.5).toFixed(1)))}
+              disabled={zoom >= 4}
+              aria-label="ซูมเข้า"
+              className="w-8 h-8 rounded-lg text-slate-600 hover:bg-slate-100 disabled:opacity-30 font-bold"
+            >
+              +
+            </button>
+            <button onClick={() => setZoom(1)} disabled={zoom === 1} className="px-2.5 h-8 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-30">
+              พอดี
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setFitScreen((v) => !v);
+                setZoom(1);
+              }}
+              aria-pressed={fitScreen}
+              className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all shadow-sm ${
+                fitScreen ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              {fitScreen ? 'ยกเลิกพอดีหน้าจอ' : 'พอดีหน้าจอ'}
+            </button>
+          <button
+            onClick={() => setShowLabels((v) => !v)}
+            aria-pressed={showLabels}
+            className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all shadow-sm ${
+              showLabels ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            {showLabels ? 'ซ่อนชื่อเครื่อง' : 'แสดงชื่อเครื่อง'}
+          </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Map — โชว์รูปแผนผังจริง พร้อมจุดที่ลาก/คลิกได้ (เลื่อนได้เมื่อซูม) ── */}
+      {/* ปกติแสดงรูปเต็มความกว้างโดยไม่มีแถบเลื่อนในกรอบ — เลื่อนในกรอบเฉพาะตอนซูมเข้า */}
+      <div className={`rounded-2xl border border-slate-200 bg-slate-100 shadow-sm ${fitScreen ? 'overflow-hidden text-center' : zoom > 1 ? 'overflow-auto max-h-[80vh]' : 'overflow-hidden'}`}>
       <div
         ref={(el) => {
           containerRef.current = el;
           mapContainerWrapRef.current = el;
         }}
-        className="relative bg-slate-100 rounded-2xl border border-slate-200 overflow-hidden shadow-sm select-none"
+        style={fitScreen ? { display: 'inline-block', width: 'auto' } : { width: `${zoom * 100}%`, minWidth: '100%' }}
+        className="relative bg-slate-100 select-none"
       >
         {selectedLayout?.image_url && (
           <img
+            key={imgKey}
             src={`${API_URL}${selectedLayout.image_url.startsWith('/') ? '' : '/'}${selectedLayout.image_url}`}
             alt={selectedLayout.name}
-            onLoad={() => setImageLoaded(true)}
-            onError={() => setImageLoaded(false)}
+            style={fitScreen ? { height: 'calc(100vh - 230px)', width: 'auto', maxWidth: 'none', display: 'block' } : undefined}
+            onLoad={() => {
+              setImageLoaded(true);
+              setImageError(false);
+            }}
+            onError={() => {
+              setImageLoaded(false);
+              setImageError(true);
+            }}
             className="w-full h-auto block"
             draggable={false}
           />
@@ -711,6 +837,21 @@ const PCControlPage = () => {
         ) : !selectedLayout.image_url ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400">
             <p className="text-sm">แผนผังนี้ไม่มีรูปภาพ</p>
+          </div>
+        ) : imageError ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-500 bg-slate-100 p-6 text-center">
+            <MapPin size={32} className="text-slate-300" />
+            <p className="text-sm font-semibold">โหลดรูปแผนผังไม่สำเร็จ</p>
+            <p className="text-xs text-slate-400">ตรวจสอบว่าไฟล์รูปของแผนผังนี้ยังอยู่บนเซิร์ฟเวอร์</p>
+            <button
+              onClick={() => {
+                setImageError(false);
+                setImgKey((k) => k + 1);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-indigo-600 hover:border-indigo-300"
+            >
+              ลองใหม่
+            </button>
           </div>
         ) : !imageLoaded ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-400 bg-slate-100">
@@ -751,28 +892,28 @@ const PCControlPage = () => {
                     />
                   )}
                   <div
-                    className={`relative w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] shadow-md border border-white transition-transform ${
+                    className={`relative w-4 h-4 md:w-3.5 md:h-3.5 rounded-full flex items-center justify-center text-[9px] shadow-md border border-white transition-transform ${
                       TYPE_TONE[d.type].dot
                     } ${isDragging || isHighlighted ? 'scale-125' : 'group-hover:scale-110'}`}
                   >
                     {isSaving ? <Loader2 size={7} className="animate-spin text-white" /> : d.icon}
                   </div>
                 </div>
-                <div className="mt-0.5 flex flex-col items-center gap-0.5">
+                <div className={`mt-0.5 flex flex-col items-center gap-0.5 ${showLabels ? '' : 'hidden'}`}>
                   <div
-                    className={`px-1 py-0.5 rounded text-[8px] font-semibold whitespace-nowrap shadow-sm ${
+                    className={`px-1 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap shadow-sm ${
                       isHighlighted ? 'bg-amber-300 text-slate-900' : `bg-white/90 ${TYPE_TONE[d.type].label}`
                     }`}
                   >
                     {d.hostname}
                   </div>
                   {d.type === 'printer' && d.ip && (
-                    <div className={`px-1 py-0.5 rounded text-[8px] font-medium whitespace-nowrap shadow-sm bg-white/80 ${TYPE_TONE[d.type].text}`}>
+                    <div className={`px-1 py-0.5 rounded text-[10px] font-medium whitespace-nowrap shadow-sm bg-white/80 ${TYPE_TONE[d.type].text}`}>
                       {d.ip}
                     </div>
                   )}
                   {d.user && (
-                    <div className="px-1 py-0.5 rounded text-[8px] font-semibold whitespace-nowrap shadow-sm bg-white/80 text-red-500">
+                    <div className="px-1 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap shadow-sm bg-white/80 text-red-500">
                       {d.user}
                     </div>
                   )}
@@ -781,6 +922,12 @@ const PCControlPage = () => {
             );
           })
         )}
+        {imageLoaded && !devicesLoading && filteredDevices.length === 0 && (
+          <div className="absolute inset-x-0 bottom-4 flex justify-center pointer-events-none">
+            <span className="bg-white/90 text-slate-500 text-xs font-semibold px-3 py-1.5 rounded-full shadow">ไม่มีเครื่องที่ตรงกับตัวกรองในแผนผังนี้</span>
+          </div>
+        )}
+      </div>
       </div>
 
       <div className="flex items-center gap-4 text-[11px] text-slate-400 px-1">
@@ -802,10 +949,15 @@ const PCControlPage = () => {
           <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3">เครื่องในแผนผังนี้ ({filteredDevices.length})</div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
             {filteredDevices.map((d) => (
-              <button
+              <div
                 key={d.key}
-                onClick={() => openDeviceDetail(d)}
-                className="text-left px-3 py-2.5 rounded-xl border bg-white border-slate-200 hover:border-slate-300 transition-all"
+                role="button"
+                tabIndex={0}
+                onClick={() => focusOnMap(d)}
+                onKeyDown={(e) => e.key === 'Enter' && focusOnMap(d)}
+                className={`relative text-left px-3 py-2.5 rounded-xl border bg-white transition-all cursor-pointer ${
+                  highlightKey === d.key ? 'border-amber-400 ring-2 ring-amber-200' : 'border-slate-200 hover:border-indigo-300'
+                }`}
               >
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="text-sm">{d.icon}</span>
@@ -813,7 +965,18 @@ const PCControlPage = () => {
                 </div>
                 <div className={`text-[11px] truncate ${TYPE_TONE[d.type].text}`}>{d.user || (d.type === 'printer' ? d.ip : 'No User') || '—'}</div>
                 {d.fixAsset && <div className="text-[11px] text-slate-400 font-mono truncate">{d.fixAsset}</div>}
-              </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openDeviceDetail(d);
+                  }}
+                  aria-label={`ดูรายละเอียด ${d.hostname}`}
+                  title="ดูรายละเอียด"
+                  className="absolute top-1.5 right-1.5 w-6 h-6 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 flex items-center justify-center text-[11px] font-bold"
+                >
+                  i
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -930,6 +1093,14 @@ const PCControlPage = () => {
               >
                 ปิด
               </button>
+              {(modalDevice.type === 'printer' ? modalDevice.printer?.IpAddress : modalData.inv?.ip_address) && (
+                <button
+                  onClick={() => copyIp(modalDevice.type === 'printer' ? modalDevice.printer?.IpAddress : modalData.inv?.ip_address)}
+                  className="px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 font-semibold text-sm py-2.5 rounded-xl transition-colors"
+                >
+                  คัดลอก IP
+                </button>
+              )}
               {modalDevice.type !== 'printer' && (
                 <button
                   onClick={goToFullDetail}
