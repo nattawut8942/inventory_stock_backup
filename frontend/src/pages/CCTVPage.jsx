@@ -47,6 +47,8 @@ function CCTVPage() {
     const [pinging, setPinging] = useState(false);
     const pulseRef = useRef(0);
     const [mapZoom, setMapZoom] = useState(1);            // ระดับซูมแผนผัง (1–3)
+    const [fitScreen, setFitScreen] = useState(false);    // ย่อแผนผังให้สูงพอดีหน้าจอ (ไม่ต้องเลื่อน)
+    const [imgAspect, setImgAspect] = useState(0);        // อัตราส่วน กว้าง/สูง ของรูปแผนผัง
     const [layers, setLayers] = useState({ fov: true, labels: true, racks: true }); // ชั้นข้อมูลที่แสดงบนแผนที่
     const mapZoomRef = useRef(1);                         // ใช้ใน listener ของ wheel (อ่านค่าล่าสุดเสมอ)
     const changeMapZoomRef = useRef(null);
@@ -1193,15 +1195,21 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                         label={current?.name || 'ทุกโรง'} />
                     {/* Map — fit viewport, no scroll */}
                     <div ref={mapRef} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-                        <div ref={mapViewportRef} className="overflow-auto" style={{ maxHeight: mapZoom > 1 ? '72vh' : undefined }}>
-                        <div style={{ width: `${mapZoom * 100}%` }}>
+                        <div ref={mapViewportRef} className="overflow-auto" style={{ maxHeight: !fitScreen && mapZoom > 1 ? '72vh' : undefined }}>
+                        <div style={fitScreen && imgAspect
+                            ? { width: `min(${mapZoom * 100}%, calc((100vh - 230px) * ${imgAspect}))`, margin: '0 auto' }
+                            : { width: `${mapZoom * 100}%` }}>
                         <div className="relative bg-gray-50" style={{ height: 'auto' }}>
                             {current?.image_url ? (
                                 <>
                                     <img ref={imageRef}
                                         src={current.image_url.startsWith('http') ? current.image_url : `${API_URL}${current.image_url}`}
                                         style={{ display: 'none' }}
-                                        onLoad={() => setImageLoaded(true)}
+                                        onLoad={(e) => {
+                                            setImageLoaded(true);
+                                            const im = e.currentTarget;
+                                            if (im.naturalWidth && im.naturalHeight) setImgAspect(im.naturalWidth / im.naturalHeight);
+                                        }}
                                         crossOrigin="anonymous"
                                         alt="layout"
                                     />
@@ -1259,6 +1267,10 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                                     <button onClick={() => changeMapZoom(mapZoom + 0.5)} disabled={mapZoom >= 3} title="ซูมเข้า"
                                         className="px-2 py-0.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40">+</button>
                                 </div>
+                                <button onClick={() => { setFitScreen((v) => !v); changeMapZoom(1); }} aria-pressed={fitScreen}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${fitScreen ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+                                    {fitScreen ? 'ยกเลิกพอดีหน้าจอ' : 'พอดีหน้าจอ'}
+                                </button>
                             <span className="text-gray-400">
                                 {isStaff
                                     ? 'ลากกล้องเพื่อย้ายตำแหน่ง (บันทึกอัตโนมัติ) · คลิกกล้อง/Rack = รายละเอียด · คลิก Rack ซ้ำ = highlight เส้นสาย'

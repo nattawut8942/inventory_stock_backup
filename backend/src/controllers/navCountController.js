@@ -2,6 +2,7 @@
 // นับงานค้างสำหรับแสดง badge ใน Sidebar — แต่ละค่านับแยกกัน ถ้าค่าไหน error จะคืน null เฉพาะค่านั้น
 import { getPool } from '../config/db.js';
 import { getItRequestPool } from '../config/itRequestDb.js';
+import { getSoundPool } from '../config/soundDb.js';
 
 const countOrNull = async (fn) => {
     try {
@@ -23,6 +24,7 @@ export const getNavCounts = async (req, res) => {
 
     const [
         printer_toner_low, po_open, borrowed, ma_attention, stock_low, cctv_offline, po_partial, cal_today, it_request_open,
+        sound_offline,
     ] = await Promise.all([
         // เครื่องพิมพ์ที่หมึกสีใดสีหนึ่งต่ำกว่าหรือเท่ากับ 20% (ค่าล่าสุดของแต่ละเครื่อง นับเครื่องละ 1)
         countOrNull(() => scalar(db(), `
@@ -81,12 +83,18 @@ export const getNavCounts = async (req, res) => {
             SELECT COUNT(*) AS cnt FROM Sys_RequestInfo
             WHERE Form_id IN ('FM-IT-002', 'FM-IT-004')
               AND Current_Status NOT IN ('Completed', 'Rejected', 'Cancel')`)),
+
+        // อุปกรณ์เสียง (Sound Engineering) ที่ ping ไม่เจอ — ตรงกับนิยาม Offline ในหน้า Sound
+        countOrNull(() => scalar(getSoundPool(), `
+            SELECT COUNT(*) AS cnt FROM sound_devices
+            WHERE ping_status = 'Offline'`)),
     ]);
 
     res.json({
         success: true,
         data: {
             po_open, borrowed, ma_attention, stock_low, cctv_offline, po_partial, cal_today, it_request_open, printer_toner_low,
+            sound_offline,
         },
     });
 };

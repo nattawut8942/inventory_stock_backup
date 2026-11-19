@@ -31,7 +31,7 @@ export const NAV_GROUPS = [
             { to: '/cctv-management', label: 'CCTV Management', icon: Cctv, badge: 'cctv_offline', badgeTone: 'orange', badgeLabel: 'Offline' },
             { to: '/ma-license', label: 'MA / License', icon: FileKey, badge: 'ma_attention', badgeTone: 'rose', badgeLabel: 'ใกล้หมด' },
             { to: '/printer-health', label: 'Printer Health', icon: Activity, badge: 'printer_toner_low', badgeTone: 'amber', badgeLabel: 'หมึกใกล้หมด' },
-            { to: '/sound-layout', label: 'Sound Engineering', icon: Volume2 },
+            { to: '/sound-layout', label: 'Sound Engineering', icon: Volume2, badge: 'sound_offline', badgeTone: 'rose', badgeLabel: 'Offline' },
         ],
     },
     {
