@@ -1,18 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import {
-    LayoutDashboard, Package, ShoppingCart, LogOut, Plus,
-    ArrowDownToLine, History, Database, FileSpreadsheet, Shield,
-    Printer, ChevronDown, FileKey, Monitor, HardDrive,
-    Camera, ChevronLeft, ChevronRight, Cctv, Calendar, Network, ClipboardList, Activity, Briefcase, BookOpen,
-    LayoutGrid
-} from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { LogOut, ChevronDown, ChevronLeft, ChevronRight, Search, Star, X } from 'lucide-react';
+import { useAuth, getAuthToken } from '../context/AuthContext';
 import { usePermissions } from '../context/PermissionContext';
+import { API_BASE } from '../config/api';
+import { NAV_GROUPS } from '../config/navConfig';
 import logodaikin from '../../public/DAIKIN_logo.svg.png';
 import logodaikinn from '../../public/icon-daikin (Custom).png';
 
-// ── Tooltip wrapper (แสดงเมื่อ sidebar หุบ) ──────────────────────────────
+const STORAGE_KEYS = { pinned: 'sidebar_pinned', groups: 'sidebar_groups' };
+const COUNTS_REFRESH_MS = 60000;
+
+// ── สีของ badge (เขียนเป็น class เต็มเพื่อให้ Tailwind เก็บได้) ────────────
+// solid = พื้นทึบของตัวเลข | onDark = สีข้อความบนเมนูปกติ | onLight = สีข้อความบนเมนูที่เลือกอยู่ (พื้นขาว)
+const BADGE_TONES = {
+    indigo: { solid: 'bg-indigo-400 text-indigo-950', onDark: 'text-indigo-300', onLight: 'text-indigo-600', dot: 'bg-indigo-400' },
+    sky: { solid: 'bg-sky-400 text-sky-950', onDark: 'text-sky-300', onLight: 'text-sky-600', dot: 'bg-sky-400' },
+    amber: { solid: 'bg-amber-400 text-amber-950', onDark: 'text-amber-300', onLight: 'text-amber-600', dot: 'bg-amber-400' },
+    rose: { solid: 'bg-rose-500 text-white', onDark: 'text-rose-300', onLight: 'text-rose-600', dot: 'bg-rose-400' },
+    orange: { solid: 'bg-orange-500 text-white', onDark: 'text-orange-300', onLight: 'text-orange-600', dot: 'bg-orange-400' },
+    violet: { solid: 'bg-violet-400 text-violet-950', onDark: 'text-violet-300', onLight: 'text-violet-600', dot: 'bg-violet-400' },
+    emerald: { solid: 'bg-emerald-400 text-emerald-950', onDark: 'text-emerald-300', onLight: 'text-emerald-600', dot: 'bg-emerald-400' },
+};
+const DEFAULT_TONE = BADGE_TONES.rose;
+
+const FOCUS_RING = 'outline-none focus-visible:ring-2 focus-visible:ring-indigo-300/70';
+
+// ── localStorage helpers (ไม่ throw ถ้า storage ใช้ไม่ได้) ─────────────────
+const readJSON = (key, fallback) => {
+    try {
+        const raw = localStorage.getItem(key);
+        return raw === null ? fallback : JSON.parse(raw);
+    } catch { return fallback; }
+};
+const writeJSON = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { } };
+
+// ── Tooltip (แสดงเมื่อ sidebar หุบ) ──────────────────────────────────────
 const Tooltip = ({ label, children, collapsed }) => {
     if (!collapsed) return children;
     return (
@@ -21,7 +44,7 @@ const Tooltip = ({ label, children, collapsed }) => {
             <div className="
                 pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2
                 px-2.5 py-1.5 bg-slate-800 text-white text-xs font-semibold rounded-lg
-                whitespace-nowrap opacity-0 group-hover/tip:opacity-100
+                whitespace-nowrap opacity-0 group-hover/tip:opacity-100 group-focus-within/tip:opacity-100
                 transition-all duration-150 shadow-xl z-[100]
                 border border-white/10
             ">
@@ -33,47 +56,104 @@ const Tooltip = ({ label, children, collapsed }) => {
 };
 
 // ── NavItem ────────────────────────────────────────────────────────────────
-const NavItem = ({ icon: Icon, label, to, isSubItem = false, onClose, collapsed }) => {
-    const location = useLocation();
-    const navigate = useNavigate();
-    const { canRoute } = usePermissions();
-    const isActive = location.pathname === to || location.pathname.startsWith(`${to}/`);
-    if (!canRoute(to)) return null; // no "view" permission for this page
-
-    const handleNav = () => { navigate(to); if (onClose) onClose(); };
+// โครงแถว: [ปุ่มเมนู: ไอคอน + ชื่อ + สถานะรอง] [ตัวเลขนอกปุ่ม] [ดาวปักหมุด]
+// ชื่อเมนูจึงไม่ถูกตัดด้วยป้าย และป้ายอยู่นอกปุ่มทั้งหมด
+const NavItem = ({ item, active, collapsed, pinned, badgeCount, onNavigate, onTogglePin }) => {
+    const Icon = item.icon;
+    const hasBadge = badgeCount > 0;
+    const tone = BADGE_TONES[item.badgeTone] || DEFAULT_TONE;
+    const countText = badgeCount > 99 ? '99+' : badgeCount;
 
     const btn = (
         <button
-            onClick={handleNav}
+            type="button"
+            onClick={() => onNavigate(item.to)}
+            aria-current={active ? 'page' : undefined}
+            aria-label={collapsed ? item.label : undefined}
             className={`
-                w-full flex items-center transition-all duration-200 font-medium rounded-lg
-                ${collapsed
-                    ? 'justify-center p-2'
-                    : isSubItem ? 'space-x-2.5 pl-9 pr-2 py-1.5' : 'space-x-2 p-2'
-                }
-                ${isActive
-                    ? 'bg-white text-indigo-900 shadow-lg shadow-indigo-900/10 ' + (!isSubItem && !collapsed ? 'scale-105' : '')
-                    : 'text-indigo-100/70 hover:bg-white/10 hover:text-white'
-                }
+                relative flex-1 min-w-0 flex items-center rounded-xl transition-all duration-200 ${FOCUS_RING}
+                ${collapsed ? 'justify-center p-2.5' : 'gap-3 py-2 pl-3 pr-2'}
+                ${active
+                    ? 'bg-white text-indigo-950 shadow-lg shadow-indigo-950/20'
+                    : 'text-indigo-100/75 hover:bg-white/10 hover:text-white'}
             `}
         >
-            <Icon size={isSubItem ? 14 : 16} className="flex-shrink-0" />
-            {!collapsed && <span className={isSubItem ? 'text-xs font-medium' : 'text-xs font-medium'}>{label}</span>}
+            {active && !collapsed && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-indigo-500" />
+            )}
+            <Icon size={16} className={`flex-shrink-0 ${active ? 'text-indigo-600' : ''}`} />
+
+            {!collapsed && (
+                <span className="flex-1 min-w-0 flex flex-col items-start text-left">
+                    <span className="w-full truncate text-[13px] font-medium leading-tight">{item.label}</span>
+                    {hasBadge && item.badgeLabel && (
+                        <span className={`w-full truncate text-[10px] font-semibold leading-tight mt-0.5 ${active ? tone.onLight : tone.onDark}`}>
+                            {item.badgeLabel}
+                        </span>
+                    )}
+                </span>
+            )}
+
+            {hasBadge && collapsed && (
+                <span className={`absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full ring-2 ring-slate-900 ${tone.dot}`} />
+            )}
         </button>
     );
 
-    return <Tooltip label={label} collapsed={collapsed}>{btn}</Tooltip>;
-};
+    if (collapsed) {
+        const tip = hasBadge && item.badgeLabel ? `${item.label} · ${item.badgeLabel} ${countText}` : item.label;
+        return <Tooltip label={tip} collapsed>{btn}</Tooltip>;
+    }
 
-// ── NavGroupHeader (Header ธรรมดา ไม่หุบซ่อน) ────────────────────────────
-const NavGroupHeader = ({ label, collapsed }) => {
-    if (collapsed) return null;
     return (
-        <div className="pb-1 text-[9px] font-bold uppercase text-slate-500 tracking-wider pl-3 mt-4 mb-2">
-            {label}
+        <div className="group/row flex items-center gap-1">
+            {btn}
+            {hasBadge && (
+                <span
+                    aria-label={`${badgeCount} รายการ`}
+                    className={`flex-shrink-0 min-w-[22px] h-[22px] px-1.5 rounded-full text-[11px] font-bold leading-[22px] text-center tabular-nums shadow-md ${tone.solid}`}
+                >
+                    {countText}
+                </span>
+            )}
+            <button
+                type="button"
+                onClick={() => onTogglePin(item.to)}
+                aria-label={pinned ? `ยกเลิกปักหมุด ${item.label}` : `ปักหมุด ${item.label}`}
+                title={pinned ? 'ยกเลิกปักหมุด' : 'ปักหมุด'}
+                className={`flex-shrink-0 w-6 h-8 flex items-center justify-center rounded-md transition-all ${FOCUS_RING}
+                    ${pinned
+                        ? 'opacity-100 text-amber-400'
+                        : `opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 ${active ? 'text-indigo-400 hover:text-amber-500' : 'text-indigo-200/60 hover:text-amber-300'}`}`}
+            >
+                <Star size={12} fill={pinned ? 'currentColor' : 'none'} />
+            </button>
         </div>
     );
 };
+
+// ── GroupHeader (กดเพื่อพับ/กางกลุ่ม) ────────────────────────────────────
+const GroupHeader = ({ label, icon: Icon, open, hasActive, onToggle }) => (
+    <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={`w-full flex items-center gap-2 pl-3 pr-2 pt-4 pb-1.5 rounded-lg text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 hover:text-indigo-200 transition-colors ${FOCUS_RING}`}
+    >
+        <Icon size={12} className="flex-shrink-0" />
+        <span className="flex-1 text-left truncate">{label}</span>
+        {!open && hasActive && (
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" title="มีหน้าที่กำลังใช้งานอยู่" />
+        )}
+        <ChevronDown size={12} className={`flex-shrink-0 transition-transform duration-200 ${open ? '' : '-rotate-90'}`} />
+    </button>
+);
+
+const SectionLabel = ({ children, className = '' }) => (
+    <div className={`flex items-center gap-2 pl-3 pt-4 pb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] ${className}`}>
+        {children}
+    </div>
+);
 
 // ── Divider ────────────────────────────────────────────────────────────────
 const Divider = ({ collapsed }) => (
@@ -83,28 +163,129 @@ const Divider = ({ collapsed }) => (
 );
 
 // ── SIDEBAR ────────────────────────────────────────────────────────────────
-const Sidebar = ({ isOpen, onClose }) => {
+const Sidebar = ({ isOpen, onClose, collapsed = false, onToggleCollapse }) => {
     const { user, logout } = useAuth();
-    const { isAdmin, can, canAnyView } = usePermissions();
+    const { isAdmin, can, canAnyView, canRoute } = usePermissions();
     const canSeeManualImport = isAdmin || can('manual-import', 'view');
     const canSeeManagement = isAdmin || canAnyView('mgmt-');
     const navigate = useNavigate();
+    const location = useLocation();
 
-    // collapsed state — persist ใน localStorage
-    const [collapsed, setCollapsed] = useState(() => {
-        try { return localStorage.getItem('sidebar_collapsed') === 'true'; } catch { return false; }
-    });
+    const [pinned, setPinned] = useState(() => readJSON(STORAGE_KEYS.pinned, []));
+    const [openGroups, setOpenGroups] = useState(() => readJSON(STORAGE_KEYS.groups, {}));
+    const [counts, setCounts] = useState({});
+    const [query, setQuery] = useState('');
+    const searchRef = useRef(null);
+    const focusSearchOnExpand = useRef(false);
 
-    const toggleCollapse = () => {
-        setCollapsed(p => {
-            try { localStorage.setItem('sidebar_collapsed', String(!p)); } catch { }
-            return !p;
-        });
-    };
+    useEffect(() => { writeJSON(STORAGE_KEYS.pinned, pinned); }, [pinned]);
+    useEffect(() => { writeJSON(STORAGE_KEYS.groups, openGroups); }, [openGroups]);
 
+    const isActive = (to) => location.pathname === to || location.pathname.startsWith(`${to}/`);
+
+    // กรองเมนูตามสิทธิ์ — ซ่อนกลุ่มที่ไม่มีเมนูให้เห็นเลย
+    const groups = NAV_GROUPS
+        .map(g => ({
+            ...g,
+            items: g.items.filter(i =>
+                (i.gate !== 'manualImport' || canSeeManualImport) &&
+                (i.gate !== 'management' || canSeeManagement) &&
+                canRoute(i.to)
+            ),
+        }))
+        .filter(g => g.items.length > 0);
+
+    const allItems = groups.flatMap(g => g.items.map(i => ({ ...i, groupLabel: g.label })));
+    const pinnedItems = pinned.map(to => allItems.find(i => i.to === to)).filter(Boolean);
+
+    const isGroupOpen = (group) => group.flat || collapsed || openGroups[group.id] !== false;
+    const toggleGroup = (id) => setOpenGroups(p => ({ ...p, [id]: p[id] === false }));
+
+    // เปิดกลุ่มที่มีหน้าปัจจุบันอยู่ให้อัตโนมัติ
+    useEffect(() => {
+        const g = groups.find(grp => grp.items.some(i => isActive(i.to)));
+        if (g && openGroups[g.id] === false) setOpenGroups(p => ({ ...p, [g.id]: true }));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.pathname]);
+
+    // ดึงจำนวนงานค้างสำหรับ badge — โหลดเมื่อเปลี่ยนหน้า และรีเฟรชทุก 1 นาที
+    useEffect(() => {
+        let alive = true;
+        const load = async () => {
+            try {
+                const t = getAuthToken();
+                const res = await fetch(`${API_BASE}/nav-counts`, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+                if (!res.ok) return;
+                const json = await res.json();
+                if (alive && json?.success) setCounts(json.data || {});
+            } catch { /* badge เป็นส่วนเสริม — ล้มเหลวก็ไม่กระทบการใช้งาน */ }
+        };
+        load();
+        const timer = setInterval(load, COUNTS_REFRESH_MS);
+        return () => { alive = false; clearInterval(timer); };
+    }, [location.pathname]);
+
+    // ปุ่มลัด: Ctrl/⌘+K หรือ "/" = ค้นหา, Esc = ล้างการค้นหา / ปิด drawer มือถือ
+    useEffect(() => {
+        const onKey = (e) => {
+            const tag = e.target?.tagName || '';
+            const typing = /INPUT|TEXTAREA|SELECT/.test(tag) || e.target?.isContentEditable;
+
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                if (collapsed) {
+                    focusSearchOnExpand.current = true;
+                    onToggleCollapse?.();
+                } else {
+                    searchRef.current?.focus();
+                }
+                return;
+            }
+            if (e.key === '/' && !typing && !collapsed) {
+                e.preventDefault();
+                searchRef.current?.focus();
+                return;
+            }
+            if (e.key === 'Escape') {
+                if (query) setQuery('');
+                else if (isOpen && onClose) onClose();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [collapsed, isOpen, query, onClose, onToggleCollapse]);
+
+    useEffect(() => {
+        if (!collapsed && focusSearchOnExpand.current) {
+            focusSearchOnExpand.current = false;
+            searchRef.current?.focus();
+        }
+    }, [collapsed]);
+
+    const handleNavigate = (to) => { navigate(to); if (onClose) onClose(); };
+    const togglePin = (to) => setPinned(p => p.includes(to) ? p.filter(x => x !== to) : [...p, to]);
     const handleLogout = () => { logout(); navigate('/login'); if (onClose) onClose(); };
 
-    const w = collapsed ? 'w-[72px]' : 'w-50';
+    const q = query.trim().toLowerCase();
+    const showSearch = q.length > 0 && !collapsed;
+    const searchResults = showSearch
+        ? allItems.filter(i => i.label.toLowerCase().includes(q) || i.groupLabel.toLowerCase().includes(q))
+        : [];
+
+    const renderItem = (item) => (
+        <NavItem
+            key={item.to}
+            item={item}
+            active={isActive(item.to)}
+            collapsed={collapsed}
+            pinned={pinned.includes(item.to)}
+            badgeCount={item.badge ? counts[item.badge] : null}
+            onNavigate={handleNavigate}
+            onTogglePin={togglePin}
+        />
+    );
+
+    const w = collapsed ? 'w-[72px]' : 'w-64';
 
     return (
         <>
@@ -114,19 +295,20 @@ const Sidebar = ({ isOpen, onClose }) => {
             )}
 
             <aside className={`
-                fixed lg:static inset-y-0 left-0 z-40 flex-shrink-0
+                fixed lg:relative inset-y-0 left-0 z-40 flex-shrink-0
                 ${w} bg-slate-900 flex flex-col text-white
                 transform transition-[width,transform] duration-300 ease-in-out shadow-2xl
+                motion-reduce:transition-none
                 ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
                 overflow-hidden
             `}>
                 {/* Background gradients */}
-                <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 z-0" />
-                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500 rounded-full blur-[100px] opacity-20 -translate-y-1/2 translate-x-1/2 z-0" />
-                <div className="absolute bottom-0 left-0 w-64 h-64 bg-emerald-500 rounded-full blur-[100px] opacity-10 translate-y-1/2 -translate-x-1/2 z-0" />
+                <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 z-0 pointer-events-none" />
+                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500 rounded-full blur-[100px] opacity-20 -translate-y-1/2 translate-x-1/2 z-0 pointer-events-none" />
+                <div className="absolute bottom-0 left-0 w-64 h-64 bg-emerald-500 rounded-full blur-[100px] opacity-10 translate-y-1/2 -translate-x-1/2 z-0 pointer-events-none" />
 
                 {/* Header */}
-                <div className={`relative z-10 flex flex-col items-center pt-6 pb-4 px-4 ${collapsed ? 'px-2' : ''}`}>
+                <div className={`relative z-10 flex flex-col items-center pt-6 pb-3 ${collapsed ? 'px-2' : 'px-4'}`}>
                     {collapsed ? (
                         <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center mb-1">
                             <img src={logodaikinn} alt="DAIKINN" className="w-full h-full object-contain" />
@@ -136,99 +318,115 @@ const Sidebar = ({ isOpen, onClose }) => {
                             <div className="p-2 rounded-xl mb-2 w-full max-w-[200px] relative">
                                 <img src={logodaikin} alt="DAIKIN" className="h-8 w-auto mx-auto object-contain" />
                                 {/* Mobile close */}
-                                <button onClick={onClose} className="absolute -right-4 -top-2 lg:hidden text-slate-400 hover:text-white p-2">
-                                    <LogOut className="rotate-180" size={20} />
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    aria-label="ปิดเมนู"
+                                    className={`absolute -right-3 -top-2 lg:hidden text-slate-400 hover:text-white p-2 rounded-lg ${FOCUS_RING}`}
+                                >
+                                    <X size={20} />
                                 </button>
                             </div>
-                            <h1 className="text-2xl font-black tracking-tight text-white leading-none">IT INVENTORY</h1>
-                            <span className="text-[11px] font-bold text-indigo-300 tracking-[0.15em] uppercase">MANAGEMENT SYSTEM</span>
+                            <h1 className="text-xl font-black tracking-tight text-white leading-none">IT INVENTORY</h1>
+                            <span className="mt-1 text-[10px] font-bold text-indigo-300 tracking-[0.15em] uppercase">Management System</span>
                         </>
                     )}
                 </div>
 
                 {/* Toggle collapse button */}
                 <button
-                    onClick={toggleCollapse}
-                    className="hidden lg:flex relative z-10 mx-auto mb-3 items-center justify-center w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 text-indigo-200 hover:text-white transition-all border border-white/10 flex-shrink-0"
-                    title={collapsed ? 'ขยาย sidebar' : 'หุบ sidebar'}
+                    type="button"
+                    onClick={onToggleCollapse}
+                    aria-label={collapsed ? 'ขยาย sidebar' : 'หุบ sidebar'}
+                    title={collapsed ? 'ขยาย sidebar (Ctrl+K เพื่อค้นหา)' : 'หุบ sidebar'}
+                    className={`hidden lg:flex absolute top-7 right-[-12px] z-20 items-center justify-center w-6 h-6 rounded-full bg-slate-800 hover:bg-indigo-600 text-indigo-200 hover:text-white transition-all border border-white/10 shadow-lg ${FOCUS_RING}`}
                 >
                     {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
                 </button>
 
+                {/* Search */}
+                {!collapsed && (
+                    <div className="relative z-10 px-3 pb-2">
+                        <Search size={14} className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <input
+                            ref={searchRef}
+                            type="text"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="ค้นหาเมนู…"
+                            aria-label="ค้นหาเมนู"
+                            title="ค้นหา (Ctrl+K หรือ /)"
+                            className="w-full rounded-xl bg-white/5 border border-white/10 py-2 pl-9 pr-8 text-xs text-white placeholder-slate-500 outline-none focus:bg-white/10 focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-400/30 transition-all"
+                        />
+                        {query && (
+                            <button
+                                type="button"
+                                onClick={() => setQuery('')}
+                                aria-label="ล้างการค้นหา"
+                                className={`absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white rounded ${FOCUS_RING}`}
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
+                )}
+
                 {/* Nav */}
-                <nav className={`relative z-10 flex-1 overflow-y-auto overflow-x-hidden pb-6 space-y-1 ${collapsed ? 'px-2' : 'px-4'}`}>
-
-    {/* 📸 ACTIVITY GALLERY — บนสุด */}
-    <NavItem icon={Camera} label="ACTIVITY" to="/activity" onClose={onClose} collapsed={collapsed} />
-    <Divider collapsed={collapsed} />
-
-    <NavItem icon={LayoutDashboard} label="DASHBOARD" to="/dashboard" onClose={onClose} collapsed={collapsed} />
-    <Divider collapsed={collapsed} />
-
-                    {/* 📦 INVENTORY & PROCUREMENT */}
-                    <NavGroupHeader label="📦 Inventory & Procurement" collapsed={collapsed} />
-                    <NavItem icon={Database} label="STOCK INVENTORY" to="/inventory" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={Printer} label="INK & TONER" to="/ink-toner" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={Activity} label="PRINTER HEALTH" to="/printer-health" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={ShoppingCart} label="PR & ORDERS" to="/purchase-orders"  onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={ArrowDownToLine} label="RECEIVE ITEMS" to="/receive" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={Briefcase} label="BORROWING SYSTEM" to="/borrowings" onClose={onClose} collapsed={collapsed} />
-
-                    <Divider collapsed={collapsed} />
-
-                    {/* 💻 ASSET MANAGEMENT */}
-                    <NavGroupHeader label="💻 Asset Management" collapsed={collapsed} />
-                    <NavItem icon={Monitor} label="PC INVENTORY" to="/pc-inventory" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={LayoutGrid} label="DEVICES LAYOUT" to="/pc-control" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={Cctv} label="CCTV MANAGEMENT" to="/cctv-management" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={FileKey} label="MA / LICENSE" to="/ma-license" onClose={onClose} collapsed={collapsed} />
-
-                    <Divider collapsed={collapsed} />
-
-                    {/* 🌐 INFRASTRUCTURE & NETWORK */}
-                    <NavGroupHeader label="🌐 Infrastructure & Network" collapsed={collapsed} />
-                    <NavItem icon={Network} label="IP MANAGEMENT" to="/ip-management" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={Shield} label="AD EXPLORER" to="/ad-explorer" onClose={onClose} collapsed={collapsed} />
-
-                    <Divider collapsed={collapsed} />
-
-                    {/* ⚙️ SYSTEM ADMINISTRATION */}
-                    <NavGroupHeader label="⚙️ System Administration" collapsed={collapsed} />
-                    <NavItem icon={HardDrive} label="QUOTA MANAGER" to="/quota-manager" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={Calendar} label="CALENDAR" to="/calendar" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={Activity} label="SOUND ENGINEERING" to="/sound-layout" onClose={onClose} collapsed={collapsed} />
-
-                    <Divider collapsed={collapsed} />
-
-                    {/* 📋 OPERATIONS & REQUESTS */}
-                    <NavGroupHeader label="📋 Operations & Requests" collapsed={collapsed} />
-                    <NavItem icon={ClipboardList} label="IT REQUEST" to="/it-request" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={History} label="HISTORY LOG" to="/history" onClose={onClose} collapsed={collapsed} />
-
-                    <Divider collapsed={collapsed} />
-
-                    {/* 📚 KNOWLEDGE & DOCUMENTATION */}
-                    <NavGroupHeader label="📚 Knowledge & Documentation" collapsed={collapsed} />
-                    <NavItem icon={FileSpreadsheet} label="REPORTS" to="/reports" onClose={onClose} collapsed={collapsed} />
-                    <NavItem icon={BookOpen} label="KNOWLEDGE BASE" to="/knowledge-base" onClose={onClose} collapsed={collapsed} />
-
-                    {/* 👤 STAFF CONTROLS */}
-                    {(canSeeManualImport || canSeeManagement) && (
+                <nav className={`relative z-10 flex-1 overflow-y-auto overflow-x-hidden pb-6 ${collapsed ? 'px-2' : 'px-3'}`}>
+                    {showSearch ? (
+                        <div className="space-y-1">
+                            {searchResults.length > 0
+                                ? searchResults.map(renderItem)
+                                : <p className="text-xs text-slate-400 text-center py-8">ไม่พบเมนูที่ค้นหา</p>}
+                        </div>
+                    ) : (
                         <>
-                            <Divider collapsed={collapsed} />
-                            <NavGroupHeader label="👤 Staff Controls" collapsed={collapsed} />
-                            {canSeeManualImport && <NavItem icon={Plus} label="MANUAL IMPORT" to="/manual-import" onClose={onClose} collapsed={collapsed} />}
-                            {canSeeManagement && <NavItem icon={Shield} label="MANAGEMENT" to="/management" onClose={onClose} collapsed={collapsed} />}
+                            {pinnedItems.length > 0 && (
+                                <>
+                                    {!collapsed && (
+                                        <SectionLabel className="text-amber-300/80">
+                                            <Star size={11} fill="currentColor" /> ปักหมุด
+                                        </SectionLabel>
+                                    )}
+                                    <div className="space-y-1">{pinnedItems.map(renderItem)}</div>
+                                    <Divider collapsed={collapsed} />
+                                </>
+                            )}
+
+                            {groups.map((g, idx) => {
+                                const open = isGroupOpen(g);
+                                const hasActive = g.items.some(i => isActive(i.to));
+                                return (
+                                    <div key={g.id}>
+                                        {collapsed
+                                            ? (idx > 0 && <Divider collapsed />)
+                                            : (!g.flat && (
+                                                <GroupHeader
+                                                    label={g.label}
+                                                    icon={g.icon}
+                                                    open={open}
+                                                    hasActive={hasActive}
+                                                    onToggle={() => toggleGroup(g.id)}
+                                                />
+                                            ))}
+                                        {open && <div className="space-y-1">{g.items.map(renderItem)}</div>}
+                                    </div>
+                                );
+                            })}
                         </>
                     )}
                 </nav>
 
                 {/* User card */}
-                <div className={`relative z-10 pt-4 border-t border-white/5 ${collapsed ? 'px-2 pb-4' : 'px-4 pb-5'}`}>
+                <div className={`relative z-10 pt-4 border-t border-white/5 ${collapsed ? 'px-2 pb-4' : 'px-3 pb-5'}`}>
                     {collapsed ? (
-                        <Tooltip label={`${user?.name} (${user?.role})`} collapsed={true}>
-                            <button onClick={handleLogout}
-                                className="w-full flex justify-center p-2 rounded-xl hover:bg-white/10 transition-colors group">
+                        <Tooltip label={`${user?.name} (${user?.role}) · ออกจากระบบ`} collapsed={true}>
+                            <button
+                                type="button"
+                                onClick={handleLogout}
+                                aria-label="ออกจากระบบ"
+                                className={`w-full flex justify-center p-2 rounded-xl hover:bg-white/10 transition-colors group ${FOCUS_RING}`}
+                            >
                                 {user?.empPic
                                     ? <img src={user.empPic} alt="" className="w-9 h-9 rounded-xl object-cover ring-2 ring-white/10" />
                                     : <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold">
@@ -238,19 +436,25 @@ const Sidebar = ({ isOpen, onClose }) => {
                             </button>
                         </Tooltip>
                     ) : (
-                        <div className="flex items-center space-x-3 px-3 py-3 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors group cursor-pointer">
+                        <div className="flex items-center gap-3 px-3 py-3 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors group">
                             {user?.empPic
-                                ? <img src={user.empPic} alt="" className="w-12 h-12 rounded-xl object-cover shadow-lg ring-2 ring-white/10 group-hover:scale-105 transition-transform" />
-                                : <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-lg font-bold shadow-lg ring-2 ring-white/10 group-hover:scale-105 transition-transform">
+                                ? <img src={user.empPic} alt="" className="w-11 h-11 rounded-xl object-cover shadow-lg ring-2 ring-white/10" />
+                                : <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-lg font-bold shadow-lg ring-2 ring-white/10">
                                     {user?.name?.[0]?.toUpperCase() || '?'}
                                 </div>
                             }
-                            <div className="flex-1 overflow-hidden">
-                                <p className="text-xs font-bold truncate text-white group-hover:text-indigo-200 transition-colors">{user?.name}</p>
-                                <p className="text-[10px] text-slate-400 font-medium">{user?.empcode}</p>
-                                <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-wider">{user?.role}</p>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold truncate text-white">{user?.name}</p>
+                                <p className="text-[10px] text-slate-400 font-medium truncate">{user?.empcode}</p>
+                                <span className="inline-block mt-0.5 px-1.5 py-px rounded bg-indigo-500/20 text-[9px] text-indigo-300 font-bold uppercase tracking-wider">{user?.role}</span>
                             </div>
-                            <button onClick={handleLogout} className="text-slate-400 hover:text-red-400 transition-colors p-2 hover:bg-white/5 rounded-lg">
+                            <button
+                                type="button"
+                                onClick={handleLogout}
+                                aria-label="ออกจากระบบ"
+                                title="ออกจากระบบ"
+                                className={`text-slate-400 hover:text-red-400 transition-colors p-2 hover:bg-white/5 rounded-lg ${FOCUS_RING}`}
+                            >
                                 <LogOut size={16} />
                             </button>
                         </div>

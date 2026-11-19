@@ -370,6 +370,22 @@ const StockCountPage = () => {
         }, 400);
     };
 
+    // แถบ "เลิกทำ" หลังลบรายการ — หายเองใน 8 วินาที
+    const [undoBar, setUndoBar] = useState(null);
+    const undoTimerRef = useRef(null);
+    const showUndo = (label, run) => {
+        clearTimeout(undoTimerRef.current);
+        setUndoBar({ label, run, busy: false });
+        undoTimerRef.current = setTimeout(() => setUndoBar(null), 8000);
+    };
+    const runUndo = async () => {
+        if (!undoBar || undoBar.busy) return;
+        clearTimeout(undoTimerRef.current);
+        setUndoBar(b => ({ ...b, busy: true }));
+        try { await undoBar.run(); setUndoBar(null); }
+        catch (err) { setUndoBar(null); showAlert('error', 'เลิกทำไม่สำเร็จ', err.message || 'กรุณาลองใหม่'); }
+    };
+
     const removeItem = (item) => {
         setAlertModal({
             isOpen: true, type: 'confirm', title: 'ลบรายการนับ?',
@@ -378,8 +394,27 @@ const StockCountPage = () => {
             onConfirm: async () => {
                 setAlertModal(p => ({ ...p, isOpen: false }));
                 try {
-                    const res = await fetch(`${API_BASE}/stock-count/sessions/${activeSession.SessionID}/items/${item.ItemID}`, { method: 'DELETE' });
-                    if (res.ok) setCountingList(prev => prev.filter(i => i.ItemID !== item.ItemID));
+                    const sessionId = activeSession.SessionID;
+                    const res = await fetch(`${API_BASE}/stock-count/sessions/${sessionId}/items/${item.ItemID}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        setCountingList(prev => prev.filter(i => i.ItemID !== item.ItemID));
+                        showUndo(`ลบ "${item.ProductName}" แล้ว`, async () => {
+                            // เพิ่มกลับ แล้วคืนจำนวนที่นับไว้ (ถ้ามี)
+                            const add = await fetch(`${API_BASE}/stock-count/sessions/${sessionId}/items`, {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ProductID: item.ProductID })
+                            });
+                            const addData = await add.json().catch(() => ({}));
+                            if (!add.ok || !addData.item) throw new Error(addData.error || 'เพิ่มกลับไม่สำเร็จ');
+                            let restored = addData.item;
+                            if (item.ActualQty !== null && item.ActualQty !== undefined) {
+                                const put = await fetch(`${API_BASE}/stock-count/sessions/${sessionId}/items/${restored.ItemID}`, {
+                                    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ActualQty: item.ActualQty })
+                                });
+                                if (put.ok) restored = { ...restored, ActualQty: item.ActualQty };
+                            }
+                            setCountingList(prev => [restored, ...prev]);
+                        });
+                    }
                     else { const d = await res.json().catch(() => ({})); showAlert('error', 'ลบไม่ได้', d.error || 'ลบรายการไม่ได้'); }
                 } catch (err) { showAlert('error', 'Connection Error', 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์'); }
             },
@@ -1222,6 +1257,12 @@ const StockCountPage = () => {
                     </tbody>
                 </table>
             </div>
+            {undoBar && (
+                <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9991] max-w-[90vw] px-4 py-2.5 rounded-xl shadow-2xl bg-slate-800 text-white text-sm font-semibold flex items-center gap-3">
+                    <span className="truncate">{undoBar.label}</span>
+                    <button onClick={runUndo} disabled={undoBar.busy} className="px-3 py-1 rounded-lg bg-white text-slate-900 text-xs font-black hover:bg-slate-200 disabled:opacity-50">{undoBar.busy ? 'กำลังเลิกทำ…' : 'เลิกทำ'}</button>
+                </div>
+            )}
             {toast && (
                 <div role="status" className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[9990] max-w-[90vw] px-4 py-3 rounded-xl shadow-2xl text-white text-sm font-semibold flex items-center gap-2
                     ${toast.type === 'error' ? 'bg-red-600' : toast.type === 'info' ? 'bg-slate-700' : 'bg-emerald-600'}`}>

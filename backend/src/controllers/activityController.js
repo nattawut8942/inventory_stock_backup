@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const Jimp = require('jimp');
 const archiverModule = require('archiver');
 
 // รองรับได้ทั้ง archiver เวอร์ชันเก่า (factory function: archiver('zip', opts))
@@ -31,23 +30,57 @@ const THUMB_MAX_DIMENSION = 480;
 
 // Who may edit/delete is decided by the route: requirePerm('activity', 'edit' | 'delete') in activityRoutes.js
 
-// ─── Helper: resize รูปเป็น main + thumbnail แล้วเซฟลง network share (ใช้ jimp — pure JS ไม่มี native binary) ───
+// ─── ย่อรูปด้วย jimp ถ้าเซิร์ฟเวอร์มี jimp ─ รองรับทั้ง v1 (named export) และ v0.x (default export)
+// ถ้าโหลด jimp ไม่ได้หรือย่อไม่สำเร็จ จะคืนรูปต้นฉบับแทน (ไม่ทำให้การอัปโหลดล้ม) ───
+let jimpModulePromise = null;
+const loadJimp = () => {
+    if (!jimpModulePromise) {
+        jimpModulePromise = import('jimp')
+            .then((mod) => {
+                if (mod.Jimp && mod.JimpMime) return { Jimp: mod.Jimp, JimpMime: mod.JimpMime, v1: true };
+                const Jimp = mod.default || mod;
+                return Jimp && Jimp.read ? { Jimp, v1: false } : null;
+            })
+            .catch(() => null);
+    }
+    return jimpModulePromise;
+};
+
+const resizeImages = async (fileBuffer) => {
+    const lib = await loadJimp();
+    if (!lib) return { mainBuffer: fileBuffer, thumbBuffer: fileBuffer };
+    try {
+        const { Jimp } = lib;
+        const image = await Jimp.read(fileBuffer);
+        const main = image.clone();
+        const thumb = image.clone();
+        if (lib.v1) {
+            main.scaleToFit({ w: MAIN_MAX_DIMENSION, h: MAIN_MAX_DIMENSION });
+            thumb.scaleToFit({ w: THUMB_MAX_DIMENSION, h: THUMB_MAX_DIMENSION });
+            return {
+                mainBuffer: await main.getBuffer(lib.JimpMime.jpeg, { quality: 82 }),
+                thumbBuffer: await thumb.getBuffer(lib.JimpMime.jpeg, { quality: 75 }),
+            };
+        }
+        main.scaleToFit(MAIN_MAX_DIMENSION, MAIN_MAX_DIMENSION).quality(82);
+        thumb.scaleToFit(THUMB_MAX_DIMENSION, THUMB_MAX_DIMENSION).quality(75);
+        return {
+            mainBuffer: await main.getBufferAsync(Jimp.MIME_JPEG),
+            thumbBuffer: await thumb.getBufferAsync(Jimp.MIME_JPEG),
+        };
+    } catch (err) {
+        console.warn('Activity image resize failed, saving original:', err.message);
+        return { mainBuffer: fileBuffer, thumbBuffer: fileBuffer };
+    }
+};
+
+// ─── Helper: resize รูปเป็น main + thumbnail แล้วเซฟลง network share ───
 const saveResizedImage = async (fileBuffer) => {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const mainFileName = `${suffix}.jpg`;
     const thumbFileName = `thumb_${suffix}.jpg`;
 
-    const image = await Jimp.read(fileBuffer);
-
-    const mainImage = image.clone();
-    mainImage.scaleToFit(MAIN_MAX_DIMENSION, MAIN_MAX_DIMENSION);
-    mainImage.quality(82);
-    const mainBuffer = await mainImage.getBufferAsync(Jimp.MIME_JPEG);
-
-    const thumbImage = image.clone();
-    thumbImage.scaleToFit(THUMB_MAX_DIMENSION, THUMB_MAX_DIMENSION);
-    thumbImage.quality(75);
-    const thumbBuffer = await thumbImage.getBufferAsync(Jimp.MIME_JPEG);
+    const { mainBuffer, thumbBuffer } = await resizeImages(fileBuffer);
 
     const mainPath = path.win32.join(ACTIVITY_UPLOAD_DIR, mainFileName);
     const thumbPath = path.win32.join(ACTIVITY_UPLOAD_DIR, thumbFileName);
@@ -178,8 +211,43 @@ export const getHeroAlbums = async (req, res) => {
 
 // GET /api/albums?category=Network&search=xxx&page=1&pageSize=20
 // คืน { albums, totalCount, totalPages, page, pageSize } — filter/pagination ทำที่ backend ทั้งหมด
+// GET /api/albums/stats — ตัวเลขสรุปสำหรับแถบสถิติ
+export const getAlbumStats = async (req, res) => {
+    try {
+        const pool = getPool();
+        const result = await pool.request().query(`
+            SELECT
+                (SELECT COUNT(*) FROM dbo.Activity_Albums WHERE IsPublished = 1) AS AlbumCount,
+                (SELECT COUNT(*) FROM dbo.Activity_Photos p
+                    JOIN dbo.Activity_Albums a ON a.AlbumID = p.AlbumID
+                    WHERE a.IsPublished = 1 AND p.Status = 'approved') AS PhotoCount,
+                (SELECT COUNT(*) FROM dbo.Activity_Albums
+                    WHERE IsPublished = 1 AND YEAR(EventDate) = YEAR(GETDATE()) AND MONTH(EventDate) = MONTH(GETDATE())) AS ThisMonthAlbums
+        `);
+        res.json(result.recordset[0] || { AlbumCount: 0, PhotoCount: 0, ThisMonthAlbums: 0 });
+    } catch (err) {
+        console.error('Get Album Stats Error:', err);
+        res.status(500).json({ error: 'Database error' });
+    }
+};
+
+// GET /api/albums/years — ปีที่มีอัลบัม (สำหรับ filter)
+export const getAlbumYears = async (req, res) => {
+    try {
+        const pool = getPool();
+        const result = await pool.request().query(`
+            SELECT DISTINCT YEAR(EventDate) AS Year FROM dbo.Activity_Albums
+            WHERE IsPublished = 1 ORDER BY Year DESC
+        `);
+        res.json(result.recordset.map(r => r.Year));
+    } catch (err) {
+        console.error('Get Album Years Error:', err);
+        res.status(500).json({ error: 'Database error' });
+    }
+};
+
 export const getAlbums = async (req, res) => {
-    const { category, search } = req.query;
+    const { category, search, year, sort } = req.query;
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize) || 20));
     const offset = (page - 1) * pageSize;
@@ -199,6 +267,13 @@ export const getAlbums = async (req, res) => {
             request.input('Search', sql.NVarChar, `%${search.trim()}%`);
             where += ` AND a.Title LIKE @Search`;
         }
+        if (year && /^\d{4}$/.test(String(year))) {
+            request.input('Year', sql.Int, parseInt(year, 10));
+            where += ` AND YEAR(a.EventDate) = @Year`;
+        }
+        const orderBy = sort === 'oldest' ? 'a.EventDate ASC'
+            : sort === 'photos' ? 'PhotoCount DESC, a.EventDate DESC'
+            : 'a.EventDate DESC';
 
         const query = `
             SELECT a.AlbumID, a.Title, a.Category, a.Description, a.CoverImageURL, a.CoverThumbnailURL,
@@ -212,7 +287,7 @@ export const getAlbums = async (req, res) => {
             ${where}
             GROUP BY a.AlbumID, a.Title, a.Category, a.Description, a.CoverImageURL, a.CoverThumbnailURL,
                      a.EventDate, a.IsFeatured, a.CreatedBy, a.CreatedAt, c.Label, c.ColorHex
-            ORDER BY a.EventDate DESC
+            ORDER BY ${orderBy}
             OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY
         `;
         const result = await request.query(query);

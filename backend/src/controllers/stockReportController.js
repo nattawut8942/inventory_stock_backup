@@ -184,6 +184,7 @@ export const getStockMovementReport = async (req, res) => {
         const result = await rq.query(`
             SELECT t.TransID, t.ProductID, p.ProductName, p.DeviceType, t.TransType, t.Qty, t.RefInfo,
                    t.UserID, t.EmployeeName, t.EmployeeCode, t.CostCenter, t.TransDate, t.ReturnOf,
+                   CASE WHEN t.SelfUse = 1 OR t.CostCenter = '7510' THEN 1 ELSE 0 END AS IsInternal,
                    p.LastPrice, p.Location, td.Label AS TypeLabel
             FROM dbo.Stock_Transactions t
             LEFT JOIN dbo.Stock_Products p ON p.ProductID = t.ProductID
@@ -210,6 +211,7 @@ export const getStockMovementReport = async (req, res) => {
                 RefInfo: ref,
                 reason: type === 'OUT' ? outReason(ref) : inSource(ref, t.ReturnOf),
                 who: t.EmployeeName || t.UserID || 'ไม่ระบุ',
+                internal: t.IsInternal === 1 || t.IsInternal === true,
                 byUser: t.UserID || '',
                 CostCenter: t.CostCenter || '',
                 TransDate: t.TransDate,
@@ -251,6 +253,10 @@ export const getStockMovementReport = async (req, res) => {
             monthly: monthlyOut,
             outByReason: topN(outs, (r) => r.reason, 10),
             inBySource: topN(ins, (r) => r.reason, 10),
+            usage: (() => {
+                const agg = (arr) => ({ count: arr.length, qty: arr.reduce((s, r) => s + r.qty, 0), value: round2(arr.reduce((s, r) => s + r.value, 0)) });
+                return { internal: agg(outs.filter((r) => r.internal)), user: agg(outs.filter((r) => !r.internal)) };
+            })(),
             topItems: topN(outs, (r) => r.ProductName, 10, (r) => ({ TypeLabel: r.TypeLabel })),
             topRecipients: topN(outs, (r) => r.who, 10),
             transactions: cur.slice(0, 500).map(({ date, ...r }) => r),
@@ -524,6 +530,24 @@ export const getStockProcurementReport = async (req, res) => {
         }
         const monthly = Object.values(mm).sort((a, b) => a.key.localeCompare(b.key)).map((m) => ({ ...m, ordered: round2(m.ordered), received: round2(m.received) }));
 
+        // ยอดแยกตาม BG No. ของแต่ละรายการ (PO 1 ใบอาจมีหลาย BG) — นับเฉพาะ PO ที่อยู่ในช่วงที่เลือก
+        const inPeriod = new Set(pos.map((p) => p.PO_ID));
+        const lineRes = await pool.request().query(`
+            SELECT PO_ID, ISNULL(NULLIF(LTRIM(RTRIM(BG_No)), ''), 'ไม่ระบุ') AS BG,
+                   QtyOrdered, ISNULL(QtyReceived, 0) AS QtyReceived, ISNULL(UnitCost, 0) AS UnitCost
+            FROM dbo.Stock_PODetails`);
+        const bgMap = {};
+        for (const l of lineRes.recordset) {
+            if (!inPeriod.has(l.PO_ID)) continue;
+            const g = (bgMap[l.BG] = bgMap[l.BG] || { key: l.BG, pos: new Set(), ordered: 0, received: 0 });
+            g.pos.add(l.PO_ID);
+            g.ordered += num(l.QtyOrdered) * num(l.UnitCost);
+            g.received += num(l.QtyReceived) * num(l.UnitCost);
+        }
+        const byBG = Object.values(bgMap).map((g) => ({
+            key: g.key, count: g.pos.size, ordered: round2(g.ordered), received: round2(g.received), avgLead: null, onTimeRate: null,
+        })).sort((a, b) => b.ordered - a.ordered);
+
         const groupPO = (keyFn) => {
             const m = {};
             for (const p of pos) {
@@ -591,7 +615,7 @@ export const getStockProcurementReport = async (req, res) => {
             range: { from: from ? from.toISOString() : null, to: to.toISOString() },
             kpi, statusCount, monthly,
             byVendor: groupPO((p) => p.VendorName).slice(0, 15),
-            byBudget: groupPO((p) => p.BudgetNo).slice(0, 15),
+            byBudget: byBG.slice(0, 15),
             openPOs, invoices,
             priceChanges: priceChanges.slice(0, 50), priceChangeTotal: priceChanges.length,
             note: 'มูลค่า PO = จำนวน × ราคาต่อหน่วยในใบ PO • Lead time = วันรับของแรก − วันขอซื้อ (PO ที่บันทึกย้อนหลังจะได้ค่าใกล้ 0) • ราคาเปลี่ยน = เทียบ PO ล่าสุดกับ PO ก่อนหน้าที่ราคาต่างกัน',

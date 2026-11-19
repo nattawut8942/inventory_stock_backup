@@ -9,7 +9,10 @@ export const getStockHistory = async (req, res) => {
         const result = await pool.request()
             .input('ProductID', sql.Int, req.params.id)
             .query(`
-                SELECT 
+                SELECT
+                    t.TransID,
+                    t.ReturnedAt,
+                    t.ReturnOf,
                     t.TransDate,
                     t.Qty,
                     t.TransType,
@@ -43,7 +46,9 @@ export const getTransactions = async (req, res) => {
         let query = `
             SELECT t.TransID, t.ProductID, p.ProductName, t.TransType, t.Qty, t.RefInfo, t.UserID, t.TransDate, t.BG_No,
                    t.EmployeeName, t.EmployeeCode, t.CostCenter,
-                   t.SerialNumber, t.FixedAssetCode
+                   t.SerialNumber, t.FixedAssetCode,
+                   t.ReturnedAt, t.ReturnOf,
+                   CASE WHEN t.SelfUse = 1 OR t.CostCenter = '7510' THEN 1 ELSE 0 END AS IsInternal
             FROM dbo.Stock_Transactions t
             LEFT JOIN dbo.Stock_Products p ON t.ProductID = p.ProductID
             WHERE 1=1
@@ -63,6 +68,13 @@ export const getTransactions = async (req, res) => {
             request.input('endDate', sql.VarChar, endDate);
             // รวมรายการทั้งวันของ endDate โดยใช้ช่วงเปิดด้านขวา (< วันถัดไป)
             query += ' AND t.TransDate < DATEADD(day, 1, CAST(@endDate AS DATE))';
+        }
+
+        // ประวัติของสินค้าชิ้นเดียว (ใช้ในหน้าเบิก)
+        const productId = parseInt(req.query.productId, 10);
+        if (Number.isInteger(productId) && productId > 0) {
+            request.input('ProductIdFilter', sql.Int, productId);
+            query += ' AND t.ProductID = @ProductIdFilter';
         }
 
         query += ' ORDER BY t.TransDate DESC';

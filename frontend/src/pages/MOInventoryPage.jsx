@@ -9,6 +9,8 @@ import LocationSelectorModal from './LocationSelectorModal';
 import { useCan, useCanAct } from '../context/PermissionContext';
 import MapViewTab from './MapViewTab';
 import AlertModal from '../components/AlertModal';
+import NoteDialog from '../components/NoteDialog';
+import PCReportView from '../components/pc/PCReportView';
 
 // ✅ NEW: Search field dropdown options — เพิ่มให้ตรงกับ PCInventoryPage.jsx
 const SEARCH_FIELD_OPTIONS = [
@@ -208,6 +210,7 @@ const RankedCard = ({ title, countLabel, items, expanded, onToggle, bare, palett
 
 const MOInventoryPage = () => {
   const [view, setView] = useState('list');
+  const [moTab, setMoTab] = useState('list'); // 'list' | 'report'
   const [hostname, setHostname] = useState(null);
 
   const [invData, setInvData] = useState([]);
@@ -545,6 +548,27 @@ const MOInventoryPage = () => {
     } catch (err) { showToast(`❌ ${err.message}`); }
   };
 
+  // ทำทิ้ง / ยกเลิกการทำทิ้ง (แยกจาก Active/Inactive)
+  const [disposalAsk, setDisposalAsk] = useState(null); // { disposing } เปิดกล่องยืนยันการทำทิ้ง
+
+  const toggleDisposal = () => {
+    setDisposalAsk({ disposing: detailData.inv.disposal_status !== 'Disposed' });
+  };
+
+  const runDisposal = async (disposing, note) => {
+    try {
+      const res = await fetch(`${API_BASE}/mo-inventory/${encodeURIComponent(hostname)}/disposal`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disposed: disposing, note, updated_by: 'web' }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      showToast(disposing ? '✓ ทำเครื่องหมายว่าทำทิ้งแล้ว' : '✓ ยกเลิกการทำทิ้งแล้ว');
+      fetchDetail(hostname);
+    } catch (err) { showToast(`❌ ${err.message}`); }
+  };
+
   const togglePcStatus = async () => {
     const newStatus = detailData.inv.pc_status === 'Inactive' ? 'Active' : 'Inactive';
     try {
@@ -727,6 +751,12 @@ const MOInventoryPage = () => {
           <div className="flex items-center gap-1.5 text-[12px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded-full px-3 py-1.5 shadow-sm">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Live Monitor
           </div>
+          {view === 'list' && (
+            <button onClick={() => setMoTab(moTab === 'report' ? 'list' : 'report')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all border shadow-sm ${moTab === 'report' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-500 hover:text-indigo-600'}`}>
+              📊 {moTab === 'report' ? 'กลับรายการ' : 'รายงาน'}
+            </button>
+          )}
           <button onClick={view === 'list' ? fetchData : () => fetchDetail(hostname)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all bg-white border border-slate-200 text-slate-600 hover:border-indigo-500 hover:text-indigo-600 shadow-sm hover:shadow active:scale-95">
             <RefreshCw size={16} className={loading || detailLoading ? 'animate-spin text-indigo-500' : ''} /> Refresh
@@ -737,7 +767,9 @@ const MOInventoryPage = () => {
       <div className="animate-in fade-in duration-300">
 
         {/* ════════════ LIST VIEW ════════════ */}
-        {view === 'list' && (
+        {view === 'list' && moTab === 'report' && <PCReportView endpoint="/mo-inventory/report" title="รายงาน Monitor" />}
+
+        {view === 'list' && moTab === 'list' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             {error && <div className="bg-red-50 border border-red-300 rounded-lg p-3 text-[13px] text-red-600 mb-4 font-semibold">⚠️ {error}</div>}
 
@@ -760,6 +792,7 @@ const MOInventoryPage = () => {
               <StatBox id="longUptime" label="Uptime > 10 วัน" list={sumData?.longUptime} textClass="text-sky-600" bgClass="bg-sky-50" ringClass="ring-sky-500" />
               <StatBox id="inactive" label="ไม่ได้ใช้งาน" list={sumData?.inactive}
                 textClass="text-gray-500" bgClass="bg-gray-100" ringClass="ring-gray-400" />
+              <StatBox id="disposed" label="ทำทิ้งแล้ว" list={sumData?.disposed} textClass="text-rose-600" bgClass="bg-rose-50" ringClass="ring-rose-500" />
               <StatBox id="possiblyRenamed" label="อาจถูกลงใหม่/เปลี่ยนชื่อ" list={sumData?.possiblyRenamed} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" onSecondaryClick={() => setShowReincarnatedModal(true)} />
             </div>
 
@@ -867,7 +900,7 @@ const MOInventoryPage = () => {
                       <tr><td colSpan="11"><div className="text-center py-12 text-sm text-gray-400">🖥️ ไม่พบข้อมูล</div></td></tr>
                     ) : currentList.map(d => (
                       <tr key={d.hostname}
-                        className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' ? 'opacity-50' : ''}`}
+                        className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' || d.disposal_status === 'Disposed' ? 'opacity-50' : ''}`}
                         onClick={() => { setHostname(d.hostname); setView('detail'); }}>
                         <td className="py-2 px-3 text-[13px] font-medium text-gray-900">{d.hostname || '—'}</td>
                         <td className="py-2 px-3 text-[13px] font-mono font-medium">{d.ip_address || '—'}</td>
@@ -931,7 +964,7 @@ const MOInventoryPage = () => {
           <tr><td colSpan="11"><div className="text-center py-12 text-sm text-gray-400">🖥️ ไม่พบข้อมูล</div></td></tr>
         ) : currentList.map(d => (
           <tr key={d.hostname}
-            className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' ? 'opacity-50' : ''}`}
+            className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' || d.disposal_status === 'Disposed' ? 'opacity-50' : ''}`}
             onClick={() => { setHostname(d.hostname); setView('detail'); }}>
             <td className="py-2 px-3 text-[13px] font-medium text-gray-900">{d.hostname || '—'}</td>
             <td className="py-2 px-3 text-[13px] font-medium text-blue-600">
@@ -1080,6 +1113,12 @@ const MOInventoryPage = () => {
                             >
                               {detailData.inv.pc_status === 'Inactive' ? '✓ Reactivate' : '⏸ Mark Inactive'}
                             </button>}
+                            {canEditPC && <button
+                              className={`w-full text-left px-3.5 py-2 hover:bg-gray-50 ${detailData.inv.disposal_status === 'Disposed' ? 'text-gray-700' : 'text-rose-600'}`}
+                              onClick={() => { setMenuOpen(false); toggleDisposal(); }}
+                            >
+                              {detailData.inv.disposal_status === 'Disposed' ? '↺ ยกเลิกการทำทิ้ง' : '🗑 ทำทิ้ง'}
+                            </button>}
 
                             <div className="my-1 border-t border-gray-100" />
 
@@ -1191,6 +1230,15 @@ const MOInventoryPage = () => {
                           </div>
                         )}
                       </div>
+
+                      {detailData.inv.disposal_status === 'Disposed' && (
+                        <div className="rounded-xl border border-rose-200 bg-rose-50/60 px-4 py-3 mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+                          <span className="text-[12px] font-bold uppercase tracking-widest text-rose-500">Disposal</span>
+                          <span className="text-[13px] font-bold text-rose-600">ทำทิ้งแล้ว</span>
+                          <span className="text-[12px] text-gray-500">โดย {detailData.inv.disposed_by || '-'} · {fmtDate(detailData.inv.disposed_at)}</span>
+                          {detailData.inv.disposal_note && <span className="text-[12px] text-gray-500">· {detailData.inv.disposal_note}</span>}
+                        </div>
+                      )}
 
                       {/* Information */}
                       <div>
@@ -1450,6 +1498,18 @@ const MOInventoryPage = () => {
       )}
 
       {/* Delete Modal */}
+      {/* กล่องยืนยันทำทิ้ง / ยกเลิกทำทิ้ง (แทน window.confirm + prompt) */}
+      <NoteDialog
+        isOpen={!!disposalAsk}
+        tone={disposalAsk?.disposing ? 'danger' : 'primary'}
+        title={disposalAsk?.disposing ? 'ทำเครื่องนี้เป็น "ทำทิ้งแล้ว"?' : 'ยกเลิกการทำทิ้ง?'}
+        message={disposalAsk?.disposing ? `${hostname} จะถูกตัดออกจากสถิติและรายการที่ต้องดูแล` : `${hostname} จะกลับมานับในสถิติและรายการที่ต้องดูแล`}
+        label={disposalAsk?.disposing ? 'หมายเหตุการทำทิ้ง' : 'หมายเหตุ'}
+        placeholder={disposalAsk?.disposing ? 'เช่น ขายซาก / ส่งคืนผู้ผลิต / ชำรุดใช้งานไม่ได้' : 'เหตุผลที่ยกเลิก (ไม่บังคับ)'}
+        confirmText={disposalAsk?.disposing ? 'ทำทิ้ง' : 'ยกเลิกการทำทิ้ง'}
+        onCancel={() => setDisposalAsk(null)}
+        onConfirm={(note) => { const d = disposalAsk; setDisposalAsk(null); runDisposal(d.disposing, note); }}
+      />
       {showDeleteModal && (
         <Portal>
           <div className="fixed inset-0 bg-black/40 z-[999] flex items-center justify-center p-4">

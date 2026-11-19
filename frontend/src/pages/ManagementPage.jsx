@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks } from 'lucide-react';
+import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks , ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../context/PermissionContext';
 import { useData } from '../context/DataContext';
 import Portal from '../components/Portal';
 import AlertModal from '../components/AlertModal';
-import PermissionEditorModal, { PermissionLogModal } from '../components/PermissionEditorModal';
+import PermissionEditorModal, { PermissionLogModal, PermissionHoldersModal } from '../components/PermissionEditorModal';
 import { API_BASE, API_URL } from '../config/api';
 import { getBadgeStyle, getDeviceTypeColor, getChartColor } from '../utils/styleHelpers';
 
@@ -45,6 +45,7 @@ const ManagementPage = () => {
     // Permission editor: undefined = closed, null = default permissions for new users, object = that user
     const [permTarget, setPermTarget] = useState(undefined);
     const [showPermLog, setShowPermLog] = useState(false);
+    const [showHolders, setShowHolders] = useState(false);
     // Role and per-tab permissions come from the server (database); fall back to the token role only if
     // the permission lookup failed, so the page can still open (the backend decides every action anyway).
     const { ready: permReady, isAdmin: permIsAdmin, can } = usePermissions();
@@ -197,6 +198,9 @@ const ManagementPage = () => {
             console.error(err);
         }
     };
+
+    // backend ส่ง IsActive เป็น boolean (true/false) — ต้องเช็คทั้ง false และ 0
+    const isInactive = (r) => r.IsActive === false || r.IsActive === 0;
 
     const fetchReasons = async () => {
         try {
@@ -507,16 +511,19 @@ const handleFileSelect = (e) => {
         setAlertModal({
             isOpen: true,
             type: 'danger',
-            title: 'ลบเหตุผล',
-            message: 'คุณแน่ใจหรือไม่?',
-            confirmText: 'ลบ',
+            title: 'ปิดการใช้งานเหตุผล',
+            message: 'เหตุผลนี้จะไม่แสดงในตัวเลือกการเบิก แต่ประวัติเดิมยังอยู่ และกดเปิดใช้งานคืนได้',
+            confirmText: 'ปิดการใช้งาน',
             cancelText: 'ยกเลิก',
             onConfirm: async () => {
                 try {
                     const res = await fetch(`${API_BASE}/reasons/${id}`, { method: 'DELETE' });
                     if (res.ok) {
-                        setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: 'ลบสำเร็จ' });
+                        setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: 'ปิดการใช้งานแล้ว' });
                         fetchReasons();
+                    } else {
+                        const data = await res.json().catch(() => ({}));
+                        setAlertModal({ isOpen: true, type: 'error', title: 'ปิดการใช้งานไม่สำเร็จ', message: data.error || `เซิร์ฟเวอร์ตอบกลับ ${res.status}` });
                     }
                 } catch (err) {
                     setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: err.message });
@@ -524,6 +531,22 @@ const handleFileSelect = (e) => {
             },
             onCancel: () => setAlertModal(prev => ({ ...prev, isOpen: false }))
         });
+    };
+
+    // เปิดใช้งานเหตุผลที่ปิดไว้แล้ว
+    const handleRestoreReason = async (reason) => {
+        try {
+            const res = await fetch(`${API_BASE}/reasons/${reason.ReasonID}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ label: reason.Label, typeId: reason.TypeId || null, isActive: true })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || 'เปิดใช้งานไม่สำเร็จ');
+            fetchReasons();
+        } catch (err) {
+            setAlertModal({ isOpen: true, type: 'error', title: 'ผิดพลาด', message: err.message });
+        }
     };
 
     // --- MA Type Functions ---
@@ -851,6 +874,9 @@ const handleFileSelect = (e) => {
                                         <button onClick={() => setShowPermLog(true)} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50" title="ดูว่าถ้าเปิดบังคับสิทธิ์จริง จะมีอะไรถูกบล็อก">
                                             <ListChecks size={14} /> รายงานตรวจสิทธิ์
                                         </button>
+                                        <button onClick={() => setShowHolders(true)} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50" title="เลือกหน้าและสิทธิ์ เพื่อดูว่าใครมีสิทธิ์นั้นบ้าง">
+                                            <ShieldCheck size={14} /> ใครมีสิทธิ์นี้
+                                        </button>
                                     </div>
                                 )}
                                 <div className="text-right text-xs text-slate-500">
@@ -1158,7 +1184,7 @@ const handleFileSelect = (e) => {
                         <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
                             <div>
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">WITHDRAWAL REASONS</h3>
-                                <p className="text-slate-500 text-xs">จัดการเหตุผลการเบิก</p>
+                                <p className="text-slate-500 text-xs">จัดการเหตุผลการเบิก · ทั้งหมด {reasons.length} รายการ · จัดกลุ่มตามประเภท</p>
                             </div>
                             {pReasons.create && <button onClick={() => setIsAddReasonOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่มเหตุผล</button>}
                         </div>
@@ -1175,18 +1201,38 @@ const handleFileSelect = (e) => {
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {reasons.filter(r => r.Label.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                                        reasons.filter(r => r.Label.toLowerCase().includes(searchTerm.toLowerCase())).map(reason => (
-                                            <tr key={reason.ReasonID} className="hover:bg-slate-50 transition-colors group">
+                                        reasons.filter(r => r.Label.toLowerCase().includes(searchTerm.toLowerCase())).map((reason, i, arr) => (
+                                          <React.Fragment key={reason.ReasonID}>
+                                            {(i === 0 || arr[i - 1].TypeId !== reason.TypeId) && (
+                                                <tr className="bg-indigo-50/60">
+                                                    <td colSpan="4" className="px-4 py-2">
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <span className="text-[11px] font-black uppercase tracking-wider text-indigo-700">
+                                                                {reason.TypeId || 'ไม่ระบุประเภท'} <span className="font-semibold text-indigo-400">· {arr.filter(x => x.TypeId === reason.TypeId).length} เหตุผล</span>
+                                                            </span>
+                                                            {pReasons.create && reason.TypeId && (
+                                                                <button type="button" onClick={() => { setEditingReason(null); setReasonForm({ Label: '', TypeId: reason.TypeId }); setIsAddReasonOpen(true); }}
+                                                                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-100 transition-all">
+                                                                    <Plus size={12} /> เพิ่มในประเภทนี้
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                            <tr className={`hover:bg-slate-50 transition-colors group ${isInactive(reason) ? 'opacity-50' : ''}`}>
                                                 <td className="p-4 text-slate-400 font-mono text-sm">#{reason.ReasonID}</td>
-                                                <td className="p-4 font-bold text-slate-700">{reason.Label}</td>
+                                                <td className="p-4 font-bold text-slate-700">{reason.Label} {isInactive(reason) && <span className="ml-2 px-2 py-0.5 rounded bg-slate-200 text-slate-600 text-[10px] font-bold">ปิดใช้งาน</span>}</td>
                                                 <td className="p-4"><span className="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-600">{reason.TypeId || '-'}</span></td>
                                                 <td className="p-4 text-right">
-                                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {pReasons.edit && <button onClick={() => { setEditingReason(reason); setReasonForm({ Label: reason.Label, TypeId: reason.TypeId || '' }); setIsAddReasonOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
-                                                        {pReasons.del && <button onClick={() => handleDeleteReason(reason.ReasonID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
+                                                    <div className="flex justify-end gap-2">
+                                                        {pReasons.edit &&<button onClick={() => { setEditingReason(reason); setReasonForm({ Label: reason.Label, TypeId: reason.TypeId || '' }); setIsAddReasonOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
+                                                        {pReasons.edit && isInactive(reason) && <button onClick={() => handleRestoreReason(reason)} className="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all">เปิดใช้งาน</button>}
+                                                        {pReasons.del && !isInactive(reason) && <button onClick={() => handleDeleteReason(reason.ReasonID)} title="ปิดการใช้งาน" className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
                                                     </div>
                                                 </td>
                                             </tr>
+                                          </React.Fragment>
                                         ))
                                     ) : (
                                         <tr>
@@ -1570,6 +1616,31 @@ const handleFileSelect = (e) => {
                                             {deviceTypes.map(type => (<option key={type.TypeId} value={type.TypeId}>{type.Label}</option>))}
                                         </select>
                                     </div>
+                                    {/* เหตุผลที่มีอยู่แล้วในประเภทนี้ (กันเพิ่มซ้ำ) */}
+                                    {(() => {
+                                        const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
+                                        const sameType = reasons.filter(r => (r.TypeId || '') === (reasonForm.TypeId || '') && r.ReasonID !== editingReason?.ReasonID);
+                                        const typed = norm(reasonForm.Label);
+                                        const dup = typed && sameType.find(r => norm(r.Label) === typed);
+                                        return (
+                                            <div>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <label className="text-sm font-bold text-slate-700">มีอยู่แล้วในประเภทนี้</label>
+                                                    <span className="text-[11px] text-slate-400">{sameType.length} รายการ</span>
+                                                </div>
+                                                {dup && <p className="mb-2 text-[12px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">⚠ มี "{dup.Label}" อยู่แล้ว กรุณาเปลี่ยนชื่อ</p>}
+                                                <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100 bg-slate-50/60">
+                                                    {sameType.length === 0 && <p className="px-3 py-3 text-[12px] text-slate-400">ยังไม่มีเหตุผลในประเภทนี้</p>}
+                                                    {sameType.map(r => (
+                                                        <div key={r.ReasonID} className="px-3 py-2 text-[13px] flex items-center justify-between gap-2">
+                                                            <span className={`truncate ${isInactive(r) ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{r.Label}</span>
+                                                            {isInactive(r) && <span className="text-[10px] font-bold text-slate-500 bg-slate-200 rounded px-1.5 py-0.5 shrink-0">ปิดใช้งาน</span>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                     <div className="flex gap-3 pt-4">
                                         <button type="button" onClick={() => setIsAddReasonOpen(false)} className="flex-1 bg-white border border-slate-200 text-slate-600 font-bold py-2.5 rounded-lg hover:bg-slate-50">ยกเลิก</button>
                                         <button type="submit" disabled={!reasonForm.Label} className="flex-[2] bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold py-2.5 rounded-lg hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50">บันทึก</button>
@@ -1875,6 +1946,7 @@ const handleFileSelect = (e) => {
                 />
             )}
             {showPermLog && isAdminUser && <PermissionLogModal onClose={() => setShowPermLog(false)} />}
+            {showHolders && isAdminUser && <PermissionHoldersModal onClose={() => setShowHolders(false)} />}
             <AlertModal
                 isOpen={alertModal.isOpen}
                 type={alertModal.type}

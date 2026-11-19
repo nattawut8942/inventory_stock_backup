@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { X, Calendar, Image as ImageIcon, Edit2, Check, UploadCloud, Camera, Trash2, ChevronLeft, ChevronRight, Star, FileText, Archive } from 'lucide-react';
+import { X, Calendar, Image as ImageIcon, Edit2, Check, UploadCloud, Camera, Trash2, ChevronLeft, ChevronRight, Star, FileText, Archive, Link2, Download, ZoomIn, ZoomOut } from 'lucide-react';
 import Portal from './Portal';
 import { API_BASE, API_URL } from '../config/api';
-import { formatThaiDate } from '../utils/formatDate';
+import { formatThaiDate, formatThaiDateShort } from '../utils/formatDate';
 import { useAuth } from '../context/AuthContext';
 
 const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], setAlertModal, isAdmin = false, canDelete = false, canAddPhoto = false }) => {
@@ -44,7 +44,17 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
 
     useEffect(() => { fetchData(); }, [albumId]);
 
-    if (!albumId) return null;
+    const [copied, setCopied] = useState(false);
+    const copyLink = async () => {
+        const url = `${window.location.origin}${window.location.pathname}?album=${albumId}`;
+        try {
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            setAlertModal?.({ isOpen: true, type: 'error', title: 'คัดลอกไม่สำเร็จ', message: url });
+        }
+    };
 
     const handleSave = async () => {
         if (!isAdmin) return;
@@ -108,11 +118,13 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
 
     // Lightbox — ดูรูปเต็มจอ เลื่อนซ้าย-ขวาได้
     const [lightboxIndex, setLightboxIndex] = useState(null);
+    const [zoomed, setZoomed] = useState(false);
+    const touchX = useRef(0);
 
     useEffect(() => {
-        if (lightboxIndex === null) return;
+        if (lightboxIndex === null || !data?.photos?.length) return;
         const handleKey = (e) => {
-            if (e.key === 'Escape') setLightboxIndex(null);
+            if (e.key === 'Escape') { setLightboxIndex(null); setZoomed(false); }
             if (e.key === 'ArrowLeft') setLightboxIndex(i => (i - 1 + data.photos.length) % data.photos.length);
             if (e.key === 'ArrowRight') setLightboxIndex(i => (i + 1) % data.photos.length);
         };
@@ -129,6 +141,7 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
                 body: JSON.stringify({ PhotoID: photoId, Role: user?.role }),
             });
             if (res.ok) {
+                fetchData();
                 onUpdated?.();
             } else {
                 const data = await res.json().catch(() => ({}));
@@ -170,6 +183,7 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
     };
 
     return (
+        albumId ? (
         <Portal>
             <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
                 <motion.div
@@ -184,7 +198,7 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
                                 <h3 className="text-xl font-bold text-slate-900">{data?.album?.Title || 'กำลังโหลด...'}</h3>
                                 {data?.album && (
                                     <p className="text-sm text-slate-500 mt-1 flex items-center gap-3 flex-wrap">
-                                        <span className="flex items-center gap-1"><Calendar size={14} /> {formatThaiDate(data.album.EventDate)}</span>
+                                        <span className="flex items-center gap-1"><Calendar size={14} /> {formatThaiDateShort(data.album.EventDate)}</span>
                                         <span className="flex items-center gap-1"><ImageIcon size={14} /> {data.photos.length} รูปภาพ</span>
                                         {data.album.CreatedBy && (
                                             <span className="text-xs text-slate-400">
@@ -230,6 +244,13 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
                         <div className="flex items-center gap-2">
                             {!editing && (
                                 <>
+                                    <button
+                                        onClick={copyLink}
+                                        title="คัดลอกลิงก์อัลบัม"
+                                        className="text-sm text-slate-500 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5"
+                                    >
+                                        {copied ? <Check size={14} className="text-emerald-600" /> : <Link2 size={14} />} {copied ? 'คัดลอกแล้ว' : 'แชร์'}
+                                    </button>
                                     <a
                                         href={`${API_BASE}/albums/${albumId}/export/pdf`}
                                         target="_blank" rel="noreferrer"
@@ -379,14 +400,40 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
                 {lightboxIndex !== null && data?.photos?.[lightboxIndex] && (
                     <div
                         className="fixed inset-0 z-[70] bg-black/95 flex items-center justify-center"
-                        onClick={() => setLightboxIndex(null)}
+                        onClick={() => { setLightboxIndex(null); setZoomed(false); }}
+                        onTouchStart={(e) => { touchX.current = e.touches[0].clientX; }}
+                        onTouchEnd={(e) => {
+                            const dx = e.changedTouches[0].clientX - touchX.current;
+                            if (Math.abs(dx) < 50 || data.photos.length < 2) return;
+                            setZoomed(false);
+                            setLightboxIndex(i => dx < 0 ? (i + 1) % data.photos.length : (i - 1 + data.photos.length) % data.photos.length);
+                        }}
                     >
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setLightboxIndex(null); }}
-                            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
-                        >
-                            <X size={20} />
-                        </button>
+                        <div className="absolute top-4 right-4 flex items-center gap-2">
+                            <a
+                                href={`${API_URL}${data.photos[lightboxIndex].ImageURL}`}
+                                download
+                                target="_blank" rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                title="ดาวน์โหลดรูปนี้"
+                                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+                            >
+                                <Download size={18} />
+                            </a>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setZoomed(z => !z); }}
+                                title={zoomed ? 'ย่อ' : 'ขยาย'}
+                                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+                            >
+                                {zoomed ? <ZoomOut size={18} /> : <ZoomIn size={18} />}
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setLightboxIndex(null); setZoomed(false); }}
+                                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
 
                         {data.photos.length > 1 && (
                             <button
@@ -400,8 +447,8 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
                         <img
                             src={`${API_URL}${data.photos[lightboxIndex].ImageURL}`}
                             alt={data.photos[lightboxIndex].Caption || ''}
-                            onClick={(e) => e.stopPropagation()}
-                            className="max-h-[82vh] max-w-[90vw] object-contain"
+                            onClick={(e) => { e.stopPropagation(); setZoomed(z => !z); }}
+                            className={`max-h-[82vh] max-w-[90vw] object-contain transition-transform duration-200 ${zoomed ? 'scale-[2] cursor-zoom-out' : 'cursor-zoom-in'}`}
                         />
 
                         {data.photos.length > 1 && (
@@ -426,6 +473,7 @@ const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], set
                 )}
             </div>
         </Portal>
+        ) : null
     );
 };
 

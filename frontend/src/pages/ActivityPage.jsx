@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Camera, Images, Calendar, Star, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Camera, Images, Calendar, Star, ChevronLeft, ChevronRight, Search, LayoutGrid, List } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCan, useCanAct } from '../context/PermissionContext';
 import { API_BASE, API_URL } from '../config/api';
-import { formatThaiDate } from '../utils/formatDate';
+import { formatThaiDate, formatThaiDateShort } from '../utils/formatDate';
 import AlertModal from '../components/AlertModal';
 import ActivityAlbumCard from '../components/ActivityAlbumCard';
 import ActivityUploadModal from '../components/ActivityUploadModal';
@@ -19,16 +20,30 @@ const ActivityPage = () => {
 
     const [categories, setCategories] = useState([]);
     const [uploadOpen, setUploadOpen] = useState(false);
-    const [viewingAlbumId, setViewingAlbumId] = useState(null);
+    // เปิดอัลบัมผ่าน ?album=ID เพื่อแชร์ลิงก์ได้
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [viewingAlbumId, setViewingAlbumIdState] = useState(() => searchParams.get('album') || null);
+    const setViewingAlbumId = (id) => {
+        setViewingAlbumIdState(id);
+        const next = new URLSearchParams(searchParams);
+        if (id) next.set('album', String(id)); else next.delete('album');
+        setSearchParams(next, { replace: true });
+    };
     const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
 
     // Hero — ดึงแยกต่างหาก ไม่ผูกกับ filter/pagination ของกริด
     const [heroAlbums, setHeroAlbums] = useState([]);
     const [heroLoading, setHeroLoading] = useState(true);
     const [heroIndex, setHeroIndex] = useState(0);
+    const [heroPaused, setHeroPaused] = useState(false);
 
-    // Grid — ค้นหา + filter หมวด + pagination ทั้งหมดทำที่ backend
+    // Grid — ค้นหา + filter หมวด/ปี + เรียงลำดับ + pagination ทั้งหมดทำที่ backend
     const [category, setCategory] = useState('all');
+    const [year, setYear] = useState('all');
+    const [sort, setSort] = useState('newest');
+    const [years, setYears] = useState([]);
+    const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'timeline'
+    const [stats, setStats] = useState(null);
     const [searchInput, setSearchInput] = useState('');
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
@@ -66,6 +81,8 @@ const ActivityPage = () => {
         try {
             const params = new URLSearchParams({ page: String(page), pageSize: '20' });
             if (category !== 'all') params.set('category', category);
+            if (year !== 'all') params.set('year', year);
+            if (sort !== 'newest') params.set('sort', sort);
             if (search.trim()) params.set('search', search.trim());
             const res = await fetch(`${API_BASE}/albums?${params.toString()}`);
             if (res.ok) {
@@ -95,7 +112,41 @@ const ActivityPage = () => {
     };
 
     useEffect(() => { fetchHeroAlbums(); }, []);
-    useEffect(() => { fetchGridAlbums(); }, [category, search, page]);
+    useEffect(() => { fetchGridAlbums(); }, [category, year, sort, search, page]);
+
+    const fetchYears = () => {
+        fetch(`${API_BASE}/albums/years`)
+            .then(res => (res.ok ? res.json() : []))
+            .then(d => setYears(Array.isArray(d) ? d : []))
+            .catch(() => setYears([]));
+    };
+    useEffect(() => { fetchYears(); }, []);
+
+    const fetchStats = () => {
+        fetch(`${API_BASE}/albums/stats`)
+            .then(res => (res.ok ? res.json() : null))
+            .then(setStats)
+            .catch(() => setStats(null));
+    };
+    useEffect(() => { fetchStats(); }, []);
+
+    // จัดกลุ่มอัลบัมตามเดือน สำหรับมุมมองไทม์ไลน์ (รักษาลำดับที่ backend ส่งมา)
+    const groupByMonth = (list) => {
+        const groups = [];
+        const index = new Map();
+        for (const a of list) {
+            const d = new Date(a.EventDate);
+            const key = isNaN(d.getTime()) ? 'unknown' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (!index.has(key)) {
+                const label = key === 'unknown' ? 'ไม่ระบุวันที่'
+                    : d.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+                index.set(key, groups.length);
+                groups.push({ key, label, items: [] });
+            }
+            groups[index.get(key)].items.push(a);
+        }
+        return groups;
+    };
 
     // debounce ช่องค้นหา 400ms กันยิง API ถี่เกินไปตอนพิมพ์
     useEffect(() => {
@@ -106,16 +157,16 @@ const ActivityPage = () => {
         return () => clearTimeout(t);
     }, [searchInput]);
 
-    useEffect(() => { setPage(1); }, [category]);
+    useEffect(() => { setPage(1); }, [category, year, sort]);
 
-    // เปลี่ยนรูป hero อัตโนมัติทุก 5 วินาที
+    // เปลี่ยนรูป hero อัตโนมัติทุก 5 วินาที — หยุดตอนเอาเมาส์ชี้ และเริ่มนับใหม่ทุกครั้งที่เปลี่ยนรูป
     useEffect(() => {
-        if (heroAlbums.length <= 1) return;
+        if (heroAlbums.length <= 1 || heroPaused) return;
         const timer = setInterval(() => {
             setHeroIndex(i => (i + 1) % heroAlbums.length);
         }, 5000);
         return () => clearInterval(timer);
-    }, [heroAlbums.length]);
+    }, [heroAlbums.length, heroIndex, heroPaused]);
 
     // รายชื่ออัลบัมทั้งหมด (แค่ id+title) สำหรับ dropdown ตอนอัปโหลด — แยกจาก gridAlbums ที่ถูก paginate แล้ว
     const [allAlbumsForDropdown, setAllAlbumsForDropdown] = useState([]);
@@ -136,7 +187,7 @@ const ActivityPage = () => {
     };
     useEffect(() => { fetchAllAlbumsForDropdown(); }, []);
 
-    const refreshAll = () => { fetchHeroAlbums(); fetchGridAlbums(); fetchAllAlbumsForDropdown(); };
+    const refreshAll = () => { fetchHeroAlbums(); fetchGridAlbums(); fetchAllAlbumsForDropdown(); fetchStats(); fetchYears(); };
 
     const handleTogglePin = async (albumId, featured) => {
         try {
@@ -184,12 +235,32 @@ const ActivityPage = () => {
                 </button>}
             </motion.div>
 
+            {/* แถบสถิติ */}
+            {stats && (
+                <div className="grid grid-cols-3 gap-3">
+                    {[
+                        { label: 'อัลบัมทั้งหมด', value: stats.AlbumCount },
+                        { label: 'รูปทั้งหมด', value: stats.PhotoCount },
+                        { label: 'อัลบัมเดือนนี้', value: stats.ThisMonthAlbums },
+                    ].map(t => (
+                        <div key={t.label} className="bg-white rounded-xl border border-slate-200 px-4 py-3 shadow-sm">
+                            <p className="text-[11px] text-slate-500">{t.label}</p>
+                            <p className="text-2xl font-black tabular-nums text-slate-800">{Number(t.value || 0).toLocaleString()}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
+
             {/* Hero — เดี่ยว เปลี่ยนรูปอัตโนมัติ ไม่ขึ้นกับ category filter/search */}
             {!heroLoading && heroAlbums.length > 0 && (() => {
                 const heroAlbum = heroAlbums[heroIndex % heroAlbums.length];
                 const cover = heroAlbum.CoverImageURL ? `${API_URL}${heroAlbum.CoverImageURL}` : null;
                 return (
-                    <div className="relative rounded-2xl overflow-hidden bg-slate-900 text-white aspect-video md:aspect-[21/9] shadow-xl">
+                    <div
+                        className="relative rounded-2xl overflow-hidden bg-slate-900 text-white aspect-video md:aspect-[21/9] shadow-xl"
+                        onMouseEnter={() => setHeroPaused(true)}
+                        onMouseLeave={() => setHeroPaused(false)}
+                    >
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={heroAlbum.AlbumID}
@@ -198,7 +269,11 @@ const ActivityPage = () => {
                                 className="absolute inset-0"
                             >
                                 {cover ? (
-                                    <img src={cover} alt={heroAlbum.Title} className="w-full h-full object-contain opacity-90" />
+                                    <>
+                                        {/* พื้นหลังเบลอจากรูปเดียวกัน ไม่มีขอบดำ */}
+                                        <img src={cover} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60" />
+                                        <img src={cover} alt={heroAlbum.Title} className="relative w-full h-full object-contain" />
+                                    </>
                                 ) : (
                                     <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900" />
                                 )}
@@ -224,7 +299,7 @@ const ActivityPage = () => {
                                     <p className="max-w-lg text-slate-200 text-sm mb-4 font-light line-clamp-2">{heroAlbum.Description}</p>
                                 )}
                                 <div className="flex items-center gap-4 text-xs text-slate-200">
-                                    <span className="flex items-center gap-1.5"><Calendar size={13} /> {formatThaiDate(heroAlbum.EventDate)}</span>
+                                    <span className="flex items-center gap-1.5"><Calendar size={13} /> {formatThaiDateShort(heroAlbum.EventDate)}</span>
                                     <span className="flex items-center gap-1.5"><Images size={13} /> {heroAlbum.PhotoCount} รูปภาพ</span>
                                 </div>
                             </div>
@@ -257,7 +332,32 @@ const ActivityPage = () => {
                     />
                 </div>
 
-                <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm w-fit flex-wrap">
+                <div className="flex flex-wrap gap-2 sm:ml-auto items-center">
+                    <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+                        <button onClick={() => setViewMode('grid')} aria-label="มุมมองกริด" title="กริด" className={`p-1.5 rounded-lg ${viewMode === 'grid' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><LayoutGrid size={15} /></button>
+                        <button onClick={() => setViewMode('timeline')} aria-label="มุมมองไทม์ไลน์" title="ไทม์ไลน์" className={`p-1.5 rounded-lg ${viewMode === 'timeline' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><List size={15} /></button>
+                    </div>
+                    <select
+                        value={year}
+                        onChange={(e) => setYear(e.target.value)}
+                        aria-label="กรองตามปี"
+                        className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm shadow-sm outline-none focus:border-indigo-500"
+                    >
+                        <option value="all">ทุกปี</option>
+                        {years.map(y => <option key={y} value={y}>พ.ศ. {y + 543}</option>)}
+                    </select>
+                    <select
+                        value={sort}
+                        onChange={(e) => setSort(e.target.value)}
+                        aria-label="เรียงลำดับ"
+                        className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm shadow-sm outline-none focus:border-indigo-500"
+                    >
+                        <option value="newest">ล่าสุดก่อน</option>
+                        <option value="oldest">เก่าสุดก่อน</option>
+                        <option value="photos">รูปเยอะสุด</option>
+                    </select>
+                </div>
+            <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm w-fit flex-wrap">
                     <button
                         onClick={() => setCategory('all')}
                         className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${category === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'}`}
@@ -294,6 +394,32 @@ const ActivityPage = () => {
                         <span className="text-xs text-slate-400">{totalCount} อัลบัม</span>
                     </div>
 
+                    {viewMode === 'timeline' ? (
+                        <div className="space-y-8">
+                            {groupByMonth(gridAlbums).map(g => (
+                                <section key={g.key}>
+                                    <div className="flex items-center gap-3 mb-3">
+                                        <h4 className="text-sm font-bold text-slate-700">{g.label}</h4>
+                                        <span className="text-xs text-slate-400">{g.items.length} อัลบัม</span>
+                                        <div className="flex-1 h-px bg-slate-200" />
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                                        {g.items.map((album, idx) => (
+                                            <ActivityAlbumCard
+                                                key={album.AlbumID}
+                                                album={album}
+                                                index={idx}
+                                                onClick={setViewingAlbumId}
+                                                onTogglePin={canPinAlbum ? handleTogglePin : undefined}
+                                                onDelete={canDelete ? handleDeleteAlbum : null}
+                                                setAlertModal={setAlertModal}
+                                            />
+                                        ))}
+                                    </div>
+                                </section>
+                            ))}
+                        </div>
+                    ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
                         {gridAlbums.map((album, idx) => (
                             <ActivityAlbumCard
@@ -307,6 +433,7 @@ const ActivityPage = () => {
                             />
                         ))}
                     </div>
+                    )}
 
                     {totalPages > 1 && (
                         <div className="flex items-center justify-center gap-2 mt-6">

@@ -13,7 +13,7 @@ export const getInventory = async (req, res) => {
         uptime, last_boot, domain,
         updated_at, collected_at,
         factory_layout_id, location_x, location_y, location_updated_at,
-        pc_status,
+        pc_status, disposal_status, disposed_at, disposed_by, disposal_note,
         (SELECT TOP 1 username FROM [dbo].[info_mo_active_users]
           WHERE hostname = [dbo].[info_mo_inventory].hostname
           ORDER BY TRY_CONVERT(datetime, logon_time, 103) DESC) as active_usernames,
@@ -194,7 +194,7 @@ export const searchInventory = async (req, res) => {
           crowdstrike_ver, tanium_ver, uems_ver,
           uptime, last_boot, domain,
           updated_at, collected_at,
-          pc_status,
+          pc_status, disposal_status, disposed_at, disposed_by, disposal_note,
           (SELECT TOP 1 username FROM [dbo].[info_mo_active_users]
             WHERE hostname = [dbo].[info_mo_inventory].hostname
             ORDER BY TRY_CONVERT(datetime, logon_time, 103) DESC) as active_usernames,
@@ -240,7 +240,7 @@ export const getSummary = async (req, res) => {
     const push = (map, key, hn) => { map[key] = map[key] || []; map[key].push(hn); };
 
     // ✅ เครื่องที่ยัง active อยู่ (ไม่รวม inactive) ใช้ตัวนี้กรอง stat ที่เป็น "ปัญหาต้องตามแก้"
-    const activeOnly = data.filter(d => d.pc_status !== 'Inactive');
+    const activeOnly = data.filter(d => d.pc_status !== 'Inactive' && d.disposal_status !== 'Disposed');
 
     // ✅ [NEW] หาคู่ "เครื่องเก่า (ค้างนาน) → เครื่องใหม่ (ยัง active)" ผ่าน MAC/Serial ที่ตรงกัน
     const STALE_DAYS = 14;
@@ -293,7 +293,11 @@ export const getSummary = async (req, res) => {
 
       // ✅ เพิ่ม stat ใหม่
       inactive: data
-        .filter(d => d.pc_status === 'Inactive')
+        .filter(d => d.pc_status === 'Inactive' && d.disposal_status !== 'Disposed')
+        .map(d => d.hostname),
+
+      disposed: data
+        .filter(d => d.disposal_status === 'Disposed')
         .map(d => d.hostname),
 
       noLocation: activeOnly
@@ -542,3 +546,30 @@ export const deleteInventoryWithHistory = async (req, res) => {
 
 // ✅ export ชื่อเดิมด้วย เพื่อไม่ให้ routes file เดิมที่ import 'deleteInventory' พัง
 export const deleteInventory = deleteInventoryWithHistory;
+
+// ─── PUT /mo-inventory/:hostname/disposal ──────────────────────────────────
+// ทำเครื่องหมายทำทิ้ง / ยกเลิกการทำทิ้ง (แยกจาก pc_status)
+export const updateDisposal = async (req, res) => {
+  try {
+    const disposed = req.body.disposed === true;
+    const note = String(req.body.note ?? '').trim().slice(0, 300) || null;
+    const by = String(req.body.updated_by ?? '').trim().slice(0, 120) || 'unknown';
+    const pool = getPool();
+    const r = await pool.request()
+      .input('hostname', sql.NVarChar, req.params.hostname)
+      .input('status', sql.VarChar(20), disposed ? 'Disposed' : null)
+      .input('note', sql.NVarChar(300), disposed ? note : null)
+      .input('by', sql.NVarChar(120), disposed ? by : null)
+      .query(`
+        UPDATE [dbo].[info_mo_inventory]
+        SET disposal_status = @status,
+            disposed_at = CASE WHEN @status IS NULL THEN NULL ELSE GETDATE() END,
+            disposed_by = @by,
+            disposal_note = @note
+        WHERE hostname = @hostname`);
+    if (!r.rowsAffected[0]) return res.status(404).json({ success: false, error: 'ไม่พบ Monitor นี้' });
+    res.json({ success: true, disposal_status: disposed ? 'Disposed' : null });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};

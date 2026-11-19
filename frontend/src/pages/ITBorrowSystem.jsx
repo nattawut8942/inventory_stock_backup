@@ -1503,7 +1503,7 @@ const ITBorrowSystem = () => {
 
                 <div className="mt-1">
                   {isReturned(detailItem) ? (
-                    <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 text-[11px] font-bold px-2.5 py-1 rounded-full">คืนแล้ว</span>
+                    <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 text-[11px] font-bold px-2.5 py-1 rounded-full">{STATUS_LABEL[detailItem.brStatus] || 'คืนแล้ว'}</span>
                   ) : isOverdue(detailItem) ? (
                     <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-600 text-[11px] font-bold px-2.5 py-1 rounded-full">เกินกำหนด</span>
                   ) : (

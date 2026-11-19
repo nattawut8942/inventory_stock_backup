@@ -219,6 +219,18 @@ export const updatePO = async (req, res) => {
                 `);
 
             // 3. รายการสินค้า: แก้ได้เฉพาะใบที่ยังไม่รับของ (ใบที่รับแล้วคงรายการเดิม)
+            if (processed) {
+                // ใบที่รับของแล้ว: แก้ได้เฉพาะ BG_No ของแต่ละบรรทัด (ยอดสั่ง/ยอดรับไม่เปลี่ยน)
+                for (const item of Items) {
+                    if (!item.DetailID) continue;
+                    await new sql.Request(transaction)
+                        .input('PO_ID', sql.NVarChar, id)
+                        .input('DetailID', sql.Int, parseInt(item.DetailID, 10))
+                        .input('BG_No', sql.NVarChar, item.BG_No || null)
+                        .query('UPDATE dbo.Stock_PODetails SET BG_No = @BG_No WHERE DetailID = @DetailID AND PO_ID = @PO_ID');
+                }
+            }
+
             if (!processed) {
             await new sql.Request(transaction)
                 .input('PO_ID', sql.NVarChar, id)

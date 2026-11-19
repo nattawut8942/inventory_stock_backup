@@ -116,7 +116,7 @@ export default function StockProcurementView({ endpoint = '/stock/report/procure
         const add = (name, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), name);
         add('รายเดือน', data.monthly.map((m) => ({ 'เดือน': m.label, 'จำนวน PO': m.count, 'ยอดสั่งซื้อ (฿)': m.ordered, 'ยอดรับแล้ว (฿)': m.received })));
         add('Vendor', data.byVendor.map((v) => ({ 'Vendor': v.key, 'PO': v.count, 'ยอดสั่งซื้อ (฿)': v.ordered, 'ยอดรับแล้ว (฿)': v.received, 'Lead time เฉลี่ย (วัน)': v.avgLead ?? '', 'ตรงกำหนด (%)': v.onTimeRate ?? '' })));
-        add('Budget', data.byBudget.map((v) => ({ 'Budget No.': v.key, 'PO': v.count, 'ยอดสั่งซื้อ (฿)': v.ordered, 'ยอดรับแล้ว (฿)': v.received })));
+        add('BG', data.byBudget.map((v) => ({ 'BG No.': v.key, 'PO': v.count, 'ยอดสั่งซื้อ (฿)': v.ordered, 'ยอดรับแล้ว (฿)': v.received })));
         add('PO ค้างรับ', data.openPOs.map((p) => ({ 'PO': p.PO_ID, 'PR': p.PR_No, 'Vendor': p.VendorName, 'สถานะ': STATUS[p.Status]?.label || p.Status, 'วันขอซื้อ': fmtDate(p.RequestDate), 'กำหนดส่ง': fmtDate(p.DueDate), 'อายุ (วัน)': p.ageDays, 'เลยกำหนด': p.overdue ? 'Y' : '', 'ค้างรับ (฿)': p.outstanding })));
         add('Invoice', data.invoices.recent.map((i) => ({ 'Invoice': i.InvoiceNo, 'PO': i.PO_ID, 'Vendor': i.VendorName, 'วันที่รับ': fmtDate(i.ReceiveDate), 'ผู้รับ': i.ReceivedBy, 'สถานะ': i.Status })));
         add('ราคาเปลี่ยน', data.priceChanges.map((p) => ({ 'สินค้า': p.ProductName, 'Vendor': p.VendorName, 'ราคาก่อน (฿)': p.previous, 'ราคาล่าสุด (฿)': p.latest, 'ต่าง (฿)': p.diff, 'ต่าง (%)': p.pct, 'PO ก่อนหน้า': fmtDate(p.previousDate), 'PO ล่าสุด': fmtDate(p.latestDate) })));
@@ -184,10 +184,10 @@ export default function StockProcurementView({ endpoint = '/stock/report/procure
                             ]} />
                     </Card>
                     <Card>
-                        <Title title="Budget No." hint="ยอดสั่งซื้อแยกตามเลขงบประมาณ" />
+                        <Title title="BG No." hint="ยอดสั่งซื้อแยกตาม BG ของแต่ละรายการ" />
                         <Table limit={8} rows={data.byBudget} rowKey={(r) => r.key} empty="ไม่มีข้อมูล"
                             columns={[
-                                { h: 'Budget No.', cell: (r) => r.key, cls: 'font-medium text-slate-800' },
+                                { h: 'BG No.', cell: (r) => r.key, cls: 'font-medium text-slate-800' },
                                 { h: 'PO', right: true, cell: (r) => r.count },
                                 { h: 'ยอดสั่งซื้อ', right: true, cell: (r) => baht(r.ordered), cls: 'font-bold' },
                                 { h: 'รับแล้ว', right: true, cell: (r) => baht(r.received), cls: 'text-slate-500' },

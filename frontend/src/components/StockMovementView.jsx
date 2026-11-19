@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Download, ArrowDownToLine, ArrowUpFromLine, Scale, Receipt, Search, AlertTriangle, TrendingUp, TrendingDown, Minus, Info } from 'lucide-react';
+import { Download, ArrowDownToLine, ArrowUpFromLine, Scale, Receipt, Search, AlertTriangle, TrendingUp, TrendingDown, Minus, Info, UserCheck, Users } from 'lucide-react';
 import { ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend, BarChart, Cell } from 'recharts';
 import * as XLSX from 'xlsx';
 import { API_BASE } from '../config/api';
@@ -45,7 +45,7 @@ const Delta = ({ now, prev, hasPrev }) => {
 };
 
 const Kpi = ({ icon: Icon, label, value, sub, tone, children }) => {
-    const tones = { emerald: 'bg-emerald-50 text-emerald-600', orange: 'bg-orange-50 text-orange-600', indigo: 'bg-indigo-50 text-indigo-600', slate: 'bg-slate-100 text-slate-600' };
+    const tones = { emerald: 'bg-emerald-50 text-emerald-600', orange: 'bg-orange-50 text-orange-600', indigo: 'bg-indigo-50 text-indigo-600', slate: 'bg-slate-100 text-slate-600', violet: 'bg-violet-50 text-violet-600' };
     return (
         <Card className="flex items-center gap-4">
             <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${tones[tone]}`}><Icon size={20} /></span>
@@ -192,6 +192,13 @@ export default function StockMovementView({ type, location }) {
                     </Kpi>
                     <Kpi icon={Scale} tone="indigo" label="สุทธิ (รับ − เบิก)" value={`${k.netQty > 0 ? '+' : ''}${k.netQty.toLocaleString()}`} sub={`${k.netValue >= 0 ? '+' : '−'}${baht(Math.abs(k.netValue))}`} />
                     <Kpi icon={Receipt} tone="slate" label="จำนวนรายการ" value={(k.inCount + k.outCount).toLocaleString()} sub="รับเข้า + เบิกออก" />
+                </div>
+            )}
+
+            {data?.usage && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Kpi icon={UserCheck} tone="violet" label="เบิกใช้เอง (ไอที)" value={`${data.usage.internal.qty.toLocaleString()} ชิ้น`} sub={`${data.usage.internal.count.toLocaleString()} รายการ • ${baht(data.usage.internal.value)} • แผนก 7510 หรือติ๊กใช้เอง`} />
+                    <Kpi icon={Users} tone="indigo" label="เบิกให้ผู้ใช้ทั่วไป" value={`${data.usage.user.qty.toLocaleString()} ชิ้น`} sub={`${data.usage.user.count.toLocaleString()} รายการ • ${baht(data.usage.user.value)}`} />
                 </div>
             )}
 

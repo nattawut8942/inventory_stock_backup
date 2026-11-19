@@ -15,6 +15,7 @@ export default function SwitchFormModal({ mode, data, racks, onClose, onSave }) 
     const [loading,     setLoading]     = useState(false);
     const [error,       setError]       = useState('');
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [deleteError, setDeleteError] = useState('');
 
     useEffect(() => {
         if (isEdit && data) {
@@ -60,7 +61,7 @@ export default function SwitchFormModal({ mode, data, racks, onClose, onSave }) 
             if (!r.ok || d.success === false) throw new Error(d.error || `HTTP ${r.status}`);
             onSave();
         } catch (err) {
-            window.alert(`ลบ Switch ไม่สำเร็จ: ${err.message}`);
+            setDeleteError(`ลบ Switch ไม่สำเร็จ: ${err.message}`);
         } finally {
             setLoading(false);
         }
@@ -68,6 +69,7 @@ export default function SwitchFormModal({ mode, data, racks, onClose, onSave }) 
 
     return (
         <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}>
+            <AlertModal isOpen={!!deleteError} type="danger" title="ลบไม่สำเร็จ" message={deleteError} confirmText="ตกลง" onConfirm={() => setDeleteError('')} />
             <AlertModal
                 isOpen={confirmDelete}
                 type="danger"

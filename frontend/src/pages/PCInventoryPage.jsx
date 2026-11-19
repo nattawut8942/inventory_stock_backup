@@ -5,11 +5,13 @@ import { useLocation } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { API_BASE, API_URL } from '../config/api';
 import MOInventoryPage from './MOInventoryPage';
+import PCReportView from '../components/pc/PCReportView';
 import LocationSelectorModal from './LocationSelectorModal';
 import { useCan, useCanAct } from '../context/PermissionContext';
 import MapViewTab from './MapViewTab';
 import Portal from '../components/Portal';
 import AlertModal from '../components/AlertModal';
+import NoteDialog from '../components/NoteDialog';
 
 function useDebounce(value, delay) {
   const [debounced, setDebounced] = useState(value);
@@ -215,6 +217,7 @@ const PCInventoryPage = () => {
 
   const [inventoryType, setInventoryType] = useState('pc');
   const [view, setView] = useState('list');
+  const [pcTab, setPcTab] = useState('list'); // 'list' | 'report'
   const [hostname, setHostname] = useState(null);
 
   const [invData, setInvData] = useState([]);
@@ -649,6 +652,27 @@ const confirmDelete = async () => {
     }
   };
 
+  // ทำทิ้ง / ยกเลิกการทำทิ้ง (แยกจาก Active/Inactive)
+  const [disposalAsk, setDisposalAsk] = useState(null); // { disposing } เปิดกล่องยืนยันการทำทิ้ง
+
+  const toggleDisposal = () => {
+    setDisposalAsk({ disposing: detailData.inv.disposal_status !== 'Disposed' });
+  };
+
+  const runDisposal = async (disposing, note) => {
+    try {
+      const res = await fetch(`${API_BASE}/pc-inventory/${encodeURIComponent(hostname)}/disposal`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disposed: disposing, note, updated_by: 'web' }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      showToast(disposing ? '✓ ทำเครื่องหมายว่าทำทิ้งแล้ว' : '✓ ยกเลิกการทำทิ้งแล้ว');
+      fetchDetail(hostname);
+    } catch (err) { showToast(`❌ ${err.message}`); }
+  };
+
   const togglePcStatus = async () => {
   const newStatus = detailData.inv.pc_status === 'Inactive' ? 'Active' : 'Inactive';
   try {
@@ -895,6 +919,12 @@ const sessionView = useMemo(() => {
               <div className="flex items-center gap-1.5 text-[12px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded-full px-3 py-1.5 shadow-sm">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div> Live Monitor
               </div>
+              {view === 'list' && (
+                <button
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all border shadow-sm ${pcTab === 'report' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-500 hover:text-indigo-600'}`}
+                  onClick={() => setPcTab(pcTab === 'report' ? 'list' : 'report')}
+                >📊 {pcTab === 'report' ? 'กลับรายการ' : 'รายงาน'}</button>
+              )}
               <button
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all bg-white border border-slate-200 text-slate-600 hover:border-indigo-500 hover:text-indigo-600 shadow-sm hover:shadow active:scale-95"
                 onClick={view === 'list' ? fetchData : () => fetchDetail(hostname)}
@@ -906,7 +936,9 @@ const sessionView = useMemo(() => {
 
           <div className="animate-in fade-in duration-300">
 
-            {view === 'list' && (
+            {view === 'list' && pcTab === 'report' && <PCReportView />}
+
+            {view === 'list' && pcTab === 'list' && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 {error && <div className="bg-red-50 border border-red-300 rounded-lg p-3 text-[13px] text-red-600 mb-4 font-semibold">⚠️ {error}</div>}
 
@@ -917,6 +949,7 @@ const sessionView = useMemo(() => {
                       <div className="text-2xl font-bold leading-none text-blue-600">{invData.length}</div>
                     </div>
                     <StatBox id="inactive" label="ไม่ได้ใช้งาน" list={sumData?.inactive} textClass="text-gray-500" bgClass="bg-gray-100" ringClass="ring-gray-400" />
+                    <StatBox id="disposed" label="ทำทิ้งแล้ว" list={sumData?.disposed} textClass="text-rose-600" bgClass="bg-rose-50" ringClass="ring-rose-500" />
                     <StatBox id="multiLogin" label="Multi-Login Users" list={multiLoginData.allHostnames} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" onSecondaryClick={() => setShowMultiLoginModal(true)} />
                     <StatBox id="possiblyRenamed" label="อาจถูกลงใหม่/เปลี่ยนชื่อ" list={reincarnatedData.allHostnames} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" onSecondaryClick={() => setShowReincarnatedModal(true)} />
                     <StatBox id="inactivePC" label="Inactive > 1 Month" list={sumData?.inactivePC} textClass="text-amber-600" bgClass="bg-amber-50" ringClass="ring-amber-500" />
@@ -1224,7 +1257,7 @@ const sessionView = useMemo(() => {
                             <tr><td colSpan="12"><div className="text-center py-12 text-sm text-gray-400">🖥️ ไม่พบข้อมูล</div></td></tr>
                           ) : currentList.map(d => (
                             <tr key={d.hostname}
-  className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' ? 'opacity-50' : ''}`}
+  className={`hover:bg-[#eff4ff] cursor-pointer transition-colors group ${d.pc_status === 'Inactive' || d.disposal_status === 'Disposed' ? 'opacity-50' : ''}`}
   onClick={() => { setHostname(d.hostname); setView('detail'); }}>
                               <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
                                 <input
@@ -1400,6 +1433,12 @@ const sessionView = useMemo(() => {
           >
             {detailData.inv.pc_status === 'Inactive' ? '✓ Reactivate' : '⏸ Mark Inactive'}
           </button>}
+          {canEditPC && <button
+            className={`w-full text-left px-3.5 py-2 hover:bg-gray-50 ${detailData.inv.disposal_status === 'Disposed' ? 'text-gray-700' : 'text-rose-600'}`}
+            onClick={() => { setMenuOpen(false); toggleDisposal(); }}
+          >
+            {detailData.inv.disposal_status === 'Disposed' ? '↺ ยกเลิกการทำทิ้ง' : '🗑 ทำทิ้ง'}
+          </button>}
 
           {isNotebookType(detailData.inv) && (
             <button
@@ -1551,6 +1590,15 @@ const sessionView = useMemo(() => {
                               </div>
                             </div>
                           </div> */}
+
+                          {detailData.inv.disposal_status === 'Disposed' && (
+                            <div className="rounded-xl border border-rose-200 bg-rose-50/60 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+                              <span className="text-[12px] font-bold uppercase tracking-widest text-rose-500">Disposal</span>
+                              <span className="text-[13px] font-bold text-rose-600">ทำทิ้งแล้ว</span>
+                              <span className="text-[12px] text-gray-500">โดย {detailData.inv.disposed_by || '-'} · {fmtDate(detailData.inv.disposed_at)}</span>
+                              {detailData.inv.disposal_note && <span className="text-[12px] text-gray-500">· {detailData.inv.disposal_note}</span>}
+                            </div>
+                          )}
 
                           <div>
                             <div className="text-[12px] font-bold uppercase tracking-widest text-gray-400 mb-3 ml-1">Information</div>
@@ -2168,6 +2216,18 @@ const sessionView = useMemo(() => {
        </Portal>
       )}
 
+      {/* กล่องยืนยันทำทิ้ง / ยกเลิกทำทิ้ง (แทน window.confirm + prompt) */}
+      <NoteDialog
+        isOpen={!!disposalAsk}
+        tone={disposalAsk?.disposing ? 'danger' : 'primary'}
+        title={disposalAsk?.disposing ? 'ทำเครื่องนี้เป็น "ทำทิ้งแล้ว"?' : 'ยกเลิกการทำทิ้ง?'}
+        message={disposalAsk?.disposing ? `${hostname} จะถูกตัดออกจากสถิติและรายการที่ต้องดูแล` : `${hostname} จะกลับมานับในสถิติและรายการที่ต้องดูแล`}
+        label={disposalAsk?.disposing ? 'หมายเหตุการทำทิ้ง' : 'หมายเหตุ'}
+        placeholder={disposalAsk?.disposing ? 'เช่น ขายซาก / ส่งคืนผู้ผลิต / ชำรุดใช้งานไม่ได้' : 'เหตุผลที่ยกเลิก (ไม่บังคับ)'}
+        confirmText={disposalAsk?.disposing ? 'ทำทิ้ง' : 'ยกเลิกการทำทิ้ง'}
+        onCancel={() => setDisposalAsk(null)}
+        onConfirm={(note) => { const d = disposalAsk; setDisposalAsk(null); runDisposal(d.disposing, note); }}
+      />
       {showDeleteModal && (
         <Portal>
         <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center p-4">

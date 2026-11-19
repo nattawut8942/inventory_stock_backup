@@ -7,27 +7,22 @@ import ProtectedRoute from './ProtectedRoute';
 const Layout = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-    // sync collapsed state เพื่อ adjust main content margin
+    // collapsed state เป็นของ Layout เพียงจุดเดียว (ส่งให้ Sidebar ผ่าน props แทนการ poll localStorage)
     const [collapsed, setCollapsed] = useState(() => {
         try { return localStorage.getItem('sidebar_collapsed') === 'true'; } catch { return false; }
     });
 
-    // listen localStorage change จาก Sidebar
     useEffect(() => {
-        const handler = () => {
-            try { setCollapsed(localStorage.getItem('sidebar_collapsed') === 'true'); } catch {}
-        };
-        window.addEventListener('storage', handler);
-        // poll เพราะ same-tab localStorage ไม่ fire storage event
-        const interval = setInterval(handler, 100);
-        return () => { window.removeEventListener('storage', handler); clearInterval(interval); };
-    }, []);
+        try { localStorage.setItem('sidebar_collapsed', String(collapsed)); } catch { }
+    }, [collapsed]);
 
     return (
         <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
             <Sidebar
                 isOpen={isSidebarOpen}
                 onClose={() => setIsSidebarOpen(false)}
+                collapsed={collapsed}
+                onToggleCollapse={() => setCollapsed(p => !p)}
             />
 
             {/* main — transition width เมื่อ sidebar หุบ/ขยาย */}

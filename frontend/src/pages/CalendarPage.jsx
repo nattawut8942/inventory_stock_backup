@@ -23,7 +23,7 @@ import Portal from '../components/Portal';
 const TYPE_CONFIG = {
     routine:     { bg: '#10b981', text: '#fff', light: '#f0fdf4', border: '#a7f3d0', icon: CheckCircle2,   label: 'งานประจำ',              gradient: 'from-emerald-500 to-teal-500'    },
     setup:       { bg: '#3b82f6', text: '#fff', light: '#eff6ff', border: '#bfdbfe', icon: Wrench,         label: 'ติดตั้ง/เตรียมเครื่อง', gradient: 'from-blue-500 to-indigo-500'     },
-    maintenance: { bg: '#f59e0b', text: '#fff', light: '#fffbeb', border: '#fde68a', icon: Clock,           label: 'บำรุงรักษา (PM)',        gradient: 'from-amber-500 to-orange-500'    },
+    maintenance: { bg: '#b45309', text: '#fff', light: '#fffbeb', border: '#fde68a', icon: Clock,           label: 'บำรุงรักษา (PM)',        gradient: 'from-amber-500 to-orange-500'    },
     urgent:      { bg: '#ef4444', text: '#fff', light: '#fef2f2', border: '#fecaca', icon: Zap,             label: 'งานด่วน',               gradient: 'from-red-500 to-rose-500'        },
     project:     { bg: '#8b5cf6', text: '#fff', light: '#f5f3ff', border: '#ddd6fe', icon: FolderKanban,   label: 'โปรเจค',               gradient: 'from-violet-500 to-purple-500'   },
 };
@@ -64,6 +64,40 @@ const fmtDateTimeShort = (str) => {
         return `${d.getDate()}/${d.getMonth()+1}`;
     } catch { return str; }
 };
+
+// ── Helper: วันที่ตามเวลาท้องถิ่น (YYYY-MM-DD) — ห้ามใช้ toISOString() เพราะเลื่อนวันในไทย (UTC+7)
+const pad2 = n => String(n).padStart(2, '0');
+const toLocalYMD = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const toLocalDT  = (d) => `${toLocalYMD(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+// ── Helper: ป้ายวันสัมพัทธ์ (วันนี้ / พรุ่งนี้)
+const relDayLabel = (str) => {
+    if (!str) return '';
+    const d = new Date(str);
+    if (isNaN(d.getTime())) return '';
+    const today = new Date();
+    const diff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
+    if (diff === 0) return 'วันนี้';
+    if (diff === 1) return 'พรุ่งนี้';
+    return '';
+};
+
+// ── DateTimeInput: อยู่นอกคอมโพเนนต์ เพื่อไม่ให้ถูกสร้างใหม่ทุกครั้งที่ render (ช่องจะเสียโฟกัสระหว่างพิมพ์)
+const DateTimeInput = ({ label, value, onChange, disabled, required }) => (
+    <div>
+        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+            {label} {required && <span className="text-red-400">*</span>}
+            {!required && <span className="text-slate-300">(ถ้ามี)</span>}
+        </label>
+        <input
+            type="datetime-local"
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            disabled={disabled}
+            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 disabled:opacity-40 transition-all"
+        />
+    </div>
+);
 
 const EMPTY_FORM = {
     task_id: null, task_title: '', start_date: '', end_date: '',
@@ -148,7 +182,7 @@ export default function CalendarPage() {
                             // allDay event: end ต้อง +1 วัน
                             const ed = new Date(endStr);
                             ed.setDate(ed.getDate() + 1);
-                            fcEnd = ed.toISOString().split('T')[0];
+                            fcEnd = toLocalYMD(ed);
                         } else {
                             fcEnd = endStr;
                         }
@@ -174,20 +208,17 @@ export default function CalendarPage() {
         } catch (e) { onFailure(e.message); }
     }, [activeFilters]);
 
-    useEffect(() => { calRef.current?.getApi().refetchEvents(); }, [activeFilters]);
-
     // ── เปิด modal เพิ่มงานใหม่ ───────────────────────────────────────────────
     const openAdd = (startStr = '', endStr = '') => {
         // FullCalendar ส่ง startStr มาเป็น "YYYY-MM-DD" หรือ "YYYY-MM-DDTHH:mm:ss"
         let start = startStr ? dateToDateTime(startStr.split('+')[0]) : nowDTLocal();
         let end   = '';
         if (endStr) {
-            // allDay select: endStr เป็นวันถัดไป ต้องลบ 1 วัน
+            // allDay select: endStr เป็นวันถัดไป (exclusive) ต้องลบ 1 วัน
             const ed = new Date(endStr);
-            if (!endStr.includes('T') || endStr.endsWith('T00:00:00')) {
-                ed.setDate(ed.getDate() - 1);
-            }
-            const s = dateToDateTime(ed.toISOString());
+            const allDayEnd = !endStr.includes('T') || endStr.endsWith('T00:00:00');
+            if (allDayEnd) ed.setDate(ed.getDate() - 1);
+            const s = allDayEnd ? `${toLocalYMD(ed)}T00:00` : toLocalDT(ed);
             if (s.slice(0,10) !== start.slice(0,10)) end = s;
         }
         setForm({ ...EMPTY_FORM, start_date: start, end_date: end });
@@ -197,31 +228,26 @@ export default function CalendarPage() {
     // ── เปิด modal แก้ไขงาน ──────────────────────────────────────────────────
 const openEdit = async (id) => {
     try {
-        console.log('fetching:', `${API_BASE}/calendar/tasks/${id}`);
         const r = await fetch(`${API_BASE}/calendar/tasks/${id}`);
-        console.log('response status:', r.status);
         const d = await r.json();
-        console.log('data:', d);
-        if (!d.success) return;
+        if (!d.success) return showToast(d.error || 'เปิดงานไม่สำเร็จ', false);
         const t = d.data;
-        console.log('t.start_date:', t.start_date);
-console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
         setForm({
-            task_id:      t.task_id,
-            task_title:   t.task_title,
-            start_date:   dateToDateTime(t.start_date || ''),
-            end_date:     dateToDateTime(t.end_date   || ''),
-            task_type:    t.task_type,
-            description:  t.description || '',
-            is_recurring: false,
-            recur_days:   [],
-            range_days:   28,
-            created_by:   t.created_by || '',
+            task_id:       t.task_id,
+            task_title:    t.task_title,
+            start_date:    dateToDateTime(t.start_date || ''),
+            end_date:      dateToDateTime(t.end_date   || ''),
+            task_type:     t.task_type,
+            description:   t.description || '',
+            is_recurring:  false,
+            recur_days:    [],
+            range_days:    28,
+            created_by:    t.created_by || '',
+            recurrence_id: t.recurrence_id ?? null,
         });
         
         setModal(true);
-    } catch (e) { console.error(e); }
-    
+    } catch (e) { showToast('เปิดงานไม่สำเร็จ', false); }
 };
 
     const closeModal = () => { setModal(false); setConfirmDel(false); setForm(EMPTY_FORM); };
@@ -265,9 +291,10 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
         finally     { setSaving(false); }
     };
 
-    const deleteTask = async () => {
+    const deleteTask = async (scope = 'one') => {
         try {
-            const r = await fetch(`${API_BASE}/calendar/tasks/${form.task_id}`, { method: 'DELETE' });
+            const q = scope === 'series' ? '?scope=series' : '';
+            const r = await fetch(`${API_BASE}/calendar/tasks/${form.task_id}${q}`, { method: 'DELETE' });
             const d = await r.json();
             if (!d.success) throw new Error(d.error);
             showToast('ลบงานสำเร็จ', true);
@@ -320,23 +347,6 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
         prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
     );
 
-    // ── DateTimeInput component ────────────────────────────────────────────────
-    const DateTimeInput = ({ label, value, onChange, disabled, required }) => (
-        <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                {label} {required && <span className="text-red-400">*</span>}
-                {!required && <span className="text-slate-300">(ถ้ามี)</span>}
-            </label>
-            <input
-                type="datetime-local"
-                value={value}
-                onChange={e => onChange(e.target.value)}
-                disabled={disabled}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 disabled:opacity-40 transition-all"
-            />
-        </div>
-    );
-
     // ─── Render ────────────────────────────────────────────────────────────────
     return (
         <div className="space-y-6">
@@ -363,16 +373,19 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
             </motion.div>
 
             {/* Main Layout */}
-            <div className="flex gap-6 -mx-4 sm:-mx-6 lg:-mx-8 px-0">
+            <div className="flex flex-col lg:flex-row gap-6 -mx-4 sm:-mx-6 lg:-mx-8 px-0">
 
                 {/* Sidebar */}
                 <motion.aside initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
-                    className="w-64 shrink-0 flex flex-col gap-5 pl-4 sm:pl-6 lg:pl-8"
-                    style={{ minHeight: 'calc(100vh - 180px)' }}>
+                    className="w-full lg:w-64 shrink-0 flex flex-col gap-5 px-4 sm:px-6 lg:pl-8 lg:pr-0">
 
                     {/* Filter card */}
                     <div className="bg-white rounded-2xl p-5 shadow-lg border border-slate-100">
                         <SectionHeader icon={CalendarDays} gradient="from-indigo-500 to-violet-500" title="ประเภทงาน" />
+                        <div className="flex gap-2 -mt-2 mb-3 text-[11px] font-semibold">
+                            <button onClick={() => setActiveFilters(Object.keys(TYPE_CONFIG))} className="text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md transition-all">เลือกทั้งหมด</button>
+                            <button onClick={() => setActiveFilters([])} className="text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded-md transition-all">ล้าง</button>
+                        </div>
                         <div className="space-y-2">
                             {taskTypes.map(t => {
                                 const cfg    = TYPE_CONFIG[t.type_key] || { bg: '#6b7280', light: '#f9fafb', border: '#e5e7eb', icon: CalendarDays };
@@ -403,15 +416,30 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
 
                     {/* Upcoming card */}
                     <div className="bg-white rounded-2xl p-5 shadow-lg border border-slate-100 flex-1 relative">
-                        <SectionHeader icon={Clock} gradient="from-amber-500 to-orange-500" title="งานที่กำลังจะมาถึง" />
-                        <div className="flex items-center justify-end -mt-8 mb-3">
-                            <button onClick={fetchUpcoming} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-50 transition-all">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg">
+                                    <Clock className="w-4 h-4 text-white" />
+                                </div>
+                                <h3 className="font-bold text-slate-700 text-sm whitespace-nowrap">งานที่กำลังจะมาถึง</h3>
+                            </div>
+                            <button onClick={fetchUpcoming} aria-label="รีเฟรชรายการ" title="รีเฟรช" className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all">
                                 <RefreshCw className="w-3.5 h-3.5" />
                             </button>
                         </div>
                         <div className="space-y-2">
                             {upcoming.length === 0
-                                ? <p className="text-xs text-slate-400 italic text-center py-6">ไม่มีงานในเร็วๆ นี้</p>
+                                ? (
+                                    <div className="flex flex-col items-center text-center py-6 gap-2">
+                                        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+                                            <CalendarDays className="w-5 h-5 text-slate-400" />
+                                        </div>
+                                        <p className="text-xs text-slate-500 font-medium">ยังไม่มีงานที่กำลังจะมาถึง</p>
+                                        {canCreateCal && (
+                                            <button onClick={() => openAdd()} className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800">+ สร้างงานใหม่</button>
+                                        )}
+                                    </div>
+                                )
                                 : upcoming.map((t, idx) => {
                                     const cfg = TYPE_CONFIG[t.task_type] || { bg: '#6b7280', light: '#f9fafb', border: '#e5e7eb' };
                                     return (
@@ -427,8 +455,12 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                                             <div className="min-w-0 flex-1">
                                                 <p className="text-xs font-semibold text-slate-700 truncate">{t.task_title}</p>
                                                 {/* ✅ แสดงทั้งวันและเวลา */}
-                                                <p className="text-[11px] text-slate-400 mt-0.5">
-                                                    📅 {fmtDateTimeShort(t.start_date)}
+                                                <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                                    <span>{fmtDateTimeShort(t.start_date)}</span>
+                                                    {relDayLabel(t.start_date) && (
+                                                        <span className="text-[10px] font-bold px-1.5 py-px rounded bg-white text-indigo-600 border border-indigo-100">{relDayLabel(t.start_date)}</span>
+                                                    )}
+                                                    {t.type_label && <span className="text-[10px] text-slate-400 truncate">· {t.type_label}</span>}
                                                 </p>
                                             </div>
                                             <ChevronRight className="w-3 h-3 text-slate-300 shrink-0" />
@@ -437,17 +469,24 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                                 })
                             }
                         </div>
+                        <button
+                            onClick={() => calRef.current?.getApi().changeView('listWeek')}
+                            className="mt-3 w-full text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 py-2 rounded-xl transition-all"
+                        >
+                            ดูงานทั้งหมดในรายการ →
+                        </button>
                     </div>
                 </motion.aside>
 
                 {/* Calendar */}
                
                 <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
-                    className="flex-1 pr-4 sm:pr-6 lg:pr-8 min-w-0">
+                    className="flex-1 px-4 sm:px-6 lg:pl-0 lg:pr-8 min-w-0">
                     <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-5 hover:shadow-xl transition-shadow duration-300">
                         <style>{`
                             .fc .fc-toolbar { margin-bottom: 16px; }
-                            .fc .fc-toolbar-title { font-size: 1.1rem; font-weight: 800; color: #1e293b; }
+                            .fc .fc-toolbar-title { font-size: 1.35rem; font-weight: 800; color: #1e293b; letter-spacing: -0.01em; }
+                            .fc .fc-more-link { font-size: 11px; font-weight: 700; color: #6366f1; }
                             .fc .fc-button { background: #f1f5f9 !important; border: 1px solid #e2e8f0 !important; color: #475569 !important; font-size: 12px !important; font-weight: 600 !important; border-radius: 8px !important; padding: 6px 12px !important; box-shadow: none !important; }
                             .fc .fc-button:hover { background: #e2e8f0 !important; }
                             .fc .fc-button-active, .fc .fc-button-primary:not(:disabled).fc-button-active { background: linear-gradient(135deg,#6366f1,#8b5cf6) !important; color: #fff !important; border-color: transparent !important; }
@@ -467,7 +506,7 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                         <FullCalendar
                             ref={calRef}
                             plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
-                            initialView="dayGridMonth"
+                            initialView={typeof window !== 'undefined' && window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth'}
                             locale="th"
                             titleFormat={{ year: 'numeric', month: 'long' }}
                             headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,listWeek' }}
@@ -476,15 +515,35 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                             editable={canEditCal} selectable={canCreateCal} selectMirror dayMaxEvents
                             height="auto"
                             select={info => openAdd(info.startStr, info.endStr)}
-                            eventClick={info => {
-    console.log('clicked event id:', info.event.id);
-    openEdit(info.event.id);
-}}
+                            eventClick={info => openEdit(info.event.id)}
+                            moreLinkContent={(a) => `+${a.num} งาน`}
+                            eventContent={(arg) => {
+                                // รูปทรงสัญลักษณ์ต่อประเภท ให้แยกได้โดยไม่พึ่งสีอย่างเดียว
+                                const SHAPE = { routine: '●', setup: '▲', maintenance: '■', urgent: '!', project: '◆' };
+                                const wrap = document.createElement('div');
+                                wrap.style.cssText = 'display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden';
+                                const mark = document.createElement('span');
+                                mark.textContent = SHAPE[arg.event.extendedProps.type] || '•';
+                                mark.style.cssText = 'flex-shrink:0;font-size:9px;opacity:.9';
+                                const txt = document.createElement('span');
+                                txt.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+                                txt.textContent = arg.timeText ? `${arg.timeText} ${arg.event.title}` : arg.event.title;
+                                wrap.append(mark, txt);
+                                return { domNodes: [wrap] };
+                            }}
+                            eventDidMount={info => {
+                                const lbl = info.event.extendedProps.type_label;
+                                if (lbl) info.el.title = `${info.event.title} · ${lbl}`;
+                            }}
                             eventDrop={handleEventDrop}
                             eventResize={handleEventDrop}
                             slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
                             eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
                         />
+                        <p className="text-[11px] text-slate-400 mt-3">
+                            {canEditCal ? 'คลิกงานเพื่อแก้ไข · ลากงานเพื่อย้ายวัน · ลากขอบล่างเพื่อเปลี่ยนเวลาสิ้นสุด' : 'คลิกงานเพื่อดูรายละเอียด'}
+                            {canCreateCal && ' · ลากบนช่องวันเพื่อสร้างงานหลายวัน'}
+                        </p>
                     </div>
                 </motion.main>
                
@@ -552,6 +611,12 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                                 />
                             </div>
 
+                            {form.start_date && (
+                                <p className="text-xs text-slate-500 -mt-2">
+                                    📅 {fmtDateTimeShort(form.start_date)}{form.end_date ? ` → ${fmtDateTimeShort(form.end_date)}` : ' (ไม่กำหนดสิ้นสุด)'}
+                                </p>
+                            )}
+
                             {/* Task Type */}
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">ประเภทงาน</label>
@@ -560,7 +625,7 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                                         const Icon   = cfg.icon;
                                         const active = form.task_type === key;
                                         return (
-                                            <button key={key} type="button"
+                                            <button key={key} type="button" aria-pressed={active}
                                                 onClick={() => setForm(f => ({ ...f, task_type: key }))}
                                                 className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl border-2 transition-all text-center"
                                                 style={{ borderColor: active ? cfg.bg : '#e2e8f0', background: active ? cfg.light : '#fff' }}>
@@ -662,7 +727,14 @@ console.log('dateToDateTime:', dateToDateTime(t.start_date || ''));
                                 {form.task_id && canDeleteCal && confirmDel && (
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs text-red-600 font-bold">ยืนยันลบ?</span>
-                                        <button onClick={deleteTask} className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-red-700 transition-colors">ลบ</button>
+                                        {form.recurrence_id ? (
+                                            <>
+                                                <button onClick={() => deleteTask('one')} className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-red-700 transition-colors">ลบครั้งนี้</button>
+                                                <button onClick={() => deleteTask('series')} className="text-xs bg-red-700 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-red-800 transition-colors">ลบทั้งชุด</button>
+                                            </>
+                                        ) : (
+                                            <button onClick={() => deleteTask('one')} className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-red-700 transition-colors">ลบ</button>
+                                        )}
                                         <button onClick={() => setConfirmDel(false)} className="text-xs text-slate-500 hover:text-slate-700 font-medium">ยกเลิก</button>
                                     </div>
                                 )}

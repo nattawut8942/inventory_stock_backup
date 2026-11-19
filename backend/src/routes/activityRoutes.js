@@ -1,7 +1,7 @@
 import express from 'express';
 import { requirePerm } from '../middleware/permissionMiddleware.js';
 import {
-    getAlbums, getHeroAlbums, getAlbumPhotos,
+    getAlbums, getHeroAlbums, getAlbumPhotos, getAlbumYears, getAlbumStats,
     createAlbum, updateAlbum, deleteAlbum, uploadActivityPhoto, deleteActivityPhoto, setFeaturedAlbum, setAlbumCover,
     getCategories, createCategory, updateCategory, deleteCategory,
     exportAlbumZip, exportAlbumPdf
@@ -17,6 +17,8 @@ router.delete('/activity-categories/:code', requirePerm('mgmt-activity-categorie
 
 // Albums
 router.get('/albums/hero', getHeroAlbums);
+router.get('/albums/years', getAlbumYears);
+router.get('/albums/stats', getAlbumStats);
 router.get('/albums', getAlbums);
 router.get('/albums/:id/photos', getAlbumPhotos);
 router.get('/albums/:id/export/zip', exportAlbumZip);

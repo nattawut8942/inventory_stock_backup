@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Images, Star, Trash2 } from 'lucide-react';
 import { API_URL } from '../config/api';
-import { formatThaiDate } from '../utils/formatDate';
+import { formatThaiDateShort } from '../utils/formatDate';
 
 const ActivityAlbumCard = ({ album, index = 0, onClick, onTogglePin, onDelete, setAlertModal, compact = false }) => {
     const coverSrc = (album.CoverThumbnailURL || album.CoverImageURL) ? `${API_URL}${album.CoverThumbnailURL || album.CoverImageURL}` : null;
@@ -24,7 +24,7 @@ const ActivityAlbumCard = ({ album, index = 0, onClick, onTogglePin, onDelete, s
                     className={`absolute top-2 right-2 z-10 w-7 h-7 rounded-full flex items-center justify-center transition-all shadow-sm ${
                         album.IsFeatured
                             ? 'bg-amber-400 text-white'
-                            : 'bg-white/90 backdrop-blur text-slate-400 opacity-0 group-hover:opacity-100 hover:text-amber-500'
+                            : 'bg-white/90 backdrop-blur text-slate-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:text-amber-500 focus-visible:opacity-100'
                     }`}
                 >
                     <Star size={13} fill={album.IsFeatured ? 'currentColor' : 'none'} />
@@ -47,7 +47,8 @@ const ActivityAlbumCard = ({ album, index = 0, onClick, onTogglePin, onDelete, s
                         });
                     }}
                     title="ลบอัลบัม"
-                    className="absolute top-2 left-2 z-10 w-7 h-7 rounded-full bg-white/90 backdrop-blur text-slate-400 opacity-0 group-hover:opacity-100 hover:text-red-500 flex items-center justify-center transition-all shadow-sm"
+                    aria-label={`ลบอัลบัม ${album.Title}`}
+                    className="absolute top-2 left-2 z-10 w-7 h-7 rounded-full bg-white/90 backdrop-blur text-slate-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:text-red-500 focus-visible:opacity-100 flex items-center justify-center transition-all shadow-sm"
                 >
                     <Trash2 size={13} />
                 </button>
@@ -73,7 +74,7 @@ const ActivityAlbumCard = ({ album, index = 0, onClick, onTogglePin, onDelete, s
                     {album.Title}
                 </h3>
                 <div className={`mt-auto flex items-center justify-between ${compact ? 'pt-1.5' : 'pt-1'}`}>
-                    <span className={`text-slate-500 font-medium ${compact ? 'text-[10px]' : 'text-xs'}`}>{formatThaiDate(album.EventDate)}</span>
+                    <span className={`text-slate-500 font-medium ${compact ? 'text-[10px]' : 'text-xs'}`}>{formatThaiDateShort(album.EventDate)}</span>
                     {!compact && (
                         <span
                             className="text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wide"

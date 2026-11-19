@@ -1,12 +1,15 @@
 import express from 'express';
 import { requirePerm } from '../middleware/permissionMiddleware.js';
-import { getMAItems, getMAItemById, getMAHistory, createMAItem, updateMAItem, deleteMAItem, updateMAStatus, updateMARenewal, completeMARenewal, getMATypes, createMAType, updateMAType, deleteMAType } from '../controllers/maController.js';
+import { getMAItems, getMAItemById, getMAHistory, getMAAllHistory,createMAItem, updateMAItem, deleteMAItem, updateMAStatus, updateMARenewal, completeMARenewal, getMATypes, createMAType, updateMAType, deleteMAType } from '../controllers/maController.js';
 import { uploadRenewalFiles, downloadAttachment } from '../controllers/maAttachmentController.js';
+import { getMAReport } from '../controllers/maReportController.js';
 
 const router = express.Router();
 
 // MA Items
 router.get('/ma', getMAItems);
+router.get('/ma/report', getMAReport); // ต้องอยู่ก่อน /ma/:id
+router.get('/ma/history', getMAAllHistory); // ประวัติทุกรายการ: ต้องอยู่ก่อน /ma/:id
 router.get('/ma/:id', getMAItemById);
 router.get('/ma/:id/history', getMAHistory);
 router.post('/ma', requirePerm('ma-license', 'create', { strict: true }), createMAItem);

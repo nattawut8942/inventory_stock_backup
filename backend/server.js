@@ -52,6 +52,7 @@ import kbRoutes from './src/routes/kbRoutes.js';
 import activityRoutes from './src/routes/activityRoutes.js';
 import fileUpload from 'express-fileupload';
 import printerRoutes from './src/routes/printerRoutes.js';
+import navCountRoutes from './src/routes/navCountRoutes.js';
 import { startPrinterScanCron, runPrinterScan } from './src/services/printerScanService.js';
 import cctvCaptureRoutes from './src/cctv/cctvCaptureRoutes.js';
 import { startCaptureCron } from './src/cctv/cctvCaptureCron.js';
@@ -95,13 +96,19 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // ✅ FILE UPLOAD - CRITICAL! BEFORE ROUTES!
-app.use(fileUpload({ 
+const fileUploadMiddleware = fileUpload({
     limits: { fileSize: 50 * 1024 * 1024 },
     useTempFiles: false,
     createParentPath: true,
     abortOnLimit: true,          // ← เพิ่ม
     responseOnLimit: 'ไฟล์ใหญ่เกินขนาดที่กำหนด (50MB)',   // ← เพิ่ม
-}));
+});
+// ข้าม express-fileupload สำหรับการต่ออายุ MA: route นั้นใช้ multer เอง และ express-fileupload
+// อ่าน body multipart ไปก่อนจนทำให้ multer เจอ stream ที่ถูกอ่านแล้ว ("Unexpected end of form")
+app.use((req, res, next) => {
+    if (req.method === 'POST' && /\/ma\/\d+\/renew$/.test(req.path)) return next();
+    return fileUploadMiddleware(req, res, next);
+});
 
 console.log('[Server] fileUpload middleware loaded ✓');
 
@@ -183,6 +190,7 @@ const startServer = async () => {
         app.use('/ITinventory/api/knowledge-base', kbRoutes);
         app.use('/ITinventory/api', activityRoutes); 
         app.use('/ITinventory/api', printerRoutes);
+        app.use('/ITinventory/api', navCountRoutes);
 
         // ── Cron: Printer toner/error scan (08:00, 13:00, 18:00) ─────────
         startPrinterScanCron();
@@ -351,6 +359,12 @@ const startServer = async () => {
 
         // ── Test: Run CCTV capture + ส่งเมลทันที (ไม่ต้องรอ cron วันจันทร์ 08:30) ──
         app.post('/ITinventory/api/test/run-cctv-capture', async (req, res) => {
+            // ต้องส่ง secret (CCTV_CAPTURE_SECRET) ใน header x-cctv-secret หรือ body.secret — ไม่ตั้ง env = ปิด
+            const expected = process.env.CCTV_CAPTURE_SECRET;
+            const given = req.get('x-cctv-secret') || (req.body && req.body.secret);
+            if (!expected || typeof given !== 'string' || given !== expected) {
+                return res.status(403).json({ success: false, error: 'Unauthorized' });
+            }
             if (isCctvCapturing) {
                 return res.status(409).json({ success: false, message: 'กำลัง capture อยู่ กรุณารอสักครู่' });
             }

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { X, Search, RotateCcw, Copy, History, ShieldCheck, Eraser } from 'lucide-react';
 import { motion } from 'motion/react';
 import Portal from './Portal';
+import AlertModal from './AlertModal';
 import { API_BASE } from '../config/api';
 
 // Editor for page permissions.
@@ -69,6 +70,7 @@ const PermissionEditorModal = ({ target, users = [], avatar = null, onClose, onS
     const [copyFrom, setCopyFrom] = useState('');
     const [showAudit, setShowAudit] = useState(false);
     const [audit, setAudit] = useState(null); // null = not loaded
+    const [confirmDiscard, setConfirmDiscard] = useState(false); // "close without saving?" dialog
 
     const dirty = !sameSet(original, current);
 
@@ -98,15 +100,16 @@ const PermissionEditorModal = ({ target, users = [], avatar = null, onClose, onS
 
     const requestClose = useCallback(() => {
         if (saving) return;
-        if (dirty && !window.confirm('มีการแก้ไขที่ยังไม่บันทึก ต้องการปิดโดยไม่บันทึกหรือไม่?')) return;
+        if (dirty) { setConfirmDiscard(true); return; } // ask with the site's own dialog
         onClose?.();
     }, [dirty, saving, onClose]);
 
     useEffect(() => {
-        const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
+        // Escape closes the confirm dialog first (stay in the editor), otherwise asks to close the editor
+        const onKey = (e) => { if (e.key === 'Escape') { if (confirmDiscard) setConfirmDiscard(false); else requestClose(); } };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [requestClose]);
+    }, [requestClose, confirmDiscard]);
 
     // ── editing rules: any action on a page needs "view"; removing "view" removes the rest ──
     const toggle = (page, action) => {
@@ -258,6 +261,7 @@ const PermissionEditorModal = ({ target, users = [], avatar = null, onClose, onS
     let lastGroup = null;
 
     return (
+        <>
         <ModalShell onBackdrop={requestClose}>
             <motion.div
                 initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
@@ -438,6 +442,17 @@ const PermissionEditorModal = ({ target, users = [], avatar = null, onClose, onS
                 </div>
             </motion.div>
         </ModalShell>
+        <AlertModal
+            isOpen={confirmDiscard}
+            type="danger"
+            title="ปิดโดยไม่บันทึก?"
+            message="มีการแก้ไขสิทธิ์ที่ยังไม่ได้บันทึก ถ้าปิดตอนนี้การแก้ไขจะหายไป"
+            confirmText="ปิดโดยไม่บันทึก"
+            cancelText="กลับไปแก้ไข"
+            onConfirm={() => { setConfirmDiscard(false); onClose?.(); }}
+            onCancel={() => setConfirmDiscard(false)}
+        />
+        </>
     );
 };
 
@@ -447,6 +462,7 @@ export const PermissionLogModal = ({ onClose }) => {
     const [catalog, setCatalog] = useState(null);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
+    const [confirmClear, setConfirmClear] = useState(false);
 
     const load = useCallback(async () => {
         setError('');
@@ -462,7 +478,7 @@ export const PermissionLogModal = ({ onClose }) => {
     useEffect(() => { load(); }, [load]);
 
     const clearAll = async () => {
-        if (!window.confirm('ล้างรายงานทั้งหมดและเริ่มนับใหม่ใช่หรือไม่? (ใช้หลังแก้สิทธิ์แล้ว เพื่อดูว่ายังมีอะไรถูกบล็อกอีกไหม)')) return;
+        setConfirmClear(false);
         setBusy(true);
         try {
             const res = await fetch(API_BASE + '/permissions/log-summary', { method: 'DELETE' });
@@ -481,6 +497,7 @@ export const PermissionLogModal = ({ onClose }) => {
     const actionLabel = (key) => (catalog && catalog.actionLabels && catalog.actionLabels[key]) || key;
 
     return (
+        <>
         <ModalShell onBackdrop={onClose}>
             <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
                 className="w-full max-w-4xl max-h-[88vh] flex flex-col bg-white rounded-2xl shadow-xl overflow-hidden border border-white/20"
@@ -496,7 +513,7 @@ export const PermissionLogModal = ({ onClose }) => {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                         <button onClick={load} disabled={busy} className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold disabled:opacity-50">รีเฟรช</button>
-                        <button onClick={clearAll} disabled={busy || !data || data.items.length === 0} className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold disabled:opacity-50">ล้างรายงาน</button>
+                        <button onClick={() => setConfirmClear(true)} disabled={busy || !data || data.items.length === 0} className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold disabled:opacity-50">ล้างรายงาน</button>
                         <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full" aria-label="ปิด"><X size={20} /></button>
                     </div>
                 </div>
@@ -528,7 +545,231 @@ export const PermissionLogModal = ({ onClose }) => {
                 </div>
             </motion.div>
         </ModalShell>
+        <AlertModal
+            isOpen={confirmClear}
+            type="danger"
+            title="ล้างรายงานทั้งหมด?"
+            message="รายงานจะถูกลบและเริ่มนับใหม่ (ใช้หลังแก้สิทธิ์แล้ว เพื่อดูว่ายังมีอะไรถูกบล็อกอีกไหม)"
+            confirmText="ล้างรายงาน"
+            cancelText="ยกเลิก"
+            onConfirm={clearAll}
+            onCancel={() => setConfirmClear(false)}
+        />
+        </>
     );
 };
 
 export default PermissionEditorModal;
+
+// Employee photo: saved AD picture URL, else the standard DCI picture by EmpCode; initials if it cannot load.
+const EMP_PIC_BASE = 'http://dcidmc.dci.daikin.co.jp/PICTURE';
+const EmpAvatar = ({ pic, empCode, name, size = 32 }) => {
+    const src = pic || (empCode ? `${EMP_PIC_BASE}/${encodeURIComponent(empCode)}.jpg` : '');
+    const [failed, setFailed] = useState(false);
+    useEffect(() => setFailed(false), [src]);
+    const style = { width: size, height: size };
+    if (!src || failed) {
+        const initials = String(name || empCode || '?').trim().slice(0, 2).toUpperCase();
+        return <div style={style} className="shrink-0 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-[10px] font-black">{initials}</div>;
+    }
+    return <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} style={style} className="shrink-0 rounded-lg object-cover bg-slate-100 ring-1 ring-slate-200" />;
+};
+
+// "Who has what on this page?" — pick a page on the left, tick each person's actions on the right.
+// Admins always pass every check, so they are not listed here.
+export const PermissionHoldersModal = ({ onClose }) => {
+    const [catalog, setCatalog] = useState(null);
+    const [pageKey, setPageKey] = useState('');
+    const [pageSearch, setPageSearch] = useState('');
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [busyCell, setBusyCell] = useState('');
+    const [error, setError] = useState('');
+    const [search, setSearch] = useState('');
+
+    useEffect(() => {
+        loadCatalog()
+            .then((cat) => { setCatalog(cat); if (cat.pages.length) setPageKey(cat.pages[0].key); })
+            .catch((e) => setError(e.message));
+    }, []);
+
+    const reload = useCallback(async (k) => {
+        setData(await getJson(`/permissions/holders?page=${encodeURIComponent(k)}`));
+    }, []);
+
+    useEffect(() => {
+        if (!pageKey) { setData(null); return undefined; }
+        let cancelled = false;
+        setLoading(true);
+        setError('');
+        reload(pageKey)
+            .catch((e) => { if (!cancelled) { setData(null); setError(e.message); } })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [pageKey, reload]);
+
+    // Read the person's current list, change only this page's permission(s), then save the whole list.
+    // View is required for every other action, so: ticking an action also ticks view;
+    // unticking view also unticks the rest of this page.
+    const setCell = async (u, action, want) => {
+        setBusyCell(`${u.EmpCode}:${action}`);
+        setError('');
+        try {
+            const cur = await getJson(`/permissions/users/${encodeURIComponent(u.EmpCode)}`);
+            const set = new Set(cur.permissions || []);
+            const mine = data.actions.map((a) => a.key);
+            if (want) {
+                set.add(`${pageKey}:${action}`);
+                if (action !== 'view') set.add(`${pageKey}:view`);
+            } else if (action === 'view') {
+                mine.forEach((a) => set.delete(`${pageKey}:${a}`));
+            } else {
+                set.delete(`${pageKey}:${action}`);
+            }
+            const res = await fetch(`${API_BASE}/permissions/users/${encodeURIComponent(u.EmpCode)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ permissions: [...set] }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(d.error || d.message || `HTTP ${res.status}`);
+            await reload(pageKey);
+        } catch (e) {
+            setError(`${u.Name || u.EmpCode}: ${e.message}`);
+        } finally {
+            setBusyCell('');
+        }
+    };
+
+    const users = data?.users || [];
+    const actions = data?.actions || [];
+    const q = search.trim().toLowerCase();
+    const visible = users.filter((u) => !q || `${u.Name || ''} ${u.Username || ''} ${u.EmpCode}`.toLowerCase().includes(q));
+    const pq = pageSearch.trim().toLowerCase();
+    const groups = catalog ? [...new Set(catalog.pages.map((p) => p.group))] : [];
+    const currentLabel = catalog?.pages.find((p) => p.key === pageKey)?.label || '';
+
+    return (
+        <ModalShell onBackdrop={onClose}>
+            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
+                className="w-full max-w-5xl max-h-[88vh] flex flex-col bg-white rounded-2xl shadow-xl overflow-hidden border border-white/20"
+                role="dialog" aria-modal="true" aria-label="ใครมีสิทธิ์อะไรบ้าง">
+                <div className="p-5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white flex items-start justify-between">
+                    <div>
+                        <h3 className="font-black text-xl tracking-tight">ใครมีสิทธิ์อะไรบ้าง</h3>
+                        <p className="text-white/80 text-xs mt-0.5">เลือกหน้าทางซ้าย แล้วติ๊กสิทธิ์ของแต่ละคนทางขวา · มีผลทันที ไม่ต้องกดบันทึก</p>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full shrink-0" aria-label="ปิด"><X size={20} /></button>
+                </div>
+
+                <div className="flex flex-1 min-h-0 flex-col md:flex-row">
+                    {/* left: pages */}
+                    <aside className="md:w-60 shrink-0 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col min-h-0">
+                        <div className="p-3">
+                            <input
+                                type="search"
+                                value={pageSearch}
+                                onChange={(e) => setPageSearch(e.target.value)}
+                                placeholder="ค้นหาหน้า"
+                                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+                            />
+                        </div>
+                        <div className="overflow-y-auto px-2 pb-3 max-h-48 md:max-h-none flex-1">
+                            {!catalog ? <div className="text-slate-400 text-sm px-2 py-4">กำลังโหลด...</div> : groups.map((g) => {
+                                const items = catalog.pages.filter((p) => p.group === g && (!pq || p.label.toLowerCase().includes(pq) || p.key.includes(pq)));
+                                if (!items.length) return null;
+                                return (
+                                    <div key={g} className="mb-2">
+                                        <div className="px-2 pt-2 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">{g}</div>
+                                        {items.map((p) => (
+                                            <button
+                                                key={p.key}
+                                                type="button"
+                                                onClick={() => setPageKey(p.key)}
+                                                className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition ${pageKey === p.key ? 'bg-violet-600 text-white font-bold' : 'text-slate-600 hover:bg-violet-50'}`}
+                                            >
+                                                {p.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </aside>
+
+                    {/* right: users x actions */}
+                    <section className="flex-1 min-w-0 flex flex-col min-h-0">
+                        <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <div className="font-black text-slate-800">{currentLabel}</div>
+                                <div className="text-xs text-slate-400">{data ? `${users.length} คน` : ''}</div>
+                            </div>
+                            <input
+                                type="search"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="ค้นหาคน ชื่อหรือรหัส"
+                                className="w-56 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+                            />
+                        </div>
+                        {error && <div className="m-4 px-3 py-2 rounded-lg bg-rose-50 text-rose-600 text-sm">{error}</div>}
+                        <div className="flex-1 overflow-auto">
+                            {loading && !data ? <div className="text-center py-10 text-slate-400">กำลังโหลด...</div>
+                                : !data ? null
+                                    : users.length === 0 ? <div className="text-slate-400 text-sm py-10 text-center">ยังไม่มีผู้ใช้ (Staff) ในระบบ</div>
+                                        : (
+                                            <table className="w-full text-sm">
+                                                <thead className="sticky top-0 bg-slate-50 z-10">
+                                                    <tr className="text-xs text-slate-500 border-b border-slate-200">
+                                                        <th className="text-left py-2.5 px-4 font-bold sticky left-0 bg-slate-50">ผู้ใช้</th>
+                                                        {actions.map((a) => (
+                                                            <th key={a.key} className="py-2.5 px-2 font-bold text-center">
+                                                                {a.label}
+                                                                <div className="font-mono font-normal text-[10px] text-slate-400">{a.key}</div>
+                                                            </th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {visible.map((u) => (
+                                                        <tr key={u.EmpCode} className="border-b border-slate-100 hover:bg-violet-50/40">
+                                                            <td className="py-2.5 px-4 sticky left-0 bg-white">
+                                                                <div className="flex items-center gap-3">
+                                                                    <EmpAvatar pic={u.EmpPic} empCode={u.EmpCode} name={u.Name || u.Username} />
+                                                                    <div>
+                                                                        <div className="font-bold text-slate-700 whitespace-nowrap">{u.Name || u.Username || '-'}</div>
+                                                                        <div className="font-mono text-xs text-slate-400">{u.EmpCode}</div>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            {actions.map((a) => {
+                                                                const has = u.actions.includes(a.key);
+                                                                const busy = busyCell === `${u.EmpCode}:${a.key}`;
+                                                                return (
+                                                                    <td key={a.key} className="py-2.5 px-2 text-center">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            className="w-5 h-5 accent-violet-600 cursor-pointer disabled:cursor-wait"
+                                                                            checked={has}
+                                                                            disabled={busy || !!busyCell}
+                                                                            onChange={(e) => setCell(u, a.key, e.target.checked)}
+                                                                            aria-label={`${u.Name || u.EmpCode} ${a.label}`}
+                                                                        />
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        )}
+                        </div>
+                        <div className="px-4 py-3 border-t border-slate-100 text-[11px] text-slate-400">
+                            ติ๊ก "แก้ไข" จะให้ "ดู" ด้วยอัตโนมัติ · เอา "ดู" ออกจะเอาทุกสิทธิ์ของหน้านี้ออก
+                        </div>
+                    </section>
+                </div>
+            </motion.div>
+        </ModalShell>
+    );
+};

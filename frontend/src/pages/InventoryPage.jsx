@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCan, useCanAct } from '../context/PermissionContext';
 import AlertModal from '../components/AlertModal';
 import Portal from '../components/Portal';
+import AdjustStockModal from '../components/AdjustStockModal';
 import { getBadgeStyle, getColorGradient, getChartColor, getDeviceTypeColor } from '../utils/styleHelpers';
 import { formatThaiDate } from '../utils/formatDate';
 import { API_BASE, API_URL } from '../config/api';
@@ -127,6 +128,14 @@ const downloadCsv = (filename, headers, rows) => {
   a.remove();
   URL.revokeObjectURL(url);
 };
+// คืนของ: ต้องตรงกับ RETURN_WINDOW_DAYS ใน backend (productController.js)
+const RETURN_WINDOW_DAYS = 7;
+// Admin คืนได้ไม่จำกัดเวลา (backend ตรวจจาก DB อีกครั้ง ฝั่ง UI ใช้แค่แสดงปุ่ม)
+const isReturnableRow = (h, isAdmin) =>
+  (h.TransType || '').toUpperCase().trim() === 'OUT' &&
+  !h.ReturnedAt &&
+  (isAdmin || (Date.now() - new Date(h.TransDate).getTime()) <= RETURN_WINDOW_DAYS * 86400000);
+
 // สถานะสต็อกของการ์ด: ใช้ทั้งป้ายข้อความและแถบสีด้านซ้าย (ไม่ต้องใช้ MinStock ก็แสดงได้)
 const getStockState = (p) => {
   if (!(p.MinStock > 0)) {
@@ -140,13 +149,20 @@ const getStockState = (p) => {
 
 // ─── Edit Modal helpers — ต้องอยู่นอก InventoryPage ────────────────────────
 const InlineRow = ({ label, children }) => (
-  <div className="flex items-center px-5 py-2.5 border-b border-slate-100 last:border-0 gap-4">
-    <span className="text-[12px] text-slate-400 w-28 shrink-0">{label}</span>
-    <div className="flex-1 min-w-0">{children}</div>
+  <div className="flex flex-col gap-1.5 px-5 py-3">
+    <span className="text-[11px] font-semibold text-slate-500 tracking-wide">{label}</span>
+    <div className="min-w-0">{children}</div>
   </div>
 );
 
-const inlineCls = "w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-[13px] text-slate-700 bg-white focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100 transition-all";
+const Field = ({ label, children }) => (
+  <div className="flex flex-col gap-1.5 min-w-0">
+    <span className="text-[11px] font-semibold text-slate-500 tracking-wide">{label}</span>
+    <div className="min-w-0">{children}</div>
+  </div>
+);
+
+const inlineCls = "w-full px-3 py-2 border border-slate-200 rounded-xl text-[13px] text-slate-700 bg-white placeholder:text-slate-300 hover:border-slate-300 focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all";
 
 const PRIORITY_OPTIONS = [
   { value: 1, label: 'Critical', sel: 'bg-red-50 text-red-700 border-red-200' },
@@ -196,6 +212,11 @@ const InventoryPage = () => {
   const [alertModal, setAlertModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
   const [locations, setLocations] = useState([]);
   const [toast, setToast] = useState(null);   // ✅ แจ้งเตือนสั้น ๆ มุมจอ (แทน modal สำหรับงานที่ไม่ต้องกดรับทราบ)
+  const canReturn = useCanAct('inventory', 'return');
+  const isAdminUser = user?.role === 'Admin';
+  const [returnTarget, setReturnTarget] = useState(null);   // แถวประวัติที่กำลังจะคืน
+  const [returnReason, setReturnReason] = useState('');
+  const [returning, setReturning] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);   // ✅ เลือกหลายรายการเพื่อเพิ่มลงตะกร้าพร้อมกัน
   const searchInputRef = useRef(null);
 
@@ -262,7 +283,8 @@ const InventoryPage = () => {
       try {
         const res = await fetch(`${API_BASE}/reasons`);
         if (!res.ok) throw new Error('Failed to fetch reasons');
-        setReasons(await res.json());
+        const all = await res.json();
+        setReasons(all.filter(r => r.IsActive !== 0 && r.IsActive !== false)); // เฉพาะเหตุผลที่เปิดใช้งาน
       } catch (err) { console.error('Error fetching reasons:', err); }
     };
     fetchReasons();
@@ -286,6 +308,23 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
   const [scanModal, setScanModal] = useState({ isOpen: false, scannedCode: '', foundProduct: null, error: '' });
   const [scanQty, setScanQty] = useState(1);
   const [scanReason, setScanReason] = useState('New Withdrawal');
+  const [selfUse, setSelfUse] = useState(false); // เบิกใช้เอง: ผู้ login เป็นผู้รับ
+  const [imagePreview, setImagePreview] = useState(null); // { src, name } สำหรับ modal ขยายรูป
+  const [adjustItem, setAdjustItem] = useState(null); // ปรับยอดคงเหลือจริง
+  const [wdHistory, setWdHistory] = useState({ productId: null, rows: [], loading: false }); // 13: ประวัติการเบิกในหน้าเบิก
+
+  // 13: โหลดประวัติการเบิกของอุปกรณ์ที่กำลังเบิก
+  useEffect(() => {
+    const pid = qtyModal.isOpen && qtyModal.mode === 'withdraw' && qtyModal.product ? qtyModal.product.ProductID : null;
+    if (!pid) return undefined;
+    let alive = true;
+    setWdHistory({ productId: pid, rows: [], loading: true });
+    fetch(`${API_BASE}/transactions?filter=OUT&productId=${pid}`)
+      .then(r => r.json())
+      .then(d => { if (alive) setWdHistory({ productId: pid, rows: Array.isArray(d) ? d : [], loading: false }); })
+      .catch(() => { if (alive) setWdHistory({ productId: pid, rows: [], loading: false }); });
+    return () => { alive = false; };
+  }, [qtyModal.isOpen, qtyModal.mode, qtyModal.product?.ProductID]); // eslint-disable-line react-hooks/exhaustive-deps
   const [scanReasonDetail, setScanReasonDetail] = useState('');
   const [scanSerialNumber, setScanSerialNumber] = useState('');
   const [scanFixedCode, setScanFixedCode] = useState('');   // ✅ ประกาศก่อนถูกใช้แล้ว
@@ -371,6 +410,7 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
 
   const openWithdrawModal = (product) => {
     setSelectQty(1);
+    setSelfUse(false);
     const filtered = getFilteredReasons(product);
     setReasonOptions(filtered);
     const defaultReason = filtered.length > 0 ? filtered[0].Label : 'Other';
@@ -389,7 +429,6 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
     if (d && d.trim()) info += `: ${d.trim()}`;
     return info;
   };
-
   const requireEmployee = (action) => {
     setPendingWithdraw(() => action);
     setEmployeeModalOpen(true);
@@ -408,7 +447,8 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
     if (!product || selectQty <= 0) return;
     if (!reasonDetail.trim()) return;
     if (product.DeviceType === 'Asset' && (!assetSerialNumber.trim() || !isValidFixedAssetCode(assetFixedCode))) return;
-    if (qtyModal.mode === 'withdraw' && !empData) return;   // ✅ บังคับต้องค้นหา/ยืนยันรหัสพนักงานก่อน
+    const recipientReady = selfUse ? !!user?.empcode : !!empData;
+    if (qtyModal.mode === 'withdraw' && !recipientReady) return;   // ✅ ต้องมีผู้รับ (ค้นหารหัส หรือเบิกใช้เอง)
     if (qtyModal.mode === 'cart') {
       // จับตำแหน่งรูปใน modal ก่อนปิด เพื่อใช้เป็นจุดเริ่มของแอนิเมชันบินลงตะกร้า
       const srcRect = document.getElementById('qty-modal-thumb')?.getBoundingClientRect() || null;
@@ -435,9 +475,10 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
             Qty: selectQty,
             UserID: (user?.username || '').toUpperCase(),
             RefInfo: getRefInfo(),
-            EmployeeCode: empData.EmployeeCode,
-            EmployeeName: empData.FormattedName,
-            CostCenter: empData.CostCenter,
+            EmployeeCode: selfUse ? user?.empcode : empData?.EmployeeCode,
+            EmployeeName: selfUse ? user?.name : empData?.FormattedName,
+            CostCenter: selfUse ? null : empData?.CostCenter,
+            SelfUse: selfUse,
             SerialNumber: product.DeviceType === 'Asset' ? assetSerialNumber.trim() : null,
             FixedAssetCode: product.DeviceType === 'Asset' ? assetFixedCode.trim() : null,
           }),
@@ -575,6 +616,7 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
   const [pendingWithdraw, setPendingWithdraw] = useState(null);
   const printRef = useRef();
   const canEdit = useCan('inventory', 'edit');
+  const canAdjust = useCan('stock-count', 'adjust'); // ปรับยอดคงเหลือจริง (สิทธิ์เดียวกับการปรับยอดจากการนับ)
   const canDelete = useCan('inventory', 'delete');
   const isAdmin = canEdit || canDelete; // the "manage" column shows if either applies
   const canWithdraw = useCanAct('inventory', 'withdraw');
@@ -657,7 +699,8 @@ const handleFileUpload = async (file) => {
     payload.ImageURL = imageUrl;
     payload.MinStock = parseInt(payload.MinStock, 10) || 0;
     payload.MaxStock = parseInt(payload.MaxStock, 10) || 0;
-    payload.CurrentStock = parseInt(payload.CurrentStock, 10) || 0;
+    // 1: คงเหลือแก้จากหน้านี้ไม่ได้ (ปรับยอดผ่านการนับ/เบิก/รับเข้า) จึงส่งค่าเดิมกลับไป
+    payload.CurrentStock = editItem.CurrentStock;
     payload.LastPrice = parseFloat(payload.LastPrice) || 0;
     payload.business_priority = parseInt(payload.business_priority) || 3;
     payload.lead_time_days = parseInt(payload.lead_time_days, 10) || 7;
@@ -677,6 +720,37 @@ const handleFileUpload = async (file) => {
       }
     } catch (err) {
       setAlertModal({ isOpen: true, type: 'error', title: 'Network Error', message: 'ไม่สามารถเชื่อมต่อได้' });
+    }
+  };
+
+  // ─── คืนของ: ยืนยันการคืนรายการเบิก แล้วรีโหลดประวัติและยอดสต็อก ───
+  const handleReturn = async () => {
+    if (!returnTarget || !returnReason.trim() || returning) return;
+    setReturning(true);
+    try {
+      const res = await fetch(`${API_BASE}/products/return`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          TransID: returnTarget.TransID,
+          Reason: returnReason.trim(),
+          UserID: (user?.username || '').toUpperCase(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setReturnTarget(null);
+        setReturnReason('');
+        if (historyItem) viewHistory(historyItem);
+        refreshData();
+        setToast({ type: 'success', message: 'คืนของเรียบร้อย ยอดสต็อกเพิ่มแล้ว', duration: 2500 });
+      } else {
+        setAlertModal({ isOpen: true, type: 'error', title: 'คืนของไม่สำเร็จ', message: data.error || 'ลองใหม่อีกครั้ง' });
+      }
+    } catch (err) {
+      setAlertModal({ isOpen: true, type: 'error', title: 'Connection Error', message: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้' });
+    } finally {
+      setReturning(false);
     }
   };
 
@@ -1033,39 +1107,29 @@ const handleFileUpload = async (file) => {
 
         {/* GRID VIEW */}
         {viewMode === 'grid' && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
             {sortedProducts.map((p, idx) => {
               const inCart = isInCart(p.ProductID);
               return (
-                <motion.div key={p.ProductID} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(idx, 12) * 0.03 }} className={`group bg-white rounded-2xl border border-l-4 ${getStockState(p).edge} p-3 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${selectedIds.includes(p.ProductID) ? 'border-indigo-400 ring-2 ring-indigo-300' : inCart ? 'border-indigo-300 ring-2 ring-indigo-100' :p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'border-red-200' : 'border-slate-100'}`}>
+                <motion.div key={p.ProductID} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(idx, 12) * 0.03 }} className={`group bg-white rounded-2xl border border-l-4 ${getStockState(p).edge} p-2 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${selectedIds.includes(p.ProductID) ? 'border-indigo-400 ring-2 ring-indigo-300' : inCart ? 'border-indigo-300 ring-2 ring-indigo-100' :p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'border-red-200 hover:border-red-300' : 'border-slate-100 hover:border-indigo-200 hover:ring-1 hover:ring-indigo-100'}`}>
                   <div className={`absolute top-0 left-0 w-full h-20 bg-gradient-to-br ${getColorGradient(p.DeviceType)} opacity-10 z-0`} />
 
                   {/* ✅ เลือกหลายรายการ */}
-                  <label className="absolute top-2 left-2 z-30 flex items-center justify-center w-6 h-6 bg-white/95 rounded-md shadow-sm cursor-pointer" title="เลือกรายการนี้">
+                  <label className="absolute top-1.5 left-1.5 z-30 flex items-center justify-center w-5 h-5 bg-white/95 rounded shadow-sm cursor-pointer" title="เลือกรายการนี้">
                     <input type="checkbox" aria-label={`เลือก ${p.ProductName}`} checked={selectedIds.includes(p.ProductID)} onChange={() => toggleSelect(p.ProductID)} className="w-3.5 h-3.5 accent-indigo-600 cursor-pointer" />
                   </label>
 
-                  {/* ✅ Priority badge — มุมซ้ายบน (ถัดจาก checkbox) */}
-                  <div className="absolute top-2 left-10 z-20">
+                  {/* ✅ Priority badge — แถวบนสุดของการ์ด (ไม่ทับรูป) */}
+                  <div className="relative z-20 flex items-center gap-1 pl-7 min-h-[1.25rem] mb-0.5">
                     <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
                       p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
                         p.business_priority === 4 ? 'bg-green-100 text-green-700 border-green-200' :
                           'bg-yellow-100 text-yellow-700 border-yellow-200'
                       }`}>
                       {(['', 'Critical', 'High', 'Medium', 'Low'][p.business_priority]) ?? 'Medium'}
-                    </span>
-                  </div>
+                    </span>                  </div>
 
-                  {/* ✅ Low stock badge — มุมขวาบน (ใต้ปุ่ม action) */}
-                  {p.CurrentStock <= p.MinStock && p.MinStock > 0 && (
-                    <div className="absolute top-2 right-2 z-20">
-                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border bg-red-500 text-white border-red-400 animate-pulse">
-                        Low Stock
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="absolute top-2 right-2 z-20 flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                  <div className="absolute top-1.5 right-1.5 z-30 flex flex-row gap-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                     <button onClick={() => viewHistory(p)} className="p-1.5 bg-white/90 backdrop-blur text-indigo-600 rounded-full shadow-sm hover:bg-indigo-50" title="ดูประวัติ" aria-label="ดูประวัติ"><List size={14} /></button>
                     <button onClick={() => setDetailItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-blue-600 rounded-full shadow-sm hover:bg-blue-50" title="ดูรายละเอียด" aria-label="ดูรายละเอียด"><div className="w-3.5 h-3.5 rounded-full border border-current flex items-center justify-center font-bold text-[9px]">i</div></button>
                     <button onClick={() => setBarcodeItem(p)} className="p-1.5 bg-white/90 backdrop-blur text-emerald-600 rounded-full shadow-sm hover:bg-emerald-50" title="พิมพ์บาร์โค้ด" aria-label="พิมพ์บาร์โค้ด"><Printer size={14} /></button>
@@ -1077,43 +1141,89 @@ const handleFileUpload = async (file) => {
                     )}
                   </div>
                   <div className="relative z-10 flex flex-col items-center text-center">
-                    <div className={`w-28 h-28 mb-3 rounded-xl overflow-hidden shadow-lg flex items-center justify-center border-2 border-white group-hover:scale-105 transition-transform bg-gradient-to-br ${getColorGradient(p.DeviceType)}`}>
-                      {p.ImageURL ? <img loading="lazy" src={`${API_URL}${p.ImageURL}`} alt={p.ProductName} className="w-full h-full object-cover" /> : React.createElement(getIcon(p.DeviceType), { size: 40, className: 'text-white' })}
-                    </div>
+                    {/* 8: กดรูปเพื่อดูแบบขยาย (รูปเต็มกรอบ ไม่ถูกครอบ) */}
+                    <button type="button" onClick={() => p.ImageURL && setImagePreview({ src: `${API_URL}${p.ImageURL}`, name: p.ProductName })} disabled={!p.ImageURL}
+                      className={`w-20 h-20 mb-1.5 rounded-xl overflow-hidden shadow-lg flex items-center justify-center border-2 border-white group-hover:scale-105 transition-transform bg-gradient-to-br ${getColorGradient(p.DeviceType)} ${p.ImageURL ? 'cursor-zoom-in' : 'cursor-default'}`}
+                      title={p.ImageURL ? 'กดเพื่อดูรูปใหญ่' : undefined} aria-label={p.ImageURL ? `ดูรูป ${p.ProductName}` : undefined}>
+                      {p.ImageURL ? <img loading="lazy" src={`${API_URL}${p.ImageURL}`} alt={p.ProductName} className="w-full h-full object-contain p-1 bg-white/80" /> : React.createElement(getIcon(p.DeviceType), { size: 40, className: 'text-white' })}
+                    </button>
                     <h3 className="font-bold text-slate-800 text-xs mb-1 line-clamp-2 min-h-[1.25rem]">{p.ProductName}</h3>
                     {inCart && <span className="text-[10px] text-indigo-600 font-bold bg-indigo-100 px-1.5 py-0.5 rounded-sm mb-1">ในตะกร้า</span>}
-                    <div className="flex items-center justify-center gap-1 mb-2 flex-wrap">
-                      <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full shadow-sm text-white" style={{ backgroundColor: getChartColor(p.DeviceType) }}>{p.DeviceType}</span>
-                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${getStockState(p).chip}`}>{getStockState(p).label}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 w-full pt-2 border-t border-slate-100 mb-2">
-                      <div>
-                        <p className="text-[11px] text-slate-700 font-bold uppercase">คงเหลือ</p>
-                        <p className={`text-base font-black ${p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'text-red-500' : 'text-emerald-500'}`}>{p.CurrentStock}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] text-slate-700 font-bold uppercase">ราคา</p>
-                        <p className="text-base font-black text-slate-700">฿{p.LastPrice?.toLocaleString()}</p>
-                      </div>
-                    </div>
-                    <div className="w-full mb-3 px-1">
-                      <div className="flex items-center gap-1 bg-slate-50 border border-slate-100 rounded-lg p-1">
-                        <div className="p-0.5 bg-white rounded-md shadow-sm text-indigo-500"><Archive size={14} /></div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[10px] text-slate-700 font-bold uppercase leading-none mb-0.5">Location</p>
-                          <p className="text-[10px] font-bold text-slate-700 truncate">{p.Location || 'Not Assigned'}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex w-full gap-1">
-                      {canWithdraw && <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 disabled:opacity-50">ใส่ตะกร้า</button>}
-                      {canWithdraw && <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 disabled:opacity-50">เบิก</button>}
-                    </div>
+                    {(() => {
+                      const low = p.CurrentStock <= 0 || (p.CurrentStock <= p.MinStock && p.MinStock > 0);
+                      const warn = !low && p.MinStock > 0 && p.CurrentStock <= p.MinStock * 1.5;
+                      const tone = low ? 'text-red-500' : warn ? 'text-amber-500' : 'text-emerald-500';
+                      const bar = low ? 'bg-red-400' : warn ? 'bg-amber-400' : 'bg-emerald-400';
+                      const cap = Math.max(p.MaxStock || 0, p.MinStock * 2, p.CurrentStock, 1);
+                      const pct = Math.min(100, Math.round((Math.max(p.CurrentStock, 0) / cap) * 100));
+                      return (
+                        <>
+                          <div className="w-full grid grid-cols-2 gap-1 pt-2 border-t border-slate-100 mb-2">
+                            <div className="text-left">
+                              <p className="text-[10px] text-slate-500 font-bold uppercase">คงเหลือ</p>
+                              <div className="flex items-center flex-wrap gap-1">
+                                <p className={`text-lg font-black tabular-nums leading-tight ${tone}`}>{p.CurrentStock}</p>
+                                <span className={`text-[9px] font-bold px-1.5 py-px rounded-full border whitespace-nowrap ${getStockState(p).chip}`}>{getStockState(p).label}</span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[10px] text-slate-500 font-bold uppercase">ราคา</p>
+                              <p className="text-sm font-black text-slate-700 tabular-nums leading-tight mt-0.5">฿{p.LastPrice?.toLocaleString() ?? '—'}</p>
+                            </div>
+                          </div>
+                          <div className="w-full h-1 rounded-full bg-slate-100 overflow-hidden mb-1">
+                            <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <div className="w-full flex justify-between text-[9px] text-slate-400 mb-2 tabular-nums">
+                            <span>ขั้นต่ำ {p.MinStock}</span>
+                            <span>สูงสุด {p.MaxStock || '—'}</span>
+                          </div>
+                          <div className="w-full flex items-center gap-1.5 text-[10px] text-slate-500 mb-2 min-w-0">
+                            <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-px rounded shrink-0 text-white" style={{ backgroundColor: getChartColor(p.DeviceType) }}>{p.DeviceType}</span>
+                            <Archive size={11} className="shrink-0 text-slate-400" />
+                            <span className="truncate">{p.Location || 'ยังไม่ระบุที่เก็บ'}</span>
+                          </div>
+                          <div className="flex w-full gap-1.5">
+                            {canWithdraw && <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} aria-label="ใส่ตะกร้า" title="ใส่ตะกร้า" className="w-8 shrink-0 flex items-center justify-center rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:border-slate-200 disabled:text-slate-300"><ShoppingCart size={13} /></button>}
+                            {canWithdraw && <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 shadow-sm disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none">{p.CurrentStock <= 0 ? 'หมดแล้ว' : 'เบิก'}</button>}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </motion.div>
               );
             })}
           </div>
+        )}
+
+        {/* ปรับยอดคงเหลือจริง */}
+        {adjustItem && (
+          <AdjustStockModal
+            product={adjustItem}
+            userId={(user?.username || '').toUpperCase()}
+            onClose={() => setAdjustItem(null)}
+            onDone={() => { setDetailItem(null); refreshData(); }}
+            showToast={(message, type = 'success') => setToast({ type, message, duration: 2500 })}
+          />
+        )}
+
+        {/* 8: modal เล็กสำหรับดูรูปขยาย */}
+        {imagePreview && (
+          <Portal>
+            <div className="fixed inset-0 z-[80] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setImagePreview(null)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setImagePreview(null); }} tabIndex={-1} ref={(el) => el && el.focus()}>
+              <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <div className="px-4 py-3 flex items-center justify-between border-b border-slate-100">
+                  <p className="text-sm font-bold text-slate-700 truncate pr-3">{imagePreview.name}</p>
+                  <button onClick={() => setImagePreview(null)} className="p-1 rounded-full hover:bg-slate-100 text-slate-500" aria-label="ปิด"><X size={16} /></button>
+                </div>
+                <div className="bg-slate-50 p-4 flex items-center justify-center">
+                  <img src={imagePreview.src} alt={imagePreview.name} className="max-h-[60vh] w-auto object-contain rounded-lg" />
+                </div>
+              </div>
+            </div>
+          </Portal>
         )}
 
         {/* ✅ EMPTY STATE — บอกสาเหตุและทางออกให้ชัดเจน */}
@@ -1152,25 +1262,100 @@ const handleFileUpload = async (file) => {
           )}
         </AnimatePresence>
 
+        {/* ✅ RETURN CONFIRM — ต้องระบุเหตุผลก่อนคืนของ */}
+        {returnTarget && (
+          <Portal>
+            <div className="fixed inset-0 z-[75] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !returning && setReturnTarget(null)}>
+              <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <div className="p-5 space-y-3">
+                  <div>
+                    <h3 className="font-bold text-slate-800">คืนของจากการเบิกนี้?</h3>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {historyItem?.ProductName} · จำนวน <b>{Math.abs(returnTarget.Qty)}</b> ชิ้น · เบิกเมื่อ {formatThaiDate(returnTarget.TransDate)}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">สต็อกจะเพิ่มกลับ และประวัติเดิมจะยังคงอยู่ครบ</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 block mb-1.5">เหตุผลการคืน <span className="text-red-500">*</span></label>
+                    <textarea
+                      autoFocus
+                      value={returnReason}
+                      onChange={(e) => setReturnReason(e.target.value)}
+                      placeholder="เช่น เบิกผิดรายการ / เปลี่ยนเป็นอีกชิ้น"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-amber-100 outline-none resize-none h-20"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    <button onClick={() => setReturnTarget(null)} disabled={returning} className="col-span-1 py-2 rounded-lg text-sm font-bold text-slate-500 border border-slate-200 hover:bg-slate-100 disabled:opacity-50">ยกเลิก</button>
+                    <button onClick={handleReturn} disabled={!returnReason.trim() || returning} className="col-span-2 py-2 rounded-lg text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-200 disabled:opacity-50 disabled:shadow-none">
+                      {returning ? 'กำลังบันทึก...' : 'ยืนยันคืนของ'}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          </Portal>
+        )}
+
         {/* HISTORY MODAL */}
-        {historyItem && (
+        {historyItem && (() => {
+          // ใช้ยอดล่าสุดจากรายการสินค้า (ไม่ใช้ค่าที่เก็บตอนเปิดหน้าต่าง)
+          const historyStock = products.find(p => p.ProductID === historyItem.ProductID)?.CurrentStock ?? historyItem.CurrentStock;
+          return (
           <Portal>
             <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-[95vw] max-w-screen-2xl bg-white rounded-2xl shadow-xl overflow-hidden">
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-[96vw] max-w-6xl bg-white rounded-2xl shadow-xl overflow-hidden">
                 <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
                   <div className="flex justify-between items-start relative z-10">
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-1 opacity-90"><List size={16} /><span className="text-xs font-bold uppercase tracking-wider">ประวัติอุปกรณ์</span></div>
-                      <h3 className="font-black text-lg md:text-xl tracking-tight">{historyItem.ProductName}</h3>
-                      <p className="text-indigo-100 text-xs font-medium mt-1 font-mono opacity-80">{historyItem.ProductID}</p>
+                      <h3 className="font-black text-lg md:text-xl tracking-tight truncate">{historyItem.ProductName}</h3>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[11px]">
+                        <span className="px-2 py-0.5 rounded-full bg-white/20 border border-white/30 font-semibold">{historyItem.DeviceType}</span>
+                        <span className="font-mono opacity-80">ID {historyItem.ProductID}</span>
+                        <span className="opacity-80">· ที่เก็บ {historyItem.Location || 'ยังไม่ระบุ'}</span>
+                        <span className="opacity-80">· คงเหลือ {historyStock ?? '—'} ชิ้น</span>
+                      </div>
                     </div>
                     <button onClick={() => setHistoryItem(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
                   </div>
                 </div>
-                <div className="p-4 md:p-5 bg-slate-50/50 max-h-[60vh] overflow-y-auto">
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
-                    <table className="w-full text-left text-xs table-auto min-w-max">
+                {(() => {
+                  const isInRow = (h) => (h.TransType || '').toUpperCase().trim() === 'IN' || (h.RefInfo || '').toLowerCase().includes('invoice');
+                  const isAdjRow = (h) => (h.TransType || '').toUpperCase().trim() === 'ADJ' || (h.RefInfo || '').includes('Adjust') || (h.RefInfo || '').startsWith('ADJ');
+                  const outTotal = historyData.filter(h => !isInRow(h) && !isAdjRow(h) && !h.ReturnOf).reduce((s, h) => s + Math.abs(Number(h.Qty) || 0), 0);
+                  const returnTotal = historyData.filter(h => h.ReturnOf).reduce((s, h) => s + Math.abs(Number(h.Qty) || 0), 0);
+                  const tiles = [
+                    { label: 'รายการทั้งหมด', value: historyData.length, tone: 'text-slate-700' },
+                    { label: 'เบิกรวม (ชิ้น)', value: outTotal, tone: 'text-red-500' },
+                    { label: 'คืนรวม (ชิ้น)', value: returnTotal, tone: 'text-emerald-600' },
+                    { label: 'คงเหลือ (ชิ้น)', value: historyStock ?? '—', tone: 'text-indigo-600' },
+                  ];
+                  return (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-4 md:px-5 pt-4 bg-slate-50/50">
+                      {tiles.map(t => (
+                        <div key={t.label} className="bg-white rounded-xl border border-slate-200 px-3 py-2">
+                          <p className="text-[11px] text-slate-500">{t.label}</p>
+                          <p className={`text-lg font-bold tabular-nums ${t.tone}`}>{t.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+                <div className="p-3 md:p-4 bg-slate-50/50 max-h-[44vh] overflow-y-auto">
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <table className="w-full text-left text-xs table-fixed [&_th]:px-2 [&_th]:py-2.5 [&_td]:px-2 [&_td]:py-2.5">
+                      <colgroup>
+                        <col className="w-[12%]" />
+                        <col className="w-[7%]" />
+                        <col className="w-[25%]" />
+                        <col className="w-[11%]" />
+                        <col className="w-[11%]" />
+                        <col className="w-[11%]" />
+                        <col className="w-[12%]" />
+                        <col className="w-[11%]" />
+                      </colgroup>
                       <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs font-bold text-slate-500 tracking-wider">
                         <tr>
                           <th className="p-4 whitespace-nowrap">วันที่</th>
@@ -1180,23 +1365,43 @@ const handleFileUpload = async (file) => {
                           <th className="p-4 whitespace-nowrap">เบิกให้</th>
                           <th className="p-4 whitespace-nowrap">S/N</th>
                           <th className="p-4 whitespace-nowrap">รหัสครุภัณฑ์</th>
+                          <th className="p-4 text-center whitespace-nowrap">คืนของ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
                         {historyData.map((h, i) => (
                           <motion.tr key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} className="hover:bg-slate-50/50 transition-colors">
                             <td className="p-4 text-slate-600 font-medium whitespace-nowrap">{formatThaiDate(h.TransDate)}</td>
-                            <td className={`p-4 text-center font-bold font-mono whitespace-nowrap ${(h.TransType || '').toUpperCase().trim() === 'IN' || (h.RefInfo || '').toLowerCase().includes('invoice') ? 'text-emerald-600' : 'text-red-500'}`}>
-                              {(h.TransType || '').toUpperCase().trim() === 'IN' || (h.RefInfo || '').toLowerCase().includes('invoice') ? '+' : '-'}{Math.abs(h.Qty)}
+                            <td className="p-4 text-center whitespace-nowrap">
+                              {(() => {
+                                const inRow = (h.TransType || '').toUpperCase().trim() === 'IN' || (h.RefInfo || '').toLowerCase().includes('invoice');
+                                return <span className={`inline-block min-w-[3rem] px-2 py-0.5 rounded-full border text-xs font-bold font-mono tabular-nums ${inRow ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-600 border-red-200'}`}>{inRow ? '+' : '-'}{Math.abs(h.Qty)}</span>;
+                              })()}
                             </td>
-                            <td className="p-4 text-indigo-600 font-medium whitespace-nowrap">{h.RefInfo}</td>
+                            <td className="p-4 text-slate-700 break-words">{h.RefInfo || '—'}</td>
                             <td className="p-4 text-xs text-slate-400 whitespace-nowrap uppercase">{(h.UserID || '-').toUpperCase()}</td>
                             <td className="p-4 text-slate-600 font-medium whitespace-nowrap">{h.EmployeeName || '-'}</td>
-                            <td className="p-4 text-slate-500 font-mono text-xs whitespace-nowrap">{h.SerialNumber || '-'}</td>
-                            <td className="p-4 text-slate-500 font-mono text-xs whitespace-nowrap">{h.FixedAssetCode || '-'}</td>
+                            <td className="p-4 text-slate-500 font-mono text-xs break-all">{h.SerialNumber || '-'}</td>
+                            <td className="p-4 text-slate-500 font-mono text-xs break-all">{h.FixedAssetCode || '-'}</td>
+                            <td className="p-4 text-center whitespace-nowrap">
+                              {h.ReturnOf ? (
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">คืนของ (จากการเบิก #{h.ReturnOf})</span>
+                              ) : h.ReturnedAt ? (
+                                <span className="text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">คืนแล้ว</span>
+                              ) : isReturnableRow(h, isAdminUser) && canReturn ? (
+                                <button
+                                  onClick={() => { setReturnTarget(h); setReturnReason(''); }}
+                                  className="text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 shadow-sm px-3 py-1.5 rounded-lg transition-all"
+                                >
+                                  คืนของ
+                                </button>
+                              ) : (
+                                <span className="text-slate-300">-</span>
+                              )}
+                            </td>
                           </motion.tr>
                         ))}
-                        {historyData.length === 0 && <tr><td colSpan="7" className="p-8 text-center text-slate-400">ไม่มีประวัติ</td></tr>}
+                        {historyData.length === 0 && <tr><td colSpan="8" className="p-8 text-center text-slate-400">ไม่มีประวัติ</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -1207,84 +1412,98 @@ const handleFileUpload = async (file) => {
               </motion.div>
             </div>
           </Portal>
-        )}
+          );
+        })()}
 
         {/* ✅ EDIT MODAL — ย้ายมาอยู่ใน JSX return ถูกต้องแล้ว */}
         {editItem && (
           <Portal>
             <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="w-full max-w-[480px] bg-white rounded-2xl border border-slate-200/80 shadow-xl overflow-hidden">
-                <div className="flex items-start gap-3 px-5 py-4 border-b border-slate-100">
-                  <div className={`w-11 h-11 rounded-xl shrink-0 flex items-center justify-center overflow-hidden ${getDeviceTypeColor(editItem.DeviceType).bg}`}>
-                    {editItem.ImageURL ? <img loading="lazy" src={`${API_URL}${editItem.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Package size={20} className={getDeviceTypeColor(editItem.DeviceType).text} />}
+              <motion.div initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl ring-1 ring-black/5 overflow-hidden">
+                <div className="relative overflow-hidden flex items-start gap-3 px-5 py-5 bg-gradient-to-br from-indigo-600 via-indigo-600 to-violet-600 text-white">
+                  <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+                  <div className="relative w-14 h-14 rounded-2xl shrink-0 flex items-center justify-center overflow-hidden bg-white shadow-lg">
+                    <Package size={20} className={`absolute inset-0 m-auto ${getDeviceTypeColor(editItem.DeviceType).text}`} />
+                    {editItem.ImageURL && <img loading="lazy" src={`${API_URL}${editItem.ImageURL}`} alt="" className="relative w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />}
                   </div>
                   <div className="flex-1 min-w-0 pt-0.5">
-                    <p className="text-[11px] text-slate-400 mb-0.5">แก้ไขอุปกรณ์</p>
-                    <h3 className="text-[15px] font-semibold text-slate-800 leading-snug truncate">{editItem.ProductName}</h3>
-                    <span className="text-[11px] text-slate-400 font-mono">{editItem.ProductID}</span>
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-200 mb-0.5">แก้ไขอุปกรณ์</p>
+                    <h3 className="text-[16px] font-bold leading-snug truncate">{editItem.ProductName}</h3>
+                    <span className="text-[11px] text-indigo-200 font-mono">ID {editItem.ProductID}</span>
                   </div>
-                  <button onClick={() => setEditItem(null)} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors mt-0.5 shrink-0"><X size={15} /></button>
+                  <button onClick={() => setEditItem(null)} className="relative w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-colors shrink-0"><X size={15} /></button>
                 </div>
                 <form onSubmit={handleUpdate}>
-                  <div className="max-h-[62vh] overflow-y-auto">
-                    <div className="px-5 pt-3 pb-1"><span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">ข้อมูลทั่วไป</span></div>
-                    <div className="divide-y divide-slate-100 border-y border-slate-100">
-                      <InlineRow label="ชื่ออุปกรณ์"><input name="ProductName" defaultValue={editItem.ProductName} required className={inlineCls} /></InlineRow>
-                      <InlineRow label="หมวดหมู่">
-                        <select name="DeviceType" defaultValue={editItem.DeviceType} className={inlineCls}>
-                          {deviceTypes.map(t => <option key={t.TypeId} value={t.TypeId}>{t.Label}</option>)}
-                        </select>
-                      </InlineRow>
-                      <InlineRow label="ราคา/หน่วย">
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[13px] pointer-events-none">฿</span>
-                          <input name="LastPrice" type="number" step="0.01" defaultValue={editItem.LastPrice} className={`${inlineCls} pl-6 font-mono`} />
-                        </div>
-                      </InlineRow>
-                      <InlineRow label="รูปอุปกรณ์">
-                        <input type="file" name="imageFile" accept="image/*" className="w-full text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[11px] file:font-semibold file:bg-slate-100 file:text-slate-600 hover:file:bg-slate-200 cursor-pointer" />
-                      </InlineRow>
-                    </div>
-                    <div className="px-5 pt-3 pb-1"><span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">สต็อค</span></div>
-                    <div className="divide-y divide-slate-100 border-y border-slate-100">
-                      <InlineRow label="คงเหลือ"><input name="CurrentStock" type="number" defaultValue={editItem.CurrentStock} className={`${inlineCls} font-mono`} /></InlineRow>
-                      <InlineRow label="ขั้นต่ำ / สูงสุด">
+                  <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* ซ้าย: ข้อมูลสินค้า */}
+                    <section className="space-y-3">
+                      <h4 className="text-[11px] font-bold uppercase tracking-widest text-indigo-500">ข้อมูลสินค้า</h4>
+                      <Field label="ชื่ออุปกรณ์"><input name="ProductName" defaultValue={editItem.ProductName} required className={inlineCls} /></Field>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="หมวดหมู่">
+                          <select name="DeviceType" defaultValue={editItem.DeviceType} className={inlineCls}>
+                            {deviceTypes.map(t => <option key={t.TypeId} value={t.TypeId}>{t.Label}</option>)}
+                          </select>
+                        </Field>
+                        <Field label="ราคา/หน่วย">
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[13px] pointer-events-none">฿</span>
+                            <input name="LastPrice" type="number" step="0.01" defaultValue={editItem.LastPrice} className={`${inlineCls} pl-6 font-mono`} />
+                          </div>
+                        </Field>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="ที่เก็บ">
+                          <select name="Location" defaultValue={editItem.Location || ''} className={inlineCls}>
+                            <option value="">-- ระบุตำแหน่ง --</option>
+                            {locations.map(loc => <option key={loc.LocationID} value={loc.Name}>{loc.Name}</option>)}
+                          </select>
+                        </Field>
+                        <Field label="บาร์โค้ด">
+                          <div className="relative">
+                            <ScanLine size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            <input name="BarcodeID" defaultValue={editItem.BarcodeID || ''} placeholder="สแกนหรือพิมพ์" className={`${inlineCls} pl-7 font-mono`} />
+                          </div>
+                        </Field>
+                      </div>
+                      <Field label="รูปอุปกรณ์">
+                        <input type="file" name="imageFile" accept="image/*" className="w-full text-[11px] text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[11px] file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer" />
+                      </Field>
+                    </section>
+
+                    {/* ขวา: สต็อค & ผู้ขาย */}
+                    <section className="space-y-3">
+                      <h4 className="text-[11px] font-bold uppercase tracking-widest text-indigo-500">สต็อค & ผู้ขาย</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="คงเหลือ">
+                          <div>
+                            <span className="block px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-[13px] font-mono font-bold text-slate-700">{editItem.CurrentStock}</span>
+                            <span className="block text-[10px] text-slate-400 mt-1">ปรับผ่านการนับ/เบิก/รับเข้า</span>
+                          </div>
+                        </Field>
+                        <Field label="ความสำคัญ"><PriorityPicker name="business_priority" defaultValue={editItem.business_priority ?? 3} /></Field>
+                      </div>
+                      <Field label="ขั้นต่ำ / สูงสุด">
                         <div className="flex items-center gap-2">
                           <input name="MinStock" type="number" defaultValue={editItem.MinStock} className={`${inlineCls} font-mono flex-1`} />
                           <span className="text-slate-300 text-[13px] shrink-0">—</span>
                           <input name="MaxStock" type="number" defaultValue={editItem.MaxStock || 0} className={`${inlineCls} font-mono flex-1`} />
                         </div>
-                      </InlineRow>
-                      <InlineRow label="ที่เก็บ">
-                        <select name="Location" defaultValue={editItem.Location || ''} className={inlineCls}>
-                          <option value="">-- ระบุตำแหน่ง --</option>
-                          {locations.map(loc => <option key={loc.LocationID} value={loc.Name}>{loc.Name}</option>)}
-                        </select>
-                      </InlineRow>
-                    </div>
-                    <div className="px-5 pt-3 pb-1"><span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">รายละเอียดเพิ่มเติม</span></div>
-                    <div className="divide-y divide-slate-100 border-y border-slate-100">
-                      <InlineRow label="ความสำคัญ"><PriorityPicker name="business_priority" defaultValue={editItem.business_priority ?? 3} /></InlineRow>
-                      <InlineRow label="บาร์โค้ด">
-                        <div className="relative">
-                          <ScanLine size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <input name="BarcodeID" defaultValue={editItem.BarcodeID || ''} placeholder="สแกนหรือพิมพ์บาร์โค้ด" className={`${inlineCls} pl-7 font-mono`} />
-                        </div>
-                      </InlineRow>
-                      <InlineRow label="Vendor">
+                      </Field>
+                      <Field label="Vendor">
                         <select name="VendorID" defaultValue={editItem.VendorID || ''} className={inlineCls}>
                           <option value="">-- ไม่ระบุ --</option>
                           {vendors.map(v => <option key={v.VendorID} value={v.VendorID}>{v.VendorName} ({v.lead_time_days ?? 7} วัน)</option>)}
                         </select>
-                      </InlineRow>
-                      <InlineRow label="Lead time (วัน)">
+                      </Field>
+                      <Field label="Lead time (วัน)">
                         <input type="number" name="lead_time_days" defaultValue={editItem.lead_time_days ?? 7} min={1} className={`${inlineCls} font-mono`} />
-                      </InlineRow>
-                    </div>
+                      </Field>
+                    </section>
                   </div>
-                  <div className="flex gap-2 px-4 py-3 border-t border-slate-100">
+                  <div className="flex gap-3 px-5 py-4 bg-slate-50 border-t border-slate-100">
                     <button type="button" onClick={() => setEditItem(null)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-[13px] py-2.5 rounded-xl transition-colors">ยกเลิก</button>
-                    <button type="submit" className="flex-[2] bg-teal-700 hover:bg-teal-800 text-white font-semibold text-[13px] py-2.5 rounded-xl transition-colors">บันทึกการแก้ไข</button>
+                    <button type="submit" className="flex-[2] bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold text-[13px] py-2.5 rounded-xl shadow-md shadow-indigo-200 transition-all">บันทึกการแก้ไข</button>
                   </div>
                 </form>
               </motion.div>
@@ -1324,7 +1543,7 @@ const handleFileUpload = async (file) => {
                   <button onClick={() => {
                     const printContents = document.getElementById('barcode-print-area').innerHTML;
                     const win = window.open('', '_blank', 'width=400,height=300');
-                    win.document.write(`<html><head><title>Barcode - ${escapeHtml(barcodeItem.ProductName)}</title><style>body{font-family:'Segoe UI',Arial,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0}.label{border:2px dashed #e2e8f0;border-radius:16px;padding:24px;display:flex;flex-direction:column;align-items:center;gap:12px}@media print{body{margin:0}.label{border:none}}</style></head><body><div class="label">${printContents}</div></body></html>`);
+                    win.document.write(`<html><head><title>Barcode - ${escapeHtml(barcodeItem.ProductName)}</title><style>body{font-family:'Sarabun','Segoe UI',Arial,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0}.label{border:2px dashed #e2e8f0;border-radius:16px;padding:24px;display:flex;flex-direction:column;align-items:center;gap:12px}@media print{body{margin:0}.label{border:none}}</style></head><body><div class="label">${printContents}</div></body></html>`);
                     win.document.close();
                     win.focus();
                     win.print();
@@ -1341,15 +1560,15 @@ const handleFileUpload = async (file) => {
         {detailItem && (
           <Portal>
             <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-              <motion.div initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="w-full max-w-[480px] bg-white rounded-2xl shadow-xl overflow-hidden">
+              <motion.div initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl ring-1 ring-black/5 overflow-hidden">
 
                 {/* ── Header gradient ── */}
-                <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden">
+                <div className="p-5 bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 text-white relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
                   <div className="flex items-center gap-3 relative z-10">
                     <div className="w-12 h-12 rounded-xl shrink-0 flex items-center justify-center overflow-hidden bg-white/20">
                       {detailItem.ImageURL
-                        ? <img loading="lazy" src={`${API_URL}${detailItem.ImageURL}`} alt="" className="w-full h-full object-cover" />
+                        ? <img loading="lazy" src={`${API_URL}${detailItem.ImageURL}`} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                         : <Package size={22} className="text-white" />
                       }
                     </div>
@@ -1391,46 +1610,49 @@ const handleFileUpload = async (file) => {
                   ))}
                 </div>
 
-                {/* ── Detail rows ── */}
-                <div>
-                  {/* ข้อมูลสินค้า */}
-                  <div className="px-4 pt-2 pb-0.5"><span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">ข้อมูลสินค้า</span></div>
-                  <div className="border-t border-slate-100 divide-y divide-slate-100">
-                    {[
-                      { label: 'ชื่อสินค้า', value: detailItem.ProductName },
-                      { label: 'หมวดหมู่', value: detailItem.DeviceType },
-                      { label: 'บาร์โค้ด', value: detailItem.BarcodeID || '—', mono: true },
-                      { label: 'ที่เก็บ', value: detailItem.Location || 'ไม่ได้ระบุ' },
-                      { label: 'หน่วยนับ', value: detailItem.UnitOfMeasure || '—' },
-                    ].map(({ label, value, mono }) => (
-                      <div key={label} className="flex items-center px-4 py-2">
-                        <span className="text-[12px] text-slate-400 w-24 shrink-0">{label}</span>
-                        <span className={`text-[12px] font-medium text-slate-800 ${mono ? 'font-mono' : ''}`}>{value}</span>
-                      </div>
-                    ))}
-                  </div>
+                {/* ── Detail: 2 คอลัมน์ ── */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4">
+                  {/* ซ้าย: ข้อมูลสินค้า */}
+                  <section className="rounded-2xl border border-slate-100 bg-white p-4">
+                    <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-indigo-500">ข้อมูลสินค้า</h3>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                      {[
+                        { label: 'ชื่อสินค้า', value: detailItem.ProductName, span: true },
+                        { label: 'หมวดหมู่', value: detailItem.DeviceType },
+                        { label: 'หน่วยนับ', value: detailItem.UnitOfMeasure || '—' },
+                        { label: 'บาร์โค้ด', value: detailItem.BarcodeID || '—', mono: true, span: true },
+                        { label: 'ที่เก็บ', value: detailItem.Location || 'ไม่ได้ระบุ', span: true },
+                      ].map(({ label, value, mono, span }) => (
+                        <div key={label} className={span ? 'col-span-2' : ''}>
+                          <dt className="text-[11px] text-slate-400">{label}</dt>
+                          <dd className={`text-[13px] font-medium text-slate-800 break-words ${mono ? 'font-mono' : ''}`}>{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
 
-                  {/* ราคา & Vendor */}
-                  <div className="px-4 pt-2 pb-0.5"><span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">ราคา & Vendor</span></div>
-                  <div className="border-t border-slate-100 divide-y divide-slate-100">
-                    {[
-                      { label: 'ราคาต่อหน่วย', value: detailItem.LastPrice != null ? `฿${detailItem.LastPrice.toLocaleString()}` : '—' },
-                      { label: 'มูลค่าสต็อค', value: detailItem.LastPrice != null ? `฿${(detailItem.LastPrice * detailItem.CurrentStock).toLocaleString()}` : '—', accent: true },
-                      { label: 'Vendor', value: detailItem.VendorName || detailItem.VendorID || '—' },
-                      { label: 'Lead time', value: detailItem.lead_time_days ? `${detailItem.lead_time_days} วัน` : '—' },
-                    ].map(({ label, value, accent }) => (
-                      <div key={label} className="flex items-center px-4 py-2">
-                        <span className="text-[12px] text-slate-400 w-24 shrink-0">{label}</span>
-                        <span className={`text-[12px] font-medium ${accent ? 'text-indigo-600' : 'text-slate-800'}`}>{value}</span>
-                      </div>
-                    ))}
-                  </div>
+                  {/* ขวา: ราคา & Vendor */}
+                  <section className="rounded-2xl border border-slate-100 bg-white p-4">
+                    <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-indigo-500">ราคา & Vendor</h3>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                      {[
+                        { label: 'ราคาต่อหน่วย', value: detailItem.LastPrice != null ? `฿${detailItem.LastPrice.toLocaleString()}` : '—' },
+                        { label: 'มูลค่าสต็อค', value: detailItem.LastPrice != null ? `฿${(detailItem.LastPrice * detailItem.CurrentStock).toLocaleString()}` : '—', accent: true },
+                        { label: 'Vendor', value: detailItem.VendorName || vendors.find(v => v.VendorID === detailItem.VendorID)?.VendorName || '—', span: true },
+                        { label: 'Lead time', value: detailItem.lead_time_days ? `${detailItem.lead_time_days} วัน` : '—' },
+                      ].map(({ label, value, accent, span }) => (
+                        <div key={label} className={span ? 'col-span-2' : ''}>
+                          <dt className="text-[11px] text-slate-400">{label}</dt>
+                          <dd className={`text-[13px] font-semibold break-words ${accent ? 'text-indigo-600' : 'text-slate-800'}`}>{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
 
-                  {/* ความสำคัญ & สถานะ */}
-                  <div className="px-4 pt-2 pb-0.5"><span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">ความสำคัญ & สถานะ</span></div>
-                  <div className="border-t border-slate-100 divide-y divide-slate-100">
-                    <div className="flex items-center px-4 py-2">
-                      <span className="text-[12px] text-slate-400 w-24 shrink-0">ความสำคัญ</span>
+                  {/* ล่างเต็มแถว: ความสำคัญ & สถานะ */}
+                  <section className="md:col-span-2 rounded-2xl border border-slate-100 bg-slate-50/60 p-4 flex flex-wrap items-center gap-x-8 gap-y-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-[11px] text-slate-400">ความสำคัญ</span>
                       <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${detailItem.business_priority === 1 ? 'bg-red-50 text-red-700 border-red-200' :
                         detailItem.business_priority === 2 ? 'bg-orange-50 text-orange-700 border-orange-200' :
                           detailItem.business_priority === 4 ? 'bg-green-50 text-green-700 border-green-200' :
@@ -1439,19 +1661,20 @@ const handleFileUpload = async (file) => {
                         {(['', 'Critical', 'High', 'Medium', 'Low'][detailItem.business_priority]) ?? 'Medium'}
                       </span>
                     </div>
-                    <div className="flex items-center px-4 py-2">
-                      <span className="text-[12px] text-slate-400 w-24 shrink-0">สถานะสต็อค</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[11px] text-slate-400">สถานะสต็อค</span>
                       {detailItem.CurrentStock <= detailItem.MinStock && detailItem.MinStock > 0
                         ? <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">ต่ำกว่าขั้นต่ำ</span>
                         : <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">ปกติ</span>
                       }
                     </div>
-                  </div>
+                  </section>
                 </div>
 
                 {/* ── Footer ── */}
-                <div className="px-4 pb-4 pt-3 border-t border-slate-100">
-                  <button onClick={() => setDetailItem(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-[13px] py-2.5 rounded-xl transition-colors">ปิด</button>
+                <div className="px-4 pb-4 pt-3 border-t border-slate-100 flex gap-2">
+                  {canAdjust && <button onClick={() => { setAdjustItem(detailItem); }} className="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[13px] py-2.5 rounded-xl transition-colors">ปรับยอดคงเหลือ</button>}
+                  <button onClick={() => setDetailItem(null)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-[13px] py-2.5 rounded-xl transition-colors">ปิด</button>
                 </div>
 
               </motion.div>
@@ -1502,15 +1725,15 @@ const handleFileUpload = async (file) => {
           {qtyModal.isOpen && qtyModal.product && (
             <Portal>
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
-                <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className={`w-full ${qtyModal.product.DeviceType === 'Asset' ? 'max-w-2xl' : 'max-w-sm'} bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-all`}>
-                  <div className="p-4 bg-slate-800 text-white flex justify-between items-center">
-                    <h3 className="font-bold flex items-center gap-2">
+                <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className={`w-full ${qtyModal.product.DeviceType === 'Asset' ? 'max-w-4xl' : 'max-w-xl'} bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-all`}>
+                  <div className="relative overflow-hidden p-5 bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-600 text-white flex justify-between items-center">
+                    <h3 className="font-bold text-[15px] flex items-center gap-2">
                       {qtyModal.mode === 'cart' ? <ShoppingCart size={18} /> : <ShoppingBag size={18} />}
                       {qtyModal.mode === 'cart' ? 'เพิ่มลงตะกร้า' : 'เบิกด่วน'}
                     </h3>
                     <button onClick={() => setQtyModal({ isOpen: false, product: null, mode: 'cart' })} className="p-1 hover:bg-white/20 rounded-full"><X size={18} /></button>
                   </div>
-                  <div className="p-4 bg-slate-50 border-b border-slate-100 flex gap-3">
+                  <div className="p-3 bg-slate-50 border-b border-slate-100 flex gap-3">
                     <div id="qty-modal-thumb" className={`w-12 h-12 rounded-lg bg-gradient-to-br ${getColorGradient(qtyModal.product.DeviceType)} flex items-center justify-center overflow-hidden`}>
                       {qtyModal.product.ImageURL ? <img loading="lazy" src={`${API_URL}${qtyModal.product.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Package size={20} className="text-white" />}
                     </div>
@@ -1522,8 +1745,72 @@ const handleFileUpload = async (file) => {
                       </div>
                     </div>
                   </div>
-                  <div className="flex overflow-y-auto">
-                  <div className="p-5 space-y-5 flex-1 min-w-0">
+                  <div className="flex">
+                  {qtyModal.mode === 'withdraw' && qtyModal.product && (() => {
+                    const h = wdHistory.productId === qtyModal.product.ProductID ? wdHistory : { rows: [], loading: true };
+                    const now = new Date();
+                    const fmt = (d) => new Date(d).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+                    const monthQty = h.rows.filter(r => { const d = new Date(r.TransDate); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
+                      .reduce((s, r) => s + Math.abs(Number(r.Qty) || 0), 0);
+                    const last = h.rows[0];
+                    return (
+                      <aside className="w-64 shrink-0 border-r border-slate-200 bg-slate-100/80 p-3 space-y-2.5 text-[12px] select-none">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">ข้อมูลอ้างอิง · ดูอย่างเดียว</p>
+                      <div className="rounded-xl bg-white border border-slate-200 p-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-600">คงเหลือ</span>
+                          <span className="text-lg font-black tabular-nums text-slate-800">{qtyModal.product.CurrentStock}</span>
+                        </div>
+                        {(() => {
+                          const cur = Number(qtyModal.product.CurrentStock) || 0;
+                          const min = Number(qtyModal.product.MinStock) || 0;
+                          const max = Math.max(Number(qtyModal.product.MaxStock) || 0, min, cur, 1);
+                          const pct = (v) => Math.min(100, (v / max) * 100);
+                          const low = min > 0 && cur <= min;
+                          return (
+                            <>
+                              <div className="relative mt-2 h-2 rounded-full bg-slate-100">
+                                <div className={`absolute inset-y-0 left-0 rounded-full ${low ? 'bg-red-400' : 'bg-emerald-400'}`} style={{ width: `${pct(cur)}%` }} />
+                                {min > 0 && <div className="absolute -top-1 -bottom-1 w-0.5 bg-slate-500" style={{ left: `${pct(min)}%` }} title="ขั้นต่ำ" />}
+                              </div>
+                              <div className="mt-1.5 flex justify-between text-[10px] text-slate-400">
+                                <span>ขั้นต่ำ {min}</span>
+                                <span>สูงสุด {Number(qtyModal.product.MaxStock) || '-'}</span>
+                              </div>
+                              <p className="mt-2 text-[11px] text-slate-500">หลังเบิก <b className="text-slate-800">{Math.max(0, cur - selectQty)}</b> ชิ้น</p>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                        <div className="flex items-center justify-between gap-2 font-bold text-slate-600">
+                          <span>ประวัติการเบิก {h.loading ? '…' : `(${h.rows.length} ครั้ง)`}</span>
+                          {!h.loading && last && <span className="font-normal text-slate-400">เดือนนี้ {monthQty} ชิ้น</span>}
+                        </div>
+                        <div className="rounded-xl bg-white/70 border border-slate-200 p-3">
+                          {h.loading ? <p className="py-2 text-slate-400">กำลังโหลด…</p> : h.rows.length === 0 ? <p className="py-2 text-slate-400">ยังไม่เคยเบิกอุปกรณ์นี้</p> : (
+                            <>
+                              <p className="text-[11px] text-slate-500 mb-1">ล่าสุด {fmt(last.TransDate)} โดย <span className="font-bold text-slate-700">{last.EmployeeName || last.UserID}</span></p>
+                              <ul className="divide-y divide-slate-100">
+                                {h.rows.slice(0, 5).map(r => (
+                                  <li key={r.TransID} className="py-1.5 flex items-center gap-2">
+                                    <span className="text-slate-400 w-16 shrink-0 tabular-nums">{fmt(r.TransDate)}</span>
+                                    <span className="flex-1 min-w-0">
+                                      <span className="block truncate font-medium text-slate-700">{r.EmployeeName || r.UserID}</span>
+                                      {r.CostCenter && <span className="block text-[10px] text-slate-400">แผนก {r.CostCenter}</span>}
+                                    </span>
+                                    <span className="font-bold tabular-nums text-slate-700">{Math.abs(Number(r.Qty) || 0)}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </>
+                          )}
+                        </div>
+                      </aside>
+                    );
+                  })()}
+                  <div className="p-4 space-y-3 flex-1 min-w-0 bg-white">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 -mb-2">กรอกข้อมูลการเบิก</p>
                     <div className="flex items-center gap-4 justify-center">
                       <button onClick={() => setSelectQty(Math.max(1, selectQty - 1))} disabled={qtyModal.product.DeviceType === 'Asset'} className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center hover:bg-slate-50 shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"><Minus size={16} /></button>
                       <div className="text-center">
@@ -1532,12 +1819,15 @@ const handleFileUpload = async (file) => {
                       </div>
                       <button onClick={() => setSelectQty(Math.min(qtyModal.product.CurrentStock, selectQty + 1))} disabled={qtyModal.product.DeviceType === 'Asset'} className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center hover:bg-slate-50 shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"><Plus size={16} /></button>
                     </div>
+                    <p className="text-center text-[11px] text-slate-400 -mt-3">
+                      {qtyModal.product.DeviceType === 'Asset' ? 'คงเหลือ 1 ชิ้นต่อ S/N' : `คงเหลือหลังเบิก ${Math.max(0, qtyModal.product.CurrentStock - selectQty)} ชิ้น`}
+                    </p>
                     {qtyModal.product.DeviceType === 'Asset' && (
                       <p className="text-center text-[15px] text-amber-600 font-medium -mt-3">Asset เบิกได้ครั้งละ 1 ชิ้นต่อ S/N</p>
                     )}
                     <div className="space-y-3">
                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">เหตุผลการเบิก</label>
-                      <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
                         {reasonOptions.map((opt) => (
                           <label key={opt.ReasonID} className={`flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-all ${selectedReason === opt.Label ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:border-indigo-200'}`}>
                             <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedReason === opt.Label ? 'border-indigo-500' : 'border-slate-300'}`}>
@@ -1550,20 +1840,28 @@ const handleFileUpload = async (file) => {
                       </div>
                       <div className="pt-2">
                         <div className="flex items-center gap-2 mb-1.5 opacity-70"><FileEdit size={12} /><span className="text-xs font-bold">รายละเอียดเพิ่มเติม <span className="text-red-500">*</span></span></div>
-                        <textarea value={reasonDetail} onChange={(e) => setReasonDetail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-100 outline-none resize-none h-20" placeholder="เช่น ระบุชื่อโปรเจกต์ หรือหมายเลขแจ้งซ่อม..." />
+                        <textarea value={reasonDetail} onChange={(e) => setReasonDetail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-100 outline-none resize-none h-14" placeholder="เช่น ระบุชื่อโปรเจกต์ หรือหมายเลขแจ้งซ่อม..." />
                       </div>
                       {/* ✅ S/N + รหัสครุภัณฑ์ + รหัสพนักงาน (Asset) ย้ายไปคอลัมน์ขวา ดูด้านล่าง */}
                       {qtyModal.mode === 'withdraw' && qtyModal.product.DeviceType !== 'Asset' && (
                         <div className="pt-2">
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">ค้นหาชื่อผู้ใช้งานจริง (ที่ไม่ใช่ไอที) ด้วยรหัสพนักงาน</label>
-                          {!empData ? (
+                          {user?.empcode && (
+                            <label className="flex items-center gap-2 mb-2 cursor-pointer select-none">
+                              <input type="checkbox" checked={selfUse} onChange={(e) => { setSelfUse(e.target.checked); if (e.target.checked) resetEmpLookup(); }} className="w-4 h-4 accent-indigo-600" />
+                              <span className="text-xs font-bold text-slate-600">เบิกใช้เอง (ผู้ login: {user?.name || user?.empcode})</span>
+                            </label>
+                          )}
+                          {!selfUse && <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">ค้นหาชื่อผู้ใช้งานจริง (ที่ไม่ใช่ไอที) ด้วยรหัสพนักงาน</label>}
+                          {selfUse ? null : !empData ? (
                             <>
                               <div className="flex gap-2">
                                 <input
                                   type="text"
                                   value={empCode}
                                   onChange={(e) => { setEmpCode(e.target.value); setEmpError(''); }}
-                                  placeholder="รหัสพนักงาน..."
+                                  onKeyDown={(e) => { if (e.key === 'Enter' && empCode.trim() && !empLoading) { e.preventDefault(); lookupEmployee(); } }}
+                                  placeholder="รหัสพนักงาน แล้วกด Enter"
+                                  autoComplete="off"
                                   className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-100 outline-none"
                                 />
                                 <button
@@ -1634,15 +1932,23 @@ const handleFileUpload = async (file) => {
                       {/* ✅ รหัสพนักงาน — ย้ายมาอยู่คอลัมน์ขวาด้วยเมื่อเป็น Asset */}
                       {qtyModal.mode === 'withdraw' && (
                         <div className="pt-2 border-t border-slate-200">
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">ค้นหาชื่อผู้ใช้งานจริง (ที่ไม่ใช่ไอที) ด้วยรหัสพนักงาน</label>
-                          {!empData ? (
+                          {user?.empcode && (
+                            <label className="flex items-center gap-2 mb-2 cursor-pointer select-none">
+                              <input type="checkbox" checked={selfUse} onChange={(e) => { setSelfUse(e.target.checked); if (e.target.checked) resetEmpLookup(); }} className="w-4 h-4 accent-indigo-600" />
+                              <span className="text-xs font-bold text-slate-600">เบิกใช้เอง (ผู้ login: {user?.name || user?.empcode})</span>
+                            </label>
+                          )}
+                          {!selfUse && <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">ค้นหาชื่อผู้ใช้งานจริง (ที่ไม่ใช่ไอที) ด้วยรหัสพนักงาน</label>}
+                          {selfUse ? null : !empData ? (
                             <>
                               <div className="flex flex-col gap-2">
                                 <input
                                   type="text"
                                   value={empCode}
                                   onChange={(e) => { setEmpCode(e.target.value); setEmpError(''); }}
-                                  placeholder="รหัสพนักงาน..."
+                                  onKeyDown={(e) => { if (e.key === 'Enter' && empCode.trim() && !empLoading) { e.preventDefault(); lookupEmployee(); } }}
+                                  placeholder="รหัสพนักงาน แล้วกด Enter"
+                                  autoComplete="off"
                                   className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-100 outline-none"
                                 />
                                 <button
@@ -1675,33 +1981,39 @@ const handleFileUpload = async (file) => {
                     </div>
                   )}
                   </div>
-                  <div className="p-4 bg-slate-50 border-t border-slate-100 grid grid-cols-2 gap-3">
+                  {(() => {
+                    const missing = [];
+                    if (qtyModal.mode === 'withdraw' && !(selfUse ? user?.empcode : empData)) missing.push('ผู้รับ (รหัสพนักงาน หรือเบิกใช้เอง)');
+                    if (!reasonDetail.trim()) missing.push('รายละเอียดเพิ่มเติม');
+                    if (qtyModal.product.DeviceType === 'Asset') {
+                      if (!isValidFixedAssetCode(assetFixedCode) || assetCodeCheck.status !== 'ok') missing.push('รหัสครุภัณฑ์ที่ถูกต้อง');
+                      if (!assetSerialNumber.trim()) missing.push('S/N');
+                    }
+                    return missing.length ? (
+                      <div className="px-4 pt-3 bg-slate-50 text-[12px] text-amber-700 flex items-start gap-1.5">
+                        <AlertTriangle size={13} className="mt-0.5 shrink-0" /> <span>ยังต้องกรอก: {missing.join(' · ')}</span>
+                      </div>
+                    ) : null;
+                  })()}
+                  <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-3">
                     <button onClick={() => setQtyModal({ isOpen: false, product: null, mode: 'cart' })}
-                      className="py-2 text-sm rounded-lg border border-slate-200 bg-white font-bold text-slate-500 hover:bg-slate-100 transition-all">
+                      className="px-5 py-2 text-sm rounded-lg border border-slate-200 bg-white font-bold text-slate-500 hover:bg-slate-100 transition-all">
                       ยกเลิก
                     </button>
 
-                    <div className="relative group">
+                    <div className="relative group shrink-0">
                         <button onClick={handleQtyConfirm}
                         disabled={
                           !reasonDetail.trim() ||
                           (qtyModal.product.DeviceType === 'Asset' && (!assetSerialNumber.trim() || !isValidFixedAssetCode(assetFixedCode))) ||
                           (qtyModal.product.DeviceType === 'Asset' && assetCodeCheck.status !== 'ok') ||   // ✅ เพิ่ม
-                          (qtyModal.mode === 'withdraw' && !empData)
+                          (qtyModal.mode === 'withdraw' && !(selfUse ? user?.empcode : empData))
                         }
-                        className={`w-full py-2 text-sm rounded-lg font-bold text-white shadow-md transition-all
+                        className={`px-6 py-2 min-w-[10rem] whitespace-nowrap text-sm rounded-lg font-bold text-white shadow-md transition-all
             disabled:opacity-40 disabled:cursor-not-allowed
             ${qtyModal.mode === 'cart' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
-                        {qtyModal.mode === 'cart' ? 'ยืนยัน' : 'เบิกเลย'}
+                        {qtyModal.mode === 'cart' ? 'ยืนยัน' : `เบิก ${qtyModal.product.DeviceType === 'Asset' ? 1 : selectQty} ชิ้น`}
                       </button>
-                      {(!reasonDetail.trim() || (qtyModal.mode === 'withdraw' && !empData)) && (
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50 whitespace-nowrap">
-                          <div className="bg-slate-800 text-white text-xs font-medium px-3 py-1.5 rounded-lg shadow-lg">
-                            ⚠️ {qtyModal.mode === 'withdraw' && !empData ? 'กรุณากรอกและค้นหารหัสพนักงานก่อน' : 'กรุณาใส่รายละเอียดก่อนยืนยัน'}
-                          </div>
-                          <div className="w-2 h-2 bg-slate-800 rotate-45 mx-auto -mt-1" />
-                        </div>
-                      )}
                     </div>
 
 

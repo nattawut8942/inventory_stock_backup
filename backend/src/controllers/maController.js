@@ -97,7 +97,7 @@ export const getMAHistory = async (req, res) => {
                     WHERE ItemID = @ItemID AND RenewalID IS NOT NULL AND IsDeleted = 0
                     ORDER BY AttachmentID`);
         const byRenewal = {};
-        for (const f of files.recordset) (byRenewal[f.RenewalID] ||= []).push(f);
+        for (const f of files.recordset) (byRenewal[f.RenewalID] = byRenewal[f.RenewalID] || []).push(f); // not ||= : the server runs an older Node
         res.json({
             events: events.recordset.map((e) => ({
                 ...e,
@@ -107,6 +107,35 @@ export const getMAHistory = async (req, res) => {
         });
     } catch (err) {
         console.error('Get MA History Error:', err);
+        res.status(500).json({ error: 'Database error' });
+    }
+};
+
+// GET /ma/history?limit=200&eventType=&q=  — ประวัติการเปลี่ยนแปลงของทุกรายการ (ใครทำอะไร)
+export const getMAAllHistory = async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
+    const eventType = ['CREATE', 'UPDATE', 'STATUS', 'RENEW_STEP', 'RENEW_COMPLETE', 'DELETE', 'ATTACH', 'DETACH'].includes(req.query.eventType)
+        ? req.query.eventType : null;
+    const q = String(req.query.q || '').trim();
+    try {
+        const result = await getPool().request()
+            .input('eventType', sql.NVarChar(30), eventType)
+            .input('q', sql.NVarChar(200), q ? `%${q}%` : null)
+            .query(`SELECT TOP ${limit}
+                        h.HistoryID, h.ItemID, h.EventType, h.Changes, h.Note, h.ActorUser,
+                        h.ClientIP, h.ClientMAC, h.CreatedAt,
+                        i.ItemName, i.Category, i.SubType, i.IsDeleted
+                    FROM dbo.MA_History h
+                    LEFT JOIN dbo.MA_Items i ON i.ItemID = h.ItemID
+                    WHERE (@eventType IS NULL OR h.EventType = @eventType)
+                      AND (@q IS NULL OR i.ItemName LIKE @q OR h.ActorUser LIKE @q)
+                    ORDER BY h.CreatedAt DESC, h.HistoryID DESC`);
+        res.json(result.recordset.map((e) => ({
+            ...e,
+            changes: e.Changes ? JSON.parse(e.Changes) : [],
+        })));
+    } catch (err) {
+        console.error('Get MA All History Error:', err);
         res.status(500).json({ error: 'Database error' });
     }
 };

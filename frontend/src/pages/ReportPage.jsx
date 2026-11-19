@@ -679,9 +679,16 @@ const ReportPage = () => {
             const ordered = (po.Items || []).reduce((s, i) => s + (Number(i.QtyOrdered) || 0) * (Number(i.UnitCost) || 0), 0);
             const received = (po.Items || []).reduce((s, i) => s + (Number(i.QtyReceived) || 0) * (Number(i.UnitCost) || 0), 0);
 
-            const budgetName = po.BudgetNo || 'ไม่ระบุ';
-            const b = budgetMap[budgetName] || (budgetMap[budgetName] = { name: budgetName, ordered: 0, received: 0, count: 0 });
-            b.ordered += ordered; b.received += received; b.count += 1;
+            // BG No. แยกตามรายการ (PO 1 ใบอาจมีหลาย BG)
+            const seenBg = new Set();
+            (po.Items || []).forEach((it) => {
+                const bgName = String(it.BG_No || '').trim() || 'ไม่ระบุ';
+                const ob = (Number(it.QtyOrdered) || 0) * (Number(it.UnitCost) || 0);
+                const rb = (Number(it.QtyReceived) || 0) * (Number(it.UnitCost) || 0);
+                const bb = budgetMap[bgName] || (budgetMap[bgName] = { name: bgName, ordered: 0, received: 0, count: 0 });
+                bb.ordered += ob; bb.received += rb;
+                if (!seenBg.has(bgName)) { seenBg.add(bgName); bb.count += 1; }
+            });
 
             const vendorName = po.VendorName || 'ไม่ระบุ';
             const v = vendorMap[vendorName] || (vendorMap[vendorName] = { name: vendorName, ordered: 0, count: 0, leadSum: 0, leadCount: 0, onTimeBase: 0, onTimeHit: 0 });
@@ -1001,7 +1008,7 @@ const ReportPage = () => {
         });
         const mixedUsers = Object.values(userCase).filter(s => s.size > 1).length;
 
-        const noBudgetPO = (purchaseOrders || []).filter(po => !String(po.BudgetNo || '').trim()).length;
+        const noBudgetPO = (purchaseOrders || []).filter(po => (po.Items || []).some(it => !String(it.BG_No || '').trim())).length;
         const noEndMA = (maItems || []).filter(m => m.Status !== 'Cancelled' && !m.EndDate).length;
         const noDeviceType = (products || []).filter(p => !p.DeviceType).length;
         const orphanTx = (transactions || []).filter(t => t.ProductID != null && !productById[t.ProductID]).length;
@@ -1062,9 +1069,12 @@ const ReportPage = () => {
 
     // ─── ความครบถ้วนของเลขงบประมาณใน PO ──────────────────────────────────────
     const budgetCoverage = useMemo(() => {
-        const pos = (purchaseOrders || []).filter(po => isInDateRange(po.RequestDate, filterDateRange, filterCustomStart, filterCustomEnd));
-        const withBudget = pos.filter(po => String(po.BudgetNo || '').trim() !== '').length;
-        return { total: pos.length, withBudget, pct: pos.length ? Math.round((withBudget / pos.length) * 100) : 0 };
+        // นับเป็นรายการ (บรรทัด) ที่มี BG No. ของ PO ในช่วงที่เลือก
+        const lines = (purchaseOrders || [])
+            .filter(po => isInDateRange(po.RequestDate, filterDateRange, filterCustomStart, filterCustomEnd))
+            .flatMap(po => po.Items || []);
+        const withBudget = lines.filter(it => String(it.BG_No || '').trim() !== '').length;
+        return { total: lines.length, withBudget, pct: lines.length ? Math.round((withBudget / lines.length) * 100) : 0 };
     }, [purchaseOrders, filterDateRange, filterCustomStart, filterCustomEnd]);
 
     // NEW: Withdrawals By Category
@@ -1458,6 +1468,29 @@ const ReportPage = () => {
                 })()}
             </motion.div>
 
+            {/* การเบิกแยกตามการใช้งาน: ใช้เอง (ไอที) / ผู้ใช้ทั่วไป */}
+            {(() => {
+                const outs = (transactions || []).filter(t => (t.TransType || '').toUpperCase() === 'OUT');
+                const isInt = (t) => t.IsInternal === 1 || t.IsInternal === true;
+                const internal = outs.filter(isInt);
+                const users = outs.filter(t => !isInt(t));
+                const qty = (arr) => arr.reduce((s, t) => s + (Number(t.Qty) || 0), 0);
+                return (
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                            <div className="text-xs font-bold text-violet-600">เบิกใช้เอง (ไอที)</div>
+                            <div className="text-2xl font-black text-slate-800 mt-1 tabular-nums">{internal.length.toLocaleString()} <span className="text-sm font-bold text-slate-400">รายการ</span></div>
+                            <div className="text-[11px] text-slate-400 mt-1">จำนวน {qty(internal).toLocaleString()} ชิ้น · แผนก 7510 หรือติ๊กใช้เอง</div>
+                        </div>
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                            <div className="text-xs font-bold text-indigo-600">เบิกให้ผู้ใช้ทั่วไป</div>
+                            <div className="text-2xl font-black text-slate-800 mt-1 tabular-nums">{users.length.toLocaleString()} <span className="text-sm font-bold text-slate-400">รายการ</span></div>
+                            <div className="text-[11px] text-slate-400 mt-1">จำนวน {qty(users).toLocaleString()} ชิ้น · ทั้งหมดในช่วงข้อมูลที่โหลด</div>
+                        </div>
+                    </div>
+                );
+            })()}
+
             {/* Stats Grid */}
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -1689,8 +1722,8 @@ const ReportPage = () => {
             <div className="bg-white rounded-2xl p-5 shadow-lg border border-slate-200">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <h3 className="font-bold text-slate-800 text-sm">🧾 ความครบถ้วนของเลขงบประมาณ (BudgetNo)</h3>
-                        <p className="text-[10px] text-slate-400">PO ที่มี BudgetNo {budgetCoverage.withBudget} จาก {budgetCoverage.total} รายการในช่วงวันที่ที่เลือก</p>
+                        <h3 className="font-bold text-slate-800 text-sm">🧾 ความครบถ้วนของ BG No. (รายการใน PO)</h3>
+                        <p className="text-[10px] text-slate-400">รายการที่มี BG No. {budgetCoverage.withBudget} จาก {budgetCoverage.total} รายการในช่วงวันที่ที่เลือก</p>
                     </div>
                     <div className="flex items-center gap-3">
                         <span className={`text-lg font-black ${budgetCoverage.pct >= 90 ? 'text-emerald-600' : budgetCoverage.pct >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{budgetCoverage.pct}%</span>
@@ -2303,7 +2336,6 @@ const ReportPage = () => {
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
                                         transition={{ delay: idx * 0.05 }}
-                                        className="border-b border-slate-100 hover:bg-slate-50"
                                     >
                                         <td className="py-3 px-3">
                                             <p className="font-medium text-slate-800 truncate max-w-[200px]">{item.ProductName}</p>

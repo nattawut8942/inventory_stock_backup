@@ -115,8 +115,10 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
     const ipDup = ipText && ipFormatOk ? cameras.find(c => c.ip_address === ipText && c.id !== data?.id) : null;
 
     // ปิดหน้าต่าง: ถ้ามีการแก้ไขที่ยังไม่บันทึก ให้ถามก่อน
+    const [askDiscard, setAskDiscard] = useState(false);   // กล่องยืนยันปิดโดยไม่บันทึก
+    const [deleteError, setDeleteError] = useState('');     // กล่องแจ้งลบไม่สำเร็จ
     const requestClose = () => {
-        if (touched && !window.confirm('มีการแก้ไขที่ยังไม่ได้บันทึก ต้องการปิดโดยไม่บันทึกหรือไม่?')) return;
+        if (touched) { setAskDiscard(true); return; }
         onClose();
     };
 
@@ -171,7 +173,7 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
             if (!r.ok || d.success === false) throw new Error(d.error || `HTTP ${r.status}`);
             onSave();
         } catch (err) {
-            window.alert(`ลบกล้องไม่สำเร็จ: ${err.message}`);
+            setDeleteError(`ลบกล้องไม่สำเร็จ: ${err.message}`);
         } finally { setLoading(false); }
     };
 
@@ -436,6 +438,9 @@ const CCTVFormModal = memo(function CCTVFormModal({ mode, data, layouts, racks, 
     return (
         <>
             {mainModal}
+            <AlertModal isOpen={askDiscard} type="confirm" title="ปิดโดยไม่บันทึก?" message="มีการแก้ไขที่ยังไม่ได้บันทึก ต้องการปิดโดยไม่บันทึกหรือไม่" confirmText="ปิดโดยไม่บันทึก" cancelText="กลับไปแก้ไข"
+              onConfirm={() => { setAskDiscard(false); onClose(); }} onCancel={() => setAskDiscard(false)} />
+            <AlertModal isOpen={!!deleteError} type="danger" title="ลบไม่สำเร็จ" message={deleteError} confirmText="ตกลง" onConfirm={() => setDeleteError('')} />
             {deleteConfirm && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', padding: 16 }}>
                     <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-5 text-center animate-in zoom-in-95">

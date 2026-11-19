@@ -29,14 +29,16 @@ export const getTasks = async (req, res) => {
         const pool = getPool();
         const request = pool.request();
 
+        // ช่วงที่ขอ: start รวม, end ไม่รวม (FullCalendar ส่ง end = วันถัดจากช่วงที่แสดง)
+        // งานที่ทับกับช่วงนี้ทั้งหมดจะถูกดึง รวมงานหลายวันที่เริ่มก่อนช่วงด้วย
         let where = 'WHERE 1=1';
         if (start) {
             request.input('start', sql.DateTime2, parseDateTime(start));
-            where += ' AND t.start_date >= @start';
+            where += ' AND COALESCE(t.end_date, t.start_date) >= @start';
         }
         if (end) {
             request.input('end', sql.DateTime2, parseDateTime(end));
-            where += ' AND t.start_date <= @end';
+            where += ' AND t.start_date < @end';
         }
         if (type) {
             request.input('type', sql.VarChar(20), type);
@@ -243,6 +245,8 @@ export const updateTask = async (req, res) => {
     try {
         const { task_title, start_date, end_date, task_type, description } = req.body;
         const pool = getPool();
+        if (!task_title || !start_date || !task_type)
+            return res.status(400).json({ success: false, error: 'task_title, start_date, task_type are required' });
 
         await pool.request()
             .input('id',          sql.Int,                 req.params.id)
@@ -269,6 +273,7 @@ export const updateTask = async (req, res) => {
 };
 
 // ─── DELETE /calendar/tasks/:id ───────────────────────────────────────────────
+// scope=series → ลบทั้งชุดของงานเกิดซ้ำ (ทุกวันที่ที่ใช้ recurrence_id เดียวกัน) ; ค่าอื่น/ไม่ส่ง → ลบเฉพาะรายการนี้
 export const deleteTask = async (req, res) => {
     try {
         const pool = getPool();
@@ -278,6 +283,19 @@ export const deleteTask = async (req, res) => {
 
         if (!chk.recordset.length)
             return res.status(404).json({ success: false, error: 'Task not found' });
+
+        const recurrenceId = chk.recordset[0].recurrence_id;
+        const series = req.query.scope === 'series' && recurrenceId != null;
+
+        if (series) {
+            const del = await pool.request()
+                .input('rid', sql.Int, recurrenceId)
+                .query(`DELETE FROM [dbo].[cal_tasks] WHERE recurrence_id = @rid`);
+            await pool.request()
+                .input('rid', sql.Int, recurrenceId)
+                .query(`DELETE FROM [dbo].[cal_recurrence] WHERE recurrence_id = @rid`);
+            return res.json({ success: true, message: `Deleted ${del.rowsAffected[0]} task(s) in series` });
+        }
 
         await pool.request()
             .input('id', sql.Int, req.params.id)

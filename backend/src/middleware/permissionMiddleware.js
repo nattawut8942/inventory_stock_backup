@@ -115,6 +115,19 @@ export const hasPermission = async (req, page, action) => {
     }
 };
 
+// Boolean version of requireDbAdmin for controllers that treat Admin differently (e.g. no time limit).
+export const isDbAdmin = async (req) => {
+    const user = identify(req);
+    if (!user?.empcode) return false;
+    try {
+        const access = await loadUserAccess(user.empcode);
+        return !!access.found && access.role === 'Admin';
+    } catch (err) {
+        console.error('[perm] admin lookup failed:', err.message);
+        return false;
+    }
+};
+
 // Admin check that reads the role from the database (not the token), so demoting an Admin
 // takes effect on the very next request. Used for the permission-management endpoints.
 export const requireDbAdmin = async (req, res, next) => {

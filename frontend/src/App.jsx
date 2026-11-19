@@ -63,7 +63,7 @@ const AppRoutes = () => {
 <Route path="activity" element={<ActivityPage />} />
                 <Route path="inventory" element={<InventoryPage />} />
                 <Route path="ink-toner" element={<InkTonerStockPage />} />
-                <Route path="/printer-health" element={<PrinterHealthPage />} />
+                <Route path="printer-health" element={<PrinterHealthPage />} />
                 <Route path="history" element={<HistoryPage />} />
                 <Route path="reports" element={<ReportPage />} />
                 <Route path="ma-license" element={<MALicensePage />} />
@@ -76,8 +76,7 @@ const AppRoutes = () => {
                 <Route path="ip-management" element={<IPManagementPage />} />
                 <Route path="it-request" element={<ITRequestPage />} />
                 <Route path="sound-layout" element={<SoundLayout />} />
-                <Route path="/knowledge-base" element={<KBPage />} />
-                <Route path="activity" element={<ActivityPage />} />
+                <Route path="knowledge-base" element={<KBPage />} />
                 {/* ✅ ระบบยืม-คืน IT — ครอบด้วย Layout (Sidebar+Header) เหมือนหน้าอื่นในกลุ่มนี้ทุกอัน */}
                 <Route path="borrowings" element={<ITBorrowSystem />} />
                 <Route path="pc-control" element={<PCControlPage />} />

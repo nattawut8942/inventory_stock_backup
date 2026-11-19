@@ -4,6 +4,7 @@ import { Printer, AlertTriangle, Wifi, WifiOff, RefreshCw, Droplet, Plus, X, His
 import { motion } from 'framer-motion';
 import { API_BASE } from '../config/api';
 import Portal from '../components/Portal';
+import AlertModal from '../components/AlertModal';
 import { formatThaiDate } from '../utils/formatDate';
 
 // backend เก็บเวลาเป็น UTC (SYSUTCDATETIME) แต่บางจุด driver คืนมาเป็น string ดิบ
@@ -416,6 +417,8 @@ const PrinterHealthPage = () => {
 
     useEffect(() => { fetchData(); }, []);
 
+    const [scanError, setScanError] = useState('');
+
     const scanPrinter = async (printerId) => {
         setScanningId(printerId);
         try {
@@ -424,7 +427,7 @@ const PrinterHealthPage = () => {
             await fetchData(); // ดึงข้อมูลล่าสุดมาแสดงหลังสแกนเสร็จ
         } catch (err) {
             console.error('Error scanning printer:', err);
-            alert('ดึงข้อมูลเครื่องนี้ไม่สำเร็จ ลองใหม่อีกครั้ง');
+            setScanError('ดึงข้อมูลเครื่องนี้ไม่สำเร็จ ลองใหม่อีกครั้ง');
         } finally {
             setScanningId(null);
         }
@@ -483,6 +486,14 @@ const PrinterHealthPage = () => {
 
     return (
         <div className="space-y-6">
+            <AlertModal
+                isOpen={!!scanError}
+                type="error"
+                title="ผิดพลาด"
+                message={scanError}
+                confirmText="ตกลง"
+                onConfirm={() => setScanError("")}
+            />
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
                 <StatCard icon={Printer} title="พรินเตอร์ทั้งหมด" value={totalPrinters} color="from-blue-500 to-blue-600" />
                 <StatCard icon={Wifi} title="ออนไลน์" value={onlineCount} color="from-emerald-500 to-emerald-600" />

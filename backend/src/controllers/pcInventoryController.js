@@ -69,6 +69,7 @@ export const getInventory = async (req, res) => {
                 i.[os_install_date],i.[last_boot],i.[uptime],i.[bios_version],
                 i.[gpu],i.[resolution],i.[user_count],i.[collected_at],i.[updated_at],
                 i.[fix_asset],i.[bitlocker],i.[bitlocker_key_c],i.[crowdstrike_ver],i.[tanium_ver],i.[uems_ver],i.[pc_status],
+                i.[disposal_status],i.[disposed_at],i.[disposed_by],i.[disposal_note],
                 i.[factory_layout_id],i.[location_x],i.[location_y],i.[location_updated_at],
                 i.[battery_status],i.[battery_percent],i.[battery_health],i.[battery_wear],
                 i.[battery_charging],i.[battery_cycle],i.[battery_name],i.[battery_voltage],
@@ -111,7 +112,7 @@ export const getInventoryByHostname = async (req, res) => {
                 [collected_at],[updated_at],
                 [fix_asset],[bitlocker],[bitlocker_key_c],[bitlocker_key_d],[bitlocker_pin],
                 [crowdstrike_ver],[tanium_ver],[uems_ver],
-                [pc_status],[wifi_ssid],[adapter_type],
+                [pc_status],[disposal_status],[disposed_at],[disposed_by],[disposal_note],[wifi_ssid],[adapter_type],
                 [battery_status],[battery_percent],[battery_health],[battery_wear],
                 [battery_charging],[battery_cycle],[battery_name],[battery_voltage],[battery_type],[battery_manufacturer],
                 -- ✅ NEW: added columns
@@ -226,6 +227,33 @@ export const updateStatus = async (req, res) => {
         request.input('pc_status', sql.NVarChar, pc_status);
         await request.query(`UPDATE dbo.info_pc_inventory SET pc_status=@pc_status WHERE hostname=@hostname`);
         res.json({ success: true, message: 'Status updated' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+// ─── PUT /pc-inventory/:hostname/disposal ───────────────────────────────────
+// ทำเครื่องหมายทำทิ้ง / ยกเลิกการทำทิ้ง (แยกจาก pc_status)
+export const updateDisposal = async (req, res) => {
+    try {
+        const disposed = req.body.disposed === true;
+        const note = String(req.body.note ?? '').trim().slice(0, 300) || null;
+        const by = String(req.body.updated_by ?? '').trim().slice(0, 120) || 'unknown';
+        const db = await getPool();
+        const request = db.request();
+        request.input('hostname', sql.NVarChar, req.params.hostname);
+        request.input('status', sql.VarChar(20), disposed ? 'Disposed' : null);
+        request.input('note', sql.NVarChar(300), disposed ? note : null);
+        request.input('by', sql.NVarChar(120), disposed ? by : null);
+        const r = await request.query(`
+            UPDATE dbo.info_pc_inventory
+            SET disposal_status = @status,
+                disposed_at = CASE WHEN @status IS NULL THEN NULL ELSE GETDATE() END,
+                disposed_by = @by,
+                disposal_note = @note
+            WHERE hostname = @hostname`);
+        if (!r.rowsAffected[0]) return res.status(404).json({ success: false, error: 'ไม่พบเครื่องนี้' });
+        res.json({ success: true, disposal_status: disposed ? 'Disposed' : null });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
@@ -363,7 +391,7 @@ export const getSummary = async (req, res) => {
     SELECT i.hostname, i.bitlocker, i.crowdstrike_ver, i.tanium_ver, i.uems_ver,
            i.os_release, i.os_build, i.computer_type, i.manufacturer, i.model, i.fix_asset,
            i.updated_at, i.bitlocker_key_c, i.battery_health, i.disk_info,
-           i.factory_layout_id, i.uptime, i.last_patch_kb, i.pc_status,
+           i.factory_layout_id, i.uptime, i.last_patch_kb, i.pc_status, i.disposal_status,
            i.last_patch_date, i.local_admin_users, i.disk_smart_info,
            fl.name AS location_name
     FROM dbo.info_pc_inventory i
@@ -372,18 +400,18 @@ export const getSummary = async (req, res) => {
         const data = baseResult.recordset;
 
         // ✅ เครื่องที่ยัง active อยู่ ใช้กรอง stat "ปัญหา" ทั้งหมด (ไม่รวม inactive)
-        const activeOnly = data.filter(r => r.pc_status !== 'Inactive');
+        const activeOnly = data.filter(r => r.pc_status !== 'Inactive' && r.disposal_status !== 'Disposed');
 
         const [inactivePCRes, lowDiskRes, lowBatteryRes] = await Promise.all([
             db.request().query(`
                 SELECT hostname FROM dbo.info_pc_inventory
                 WHERE updated_at < DATEADD(MONTH, -1, GETDATE())
-                  AND (pc_status IS NULL OR pc_status != 'Inactive')
+                  AND (pc_status IS NULL OR pc_status != 'Inactive') AND (disposal_status IS NULL OR disposal_status <> 'Disposed')
             `),
             db.request().query(`
                 SELECT hostname FROM dbo.info_pc_inventory
                 WHERE disk_info LIKE '%C:%'
-                  AND (pc_status IS NULL OR pc_status != 'Inactive')
+                  AND (pc_status IS NULL OR pc_status != 'Inactive') AND (disposal_status IS NULL OR disposal_status <> 'Disposed')
                   AND TRY_CAST(
                         SUBSTRING(
                             disk_info,
@@ -395,7 +423,7 @@ export const getSummary = async (req, res) => {
             db.request().query(`
                 SELECT hostname FROM dbo.info_pc_inventory
                 WHERE battery_health LIKE '%(%)%'
-                  AND (pc_status IS NULL OR pc_status != 'Inactive')
+                  AND (pc_status IS NULL OR pc_status != 'Inactive') AND (disposal_status IS NULL OR disposal_status <> 'Disposed')
                   AND TRY_CAST(
                         SUBSTRING(
                             battery_health,
@@ -419,7 +447,8 @@ export const getSummary = async (req, res) => {
         const noBlKeyNotebook = activeOnly.filter(r => isNotebook(r) && (!r.bitlocker_key_c || r.bitlocker_key_c.trim() === '')).map(r => r.hostname);
 
         // ✅ เพิ่ม stat ใหม่
-        const inactive = data.filter(r => r.pc_status === 'Inactive').map(r => r.hostname);
+        const inactive = data.filter(r => r.pc_status === 'Inactive' && r.disposal_status !== 'Disposed').map(r => r.hostname);
+        const disposed = data.filter(r => r.disposal_status === 'Disposed').map(r => r.hostname);
 
         const inactivePC = inactivePCRes.recordset.map(r => r.hostname);
         const lowBatteryHealth = lowBatteryRes.recordset.map(r => r.hostname);
@@ -537,6 +566,7 @@ export const getSummary = async (req, res) => {
             success: true,
             total: data.length,   // ✅ ยังนับรวมทุกเครื่อง (รวม inactive)
             inactive,              // ✅ เพิ่มเข้ามา
+            disposed,
             noEdr, noTanium, noUems, blDisabled, noAsset,
             noLocation, noBlKeyNotebook, inactivePC, lowBatteryHealth, lowDiskCSpace, oldFixAssets, longUptime,
             noRecentPatch, localAdmin, diskSmartWarn, diskHealthMap,

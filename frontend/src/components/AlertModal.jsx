@@ -17,7 +17,7 @@ const AlertModal = ({ isOpen, type = 'info', title, message, onConfirm, onCancel
 
     return (
         <Portal>
-            <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/60 backdrop-blur-sm">
+            <div className="fixed inset-0 z-[100000] overflow-y-auto bg-slate-900/60 backdrop-blur-sm">
                 <div className="flex min-h-screen items-center justify-center p-4">
                     <div className="w-full max-w-sm transform overflow-hidden rounded-2xl bg-white p-5 text-center shadow-2xl transition-all animate-in zoom-in-95">
                         <div className={`w-14 h-14 ${bg} rounded-full flex items-center justify-center mx-auto mb-4 ${color}`}>

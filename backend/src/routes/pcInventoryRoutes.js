@@ -1,5 +1,6 @@
 import express from 'express';
 import { requirePerm } from '../middleware/permissionMiddleware.js';
+import { getPCReport } from '../controllers/pcReportController.js';
 import {
     updateBitlocker,
     getActiveUsers,
@@ -7,7 +8,8 @@ import {
     getInventory,
     getInventoryByHostname,
     updateAsset,
-    updateStatus,        // ✅ เพิ่ม import
+    updateStatus,
+    updateDisposal,        // ✅ เพิ่ม import
     getSoftwareByHostname,
     deleteInventory,
     searchInventory,
@@ -28,12 +30,14 @@ router.get('/pc-active-users/:hostname', getActiveUsersByHostname);
 router.get('/pc-inventory', getInventory);
 router.get('/pc-inventory/search', searchInventory);
 router.get('/pc-inventory/summary', getSummary);
+router.get('/pc-inventory/report', getPCReport);
 router.get('/pc-inventory/multi-login', getMultiLoginUsers);
 router.get('/pc-inventory/reincarnated', getReincarnatedMachines); // ✅ เพิ่ม route
 router.get('/pc-inventory/by-fix-asset/:code', getInventoryByFixAsset);
 router.get('/pc-inventory/:hostname/history', getHistory);
 router.get('/pc-inventory/:hostname', getInventoryByHostname);
 router.put('/pc-inventory/:hostname/asset', requirePerm('pc-inventory', 'edit'), updateAsset);
+router.put('/pc-inventory/:hostname/disposal', requirePerm('pc-inventory', 'edit'), updateDisposal);
 router.put('/pc-inventory/:hostname/status', requirePerm('pc-inventory', 'edit'), updateStatus);   // ✅ เพิ่มบรรทัดนี้
 router.put('/pc-inventory/:hostname/warranty', requirePerm('pc-inventory', 'edit'), updateWarranty);
 router.put('/pc-inventory-bulk/warranty', requirePerm('pc-inventory', 'edit'), bulkUpdateWarranty);

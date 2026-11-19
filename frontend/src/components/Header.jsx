@@ -7,10 +7,11 @@ import {
     History, FileSpreadsheet, Shield, Plus,
     User, FileKey, Printer, ClipboardList,
     Monitor, Network, HardDrive, Cctv, Volume, Briefcase, BookOpen,
-    Camera,
+    Camera, ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatThaiDate } from '../utils/formatDate';
+import { findNavContext } from '../config/navConfig';
 
 const Header = ({ onMenuClick }) => {
     const [currentTime, setCurrentTime] = useState(new Date());
@@ -67,6 +68,7 @@ const Header = ({ onMenuClick }) => {
     };
 
     const { title, icon: Icon, color } = getPageConfig(location.pathname);
+    const navCtx = findNavContext(location.pathname);
 
     return (
         <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/60 shadow-sm px-6 py-3 flex items-center justify-between transition-all duration-300">
@@ -86,6 +88,13 @@ const Header = ({ onMenuClick }) => {
                         <h1 className="text-lg font-bold text-slate-800 hidden sm:block tracking-tight">
                             {title}
                         </h1>
+                        {navCtx && (
+                            <nav aria-label="breadcrumb" className="hidden sm:flex items-center gap-1 text-[11px] text-slate-400 font-medium mt-0.5">
+                                <span>{navCtx.group.label}</span>
+                                <ChevronRight size={10} className="flex-shrink-0" />
+                                <span className="text-slate-500">{navCtx.item.label}</span>
+                            </nav>
+                        )}
                         <h1 className="text-lg font-bold text-slate-800 sm:hidden">
                             {title.split(' ')[0]}
                         </h1>

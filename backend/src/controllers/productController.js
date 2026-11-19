@@ -1,4 +1,5 @@
 import { sql, getPool } from '../config/db.js';
+import { isDbAdmin } from '../middleware/permissionMiddleware.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -133,12 +134,12 @@ export const deleteProduct = async (req, res) => {
 };
 
 // MANUAL IMPORT
-export const manualImport = async (req, res) => {
 const MANUAL_IMPORT_MAX_INT = 2147483647;
 const MANUAL_IMPORT_MAX_REMARK = 200;
 
 const isBlank = (v) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
 
+export const manualImport = async (req, res) => {
     const body = req.body || {};
     const { ProductName, DeviceType, LastPrice, CurrentStock, MinStock, MaxStock, Remark, UserID, Location } = body;
 
@@ -151,7 +152,6 @@ const isBlank = (v) => v === undefined || v === null || (typeof v === 'string' &
     if (!deviceType) return res.status(400).json({ error: 'กรุณาเลือกหมวดหมู่' });
     if (deviceType.length > 50) return res.status(400).json({ error: 'หมวดหมู่ไม่ถูกต้อง' });
 
-    try {
     const qty = isBlank(CurrentStock) ? NaN : Number(CurrentStock);
     if (!Number.isInteger(qty) || qty <= 0 || qty > MANUAL_IMPORT_MAX_INT) {
         return res.status(400).json({ error: 'จำนวนต้องเป็นจำนวนเต็มที่มากกว่า 0' });
@@ -188,9 +188,10 @@ const isBlank = (v) => v === undefined || v === null || (typeof v === 'string' &
     // ---- Transaction ----
     let began = false;
     const transaction = new sql.Transaction(getPool());
+    try {
         await transaction.begin();
-
         began = true;
+
         // 1. Find product. UPDLOCK/HOLDLOCK stops two imports of the same new name from both inserting.
         const checkRes = await new sql.Request(transaction)
             .input('ProductName', sql.NVarChar(255), name)
@@ -200,12 +201,12 @@ const isBlank = (v) => v === undefined || v === null || (typeof v === 'string' &
                 WHERE ProductName = @ProductName
             `);
 
-
         let productID;
         let action;
         let reactivated = false;
         let previousStock = 0;
         let newStock;
+
         if (checkRes.recordset.length > 0) {
             action = 'updated';
             productID = checkRes.recordset[0].ProductID;
@@ -254,7 +255,6 @@ const isBlank = (v) => v === undefined || v === null || (typeof v === 'string' &
             productID = insertRes.recordset[0].ProductID;
             newStock = insertRes.recordset[0].NewStock;
         }
-    } catch (err) {
 
         // 2. Log the transaction
         await new sql.Request(transaction)
@@ -280,8 +280,9 @@ const isBlank = (v) => v === undefined || v === null || (typeof v === 'string' &
             newStock,
             reactivated
         });
-        console.error('Manual Import Error:', err);
+    } catch (err) {
         if (began) await transaction.rollback().catch(() => {});
+        console.error('Manual Import Error:', err);
         return res.status(500).json({ error: 'ไม่สามารถนำเข้าอุปกรณ์ได้ กรุณาลองใหม่อีกครั้ง' });
     }
 };
@@ -317,11 +318,105 @@ export const checkFixedAssetCode = async (req, res) => {
 };
 
 // WITHDRAW (Outbound)
+// ── คืนของ: ย้อนรายการเบิก (OUT) ─ สร้างแถว IN ใหม่อ้างอิงแถวเดิม ไม่ลบประวัติ ──
+// จำกัดเวลาคืนได้ภายในจำนวนวันนี้นับจากวันที่เบิก
+export const RETURN_WINDOW_DAYS = 7;
+
+export const returnWithdrawal = async (req, res) => {
+    const txId = parseInt(req.body?.TransID, 10);
+    const reason = String(req.body?.Reason || '').trim();
+    const by = req.body?.UserID ? String(req.body.UserID).trim().toUpperCase() : null;
+
+    if (!txId) return res.status(400).json({ error: 'TransID is required' });
+    if (!reason) return res.status(400).json({ error: 'กรุณาระบุเหตุผลการคืน' });
+
+    try {
+        const pool = getPool();
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        try {
+            // UPDLOCK: กันสองคนกดคืนรายการเดียวกันพร้อมกัน
+            const rowRes = await new sql.Request(transaction)
+                .input('TransID', sql.Int, txId)
+                .query(`
+                    SELECT TransID, ProductID, TransType, Qty, TransDate, ReturnedAt, SerialNumber, FixedAssetCode
+                    FROM dbo.Stock_Transactions WITH (UPDLOCK, ROWLOCK)
+                    WHERE TransID = @TransID
+                `);
+            const row = rowRes.recordset[0];
+
+            if (!row) {
+                await transaction.rollback();
+                return res.status(404).json({ error: 'ไม่พบรายการเบิกนี้' });
+            }
+            if (row.TransType !== 'OUT') {
+                await transaction.rollback();
+                return res.status(400).json({ error: 'รายการนี้ไม่ใช่รายการเบิก' });
+            }
+            if (row.ReturnedAt) {
+                await transaction.rollback();
+                return res.status(409).json({ error: 'รายการนี้ถูกคืนไปแล้ว' });
+            }
+            // Admin คืนได้ไม่จำกัดเวลา ผู้ใช้อื่นจำกัดภายใน RETURN_WINDOW_DAYS
+            const admin = await isDbAdmin(req);
+            const ageMs = Date.now() - new Date(row.TransDate).getTime();
+            if (!admin && ageMs > RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
+                await transaction.rollback();
+                return res.status(400).json({ error: `เกินกำหนดคืนของ (ภายใน ${RETURN_WINDOW_DAYS} วันหลังเบิก)` });
+            }
+
+            const now = getThaiDate();
+
+            await new sql.Request(transaction)
+                .input('ProductID', sql.Int, row.ProductID)
+                .input('Qty', sql.Int, row.Qty)
+                .query('UPDATE dbo.Stock_Products SET CurrentStock = CurrentStock + @Qty WHERE ProductID = @ProductID');
+
+            await new sql.Request(transaction)
+                .input('TransID', sql.Int, txId)
+                .input('ReturnedAt', sql.DateTime, now)
+                .input('ReturnedBy', sql.NVarChar, by)
+                .query('UPDATE dbo.Stock_Transactions SET ReturnedAt = @ReturnedAt, ReturnedBy = @ReturnedBy WHERE TransID = @TransID');
+
+            await new sql.Request(transaction)
+                .input('ProductID', sql.Int, row.ProductID)
+                .input('TransType', sql.VarChar, 'IN')
+                .input('Qty', sql.Int, row.Qty)
+                .input('RefInfo', sql.NVarChar, `คืนของ (จากการเบิก #${txId}): ${reason}`)
+                .input('UserID', sql.NVarChar, by)
+                .input('TransDate', sql.DateTime, now)
+                .input('SerialNumber', sql.NVarChar, row.SerialNumber || null)
+                .input('FixedAssetCode', sql.NVarChar, row.FixedAssetCode || null)
+                .input('ReturnOf', sql.Int, txId)
+                .query(`
+                    INSERT INTO dbo.Stock_Transactions
+                        (ProductID, TransType, Qty, RefInfo, UserID, TransDate, SerialNumber, FixedAssetCode, ReturnOf)
+                    VALUES
+                        (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate, @SerialNumber, @FixedAssetCode, @ReturnOf)
+                `);
+
+            await transaction.commit();
+            res.json({ success: true });
+        } catch (err) {
+            await transaction.rollback();
+            throw err;
+        }
+    } catch (err) {
+        console.error('Return Error:', err);
+        res.status(500).json({ error: 'คืนของไม่สำเร็จ' });
+    }
+};
+
+// รหัส Cost Center แผนกไอที: ผู้รับในแผนกนี้ถือเป็นเบิกใช้เอง (ใช้ในแผนก)
+const INTERNAL_COST_CENTER = '7510';
+
 export const withdrawProduct = async (req, res) => {
     const {
         ProductID, Qty, UserID, RefInfo,
         EmployeeCode, EmployeeName, CostCenter,   // ✅ เพิ่ม 3 ตัวนี้
         SerialNumber, FixedAssetCode,             // ✅ ใหม่: สำหรับ Asset type
+        SelfUse,                                  // เบิกใช้เอง (ผู้ login = ผู้รับ)
     } = req.body;
 
     try {
@@ -357,7 +452,7 @@ const { CurrentStock: currentStock, DeviceType } = checkStock.recordset[0];
                     .input('FixedAssetCode', sql.NVarChar, FixedAssetCode.trim())
                     .query(`
                         SELECT TOP 1 1 FROM dbo.Stock_Transactions
-                        WHERE FixedAssetCode = @FixedAssetCode AND TransType = 'OUT'
+                        WHERE FixedAssetCode = @FixedAssetCode AND TransType = 'OUT' AND ReturnedAt IS NULL
                     `);
                 if (dupCheck.recordset.length > 0) {
                     await transaction.rollback();
@@ -388,11 +483,12 @@ const { CurrentStock: currentStock, DeviceType } = checkStock.recordset[0];
                 .input('CostCenter', sql.VarChar, CostCenter || null)       // ✅
                 .input('SerialNumber', sql.NVarChar, SerialNumber || null)       // ✅ ใหม่
                 .input('FixedAssetCode', sql.NVarChar, FixedAssetCode || null)   // ✅ ใหม่
+                .input('SelfUse', sql.Bit, (SelfUse === true || String(CostCenter || '').trim() === INTERNAL_COST_CENTER) ? 1 : 0)   // เบิกใช้ในแผนกไอที = ใช้เอง
                 .query(`
                     INSERT INTO dbo.Stock_Transactions
-                        (ProductID, TransType, Qty, RefInfo, UserID, TransDate, EmployeeCode, EmployeeName, CostCenter, SerialNumber, FixedAssetCode)
+                        (ProductID, TransType, Qty, RefInfo, UserID, TransDate, EmployeeCode, EmployeeName, CostCenter, SerialNumber, FixedAssetCode, SelfUse)
                     VALUES
-                        (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate, @EmployeeCode, @EmployeeName, @CostCenter, @SerialNumber, @FixedAssetCode)
+                        (@ProductID, @TransType, @Qty, @RefInfo, @UserID, @TransDate, @EmployeeCode, @EmployeeName, @CostCenter, @SerialNumber, @FixedAssetCode, @SelfUse)
                 `);
 
             await transaction.commit();
@@ -536,5 +632,50 @@ export const getVendors = async (req, res) => {
         res.json(result.recordset);
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+};
+
+// ─── POST /products/:id/adjust ────────────────────────────────────────────────
+// ปรับยอดคงเหลือจริง (นับผิด / ชำรุด / สูญหาย / พบเพิ่ม ฯลฯ) ใน transaction เดียว
+// บันทึกเป็นรายการประเภท ADJ พร้อมเหตุผล — ไม่นับเป็นเบิกออกหรือรับเข้า
+export const adjustProductStock = async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const newQty = Number(req.body?.NewQty);
+    const reason = String(req.body?.Reason || '').trim();
+    const note = String(req.body?.Note || '').trim();
+    const userId = String(req.body?.UserID || '').trim().toUpperCase() || 'UNKNOWN';
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'รหัสสินค้าไม่ถูกต้อง' });
+    if (!Number.isInteger(newQty) || newQty < 0) return res.status(400).json({ error: 'จำนวนคงเหลือต้องเป็นจำนวนเต็ม 0 ขึ้นไป' });
+    if (!reason) return res.status(400).json({ error: 'กรุณาเลือกเหตุผลการปรับยอด' });
+    if (!note) return res.status(400).json({ error: 'กรุณาใส่รายละเอียดการปรับยอด' });
+    if (note.length > 300) return res.status(400).json({ error: 'รายละเอียดยาวเกิน 300 ตัวอักษร' });
+
+    const pool = getPool();
+    const tx = pool.transaction();
+    try {
+        await tx.begin();
+        const cur = await tx.request().input('id', sql.Int, id)
+            .query(`SELECT CurrentStock FROM dbo.Stock_Products WITH (UPDLOCK, ROWLOCK) WHERE ProductID = @id`);
+        if (!cur.recordset.length) { await tx.rollback(); return res.status(404).json({ error: 'ไม่พบสินค้า' }); }
+        const before = Number(cur.recordset[0].CurrentStock) || 0;
+        const diff = newQty - before;
+        if (diff === 0) { await tx.rollback(); return res.status(400).json({ error: 'จำนวนเท่าเดิม ไม่มีการเปลี่ยนแปลง' }); }
+
+        await tx.request().input('id', sql.Int, id).input('q', sql.Int, newQty)
+            .query(`UPDATE dbo.Stock_Products SET CurrentStock = @q WHERE ProductID = @id`);
+        await tx.request()
+            .input('ProductID', sql.Int, id)
+            .input('Qty', sql.Int, diff)
+            .input('RefInfo', sql.NVarChar, `ADJ: ${reason} | ${note} (${before} → ${newQty})`)
+            .input('UserID', sql.VarChar, userId)
+            .input('TransDate', sql.DateTime, new Date())
+            .query(`INSERT INTO dbo.Stock_Transactions (ProductID, TransType, Qty, RefInfo, UserID, TransDate)
+                    VALUES (@ProductID, 'ADJ', @Qty, @RefInfo, @UserID, @TransDate)`);
+        await tx.commit();
+        res.json({ success: true, before, after: newQty, diff });
+    } catch (err) {
+        try { await tx.rollback(); } catch { /* ignore */ }
+        console.error('[Adjust] error:', err.message);
+        res.status(500).json({ error: 'ปรับยอดไม่สำเร็จ' });
     }
 };

@@ -3,16 +3,22 @@ import * as XLSX from 'xlsx';
 import { useSearchParams } from 'react-router-dom';
 import {
     Search, Calendar, RefreshCw, AlertTriangle, Download,
-    ArrowUp, ArrowDown, ArrowUpDown, TrendingUp, TrendingDown, Package, ClipboardList
+    ArrowUp, ArrowDown, ArrowUpDown, TrendingUp, TrendingDown, Package, ClipboardList, Undo2, X
 } from 'lucide-react';
 import { API_BASE } from '../config/api';
+import { useAuth } from '../context/AuthContext';
+import { useCanAct } from '../context/PermissionContext';
 import { formatThaiDate } from '../utils/formatDate';
 import EmptyState from '../components/EmptyState';
+import Portal from '../components/Portal';
 import LoadingState from '../components/LoadingState';
 import Pagination from '../components/Pagination';
 
 // ประเภทรายการ: ใช้ TransType เป็นหลักเท่านั้น (IN = รับเข้า, OUT = เบิกออก)
 const isInRow = (t) => (t.TransType || '').toUpperCase().trim() === 'IN';
+
+// คอลัมน์ที่เรียงแบบข้อความ (ค่าว่างจะไปท้ายรายการ)
+const TEXT_SORT_KEYS = ['ProductName', 'EmployeeName', 'UserID'];
 
 // แปลง Date เป็น YYYY-MM-DD ตามเวลาท้องถิ่น
 const toYMD = (d) =>
@@ -49,6 +55,16 @@ const getQuickRange = (key) => {
     }
 };
 
+// คืนของ: ต้องตรงกับ RETURN_WINDOW_DAYS ใน backend (productController.js)
+// Admin คืนได้ไม่จำกัดเวลา (backend ตรวจจาก DB อีกครั้ง ฝั่ง UI ใช้แค่แสดงปุ่ม)
+const RETURN_WINDOW_DAYS = 7;
+const isReturnableRow = (t, isAdmin) =>
+    !isInRow(t) &&
+    !t.ReturnedAt &&
+    !t.ReturnOf &&
+    !(t.RefInfo || '').toLowerCase().includes('invoice') &&
+    (isAdmin || (Date.now() - new Date(t.TransDate).getTime()) <= RETURN_WINDOW_DAYS * 86400000);
+
 const QUICK_RANGES = [
     { key: 'today', label: 'วันนี้' },
     { key: '7d', label: '7 วันล่าสุด' },
@@ -58,6 +74,7 @@ const QUICK_RANGES = [
 
 const HistoryPage = () => {
     const [filter, setFilter] = useState('ALL'); // ALL, IN, OUT
+    const [usage, setUsage] = useState('ALL'); // ALL, INTERNAL (ใช้ในแผนกไอที), USER (ผู้ใช้ทั่วไป)
     // รับคำค้นจากลิงก์ เช่น /history?q=ชื่อสินค้า (ใช้จากหน้าตรวจนับ)
     const [urlParams] = useSearchParams();
     const [searchTerm, setSearchTerm] = useState(() => urlParams.get('q') || '');
@@ -76,6 +93,44 @@ const HistoryPage = () => {
     const [fetching, setFetching] = useState(true);
     const [fetchError, setFetchError] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
+
+    // คืนของ
+    const { user } = useAuth();
+    const canReturn = useCanAct('inventory', 'return');
+    const isAdminUser = user?.role === 'Admin';
+    const [returnTarget, setReturnTarget] = useState(null);
+    const [returnReason, setReturnReason] = useState('');
+    const [returning, setReturning] = useState(false);
+    const [returnError, setReturnError] = useState('');
+
+    const handleReturn = async () => {
+        if (!returnTarget || !returnReason.trim() || returning) return;
+        setReturning(true);
+        setReturnError('');
+        try {
+            const res = await fetch(`${API_BASE}/products/return`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    TransID: returnTarget.TransID,
+                    Reason: returnReason.trim(),
+                    UserID: (user?.username || '').toUpperCase(),
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                setReturnTarget(null);
+                setReturnReason('');
+                setReloadKey((k) => k + 1);
+            } else {
+                setReturnError(data.error || 'คืนของไม่สำเร็จ ลองใหม่อีกครั้ง');
+            }
+        } catch (err) {
+            setReturnError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+        } finally {
+            setReturning(false);
+        }
+    };
 
     useEffect(() => {
         const controller = new AbortController();
@@ -105,6 +160,8 @@ const HistoryPage = () => {
     // ค้นหาข้อความ (ฝั่ง client) บนข้อมูลที่โหลดมาแล้ว
     const filteredTransactions = useMemo(() => {
         let result = rows;
+        if (usage === 'INTERNAL') result = result.filter(t => t.IsInternal === 1 || t.IsInternal === true);
+        if (usage === 'USER') result = result.filter(t => !(t.IsInternal === 1 || t.IsInternal === true));
 
         if (searchTerm.trim()) {
             const term = searchTerm.toLowerCase();
@@ -121,15 +178,21 @@ const HistoryPage = () => {
         }
 
         return result;
-    }, [rows, searchTerm]);
+    }, [rows, searchTerm, usage]);
 
     // เรียงลำดับตามคอลัมน์ที่เลือก
     const sortedTransactions = useMemo(() => {
         const dir = sortDir === 'asc' ? 1 : -1;
         const arr = [...filteredTransactions];
         arr.sort((a, b) => {
-            if (sortKey === 'ProductName') {
-                return (a.ProductName || '').localeCompare(b.ProductName || '', 'th') * dir;
+            if (TEXT_SORT_KEYS.includes(sortKey)) {
+                // ค่าว่างไปท้ายเสมอ ไม่ว่าจะเรียงทิศทางไหน
+                const ea = (a[sortKey] || '').toString().trim();
+                const eb = (b[sortKey] || '').toString().trim();
+                if (!ea && !eb) return 0;
+                if (!ea) return 1;
+                if (!eb) return -1;
+                return ea.localeCompare(eb, 'th') * dir;
             }
             const va = sortKey === 'Qty'
                 ? Math.abs(Number(a.Qty) || 0)
@@ -173,7 +236,7 @@ const HistoryPage = () => {
             setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
         } else {
             setSortKey(key);
-            setSortDir(key === 'ProductName' ? 'asc' : 'desc');
+            setSortDir(TEXT_SORT_KEYS.includes(key) ? 'asc' : 'desc');
         }
     };
 
@@ -254,6 +317,16 @@ const HistoryPage = () => {
                         <option value="ALL">ทุกประเภท (All)</option>
                         <option value="IN">รับเข้า (INBOUND)</option>
                         <option value="OUT">เบิกออก (OUTBOUND)</option>
+                    </select>
+                    <select
+                        value={usage}
+                        onChange={(e) => setUsage(e.target.value)}
+                        aria-label="กรองตามการใช้งาน"
+                        className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-sm text-slate-600 outline-none focus:border-indigo-500 font-bold"
+                    >
+                        <option value="ALL">ทุกการใช้งาน</option>
+                        <option value="INTERNAL">ใช้เอง (ไอที)</option>
+                        <option value="USER">ผู้ใช้ทั่วไป</option>
                     </select>
                     <div className="flex flex-1 lg:flex-none min-w-0 items-center gap-2 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
                         <Search size={18} className="text-slate-400 shrink-0" />
@@ -375,9 +448,10 @@ const HistoryPage = () => {
                             <th className="p-4 whitespace-nowrap">หมวดหมู่</th>
                             {renderSortTh('ProductName', 'รายการ')}
                             {renderSortTh('Qty', 'จำนวน', 'text-center')}
+                            <th className="p-4 whitespace-nowrap text-center">คืนของ</th>
                             <th className="p-4 whitespace-nowrap">หมายเหตุ</th>
-                            <th className="p-4 whitespace-nowrap">User</th>
-                            <th className="p-4 whitespace-nowrap">เบิกให้</th>
+                            {renderSortTh('UserID', 'User')}
+                            {renderSortTh('EmployeeName', 'เบิกให้')}
                             <th className="p-4 whitespace-nowrap">Asset Info</th>
                         </tr>
                     </thead>
@@ -408,6 +482,23 @@ const HistoryPage = () => {
                                         {isIn ? "+" : "-"}
                                         {Math.abs(t.Qty)}
                                     </td>
+                                    <td className="p-4 text-center whitespace-nowrap">
+                                        {t.ReturnOf ? (
+                                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">คืนของ (จากการเบิก #{t.ReturnOf})</span>
+                                        ) : t.ReturnedAt ? (
+                                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">คืนแล้ว</span>
+                                        ) : canReturn && isReturnableRow(t, isAdminUser) ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => { setReturnTarget(t); setReturnReason(''); setReturnError(''); }}
+                                                className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg transition-all"
+                                            >
+                                                <Undo2 size={12} /> คืนของ
+                                            </button>
+                                        ) : (
+                                            <span className="text-slate-300 text-xs">-</span>
+                                        )}
+                                    </td>
                                     <td className="p-4 text-slate-500 text-xs max-w-[200px]">
                                         {(t.RefInfo || '').split(':').map((part, idx) => (
                                             <span key={idx}>
@@ -427,6 +518,7 @@ const HistoryPage = () => {
                                     <td className="p-4 whitespace-nowrap">
                                         {t.EmployeeName ? (
                                             <div className="text-xs">
+                                                {(t.IsInternal === 1 || t.IsInternal === true) && <span className="inline-block mb-0.5 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[10px] font-bold">ใช้เอง (ไอที)</span>}
                                                 <span className="font-bold text-indigo-600 font-mono block">{t.EmployeeName}</span>
                                                 {t.EmployeeCode && <span className="text-slate-400 text-[10px]">{t.EmployeeCode}</span>}
                                             </div>
@@ -495,6 +587,7 @@ const HistoryPage = () => {
                             </div>
                             {t.EmployeeName && (
                                 <div className="bg-indigo-50 p-2 rounded-lg mb-2">
+                                    {(t.IsInternal === 1 || t.IsInternal === true) && <span className="inline-block mb-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[10px] font-bold">ใช้เอง (ไอที)</span>}
                                     <span className="text-indigo-400 block mb-0.5 text-xs">เบิกให้</span>
                                     <span className="font-bold text-indigo-700 font-mono truncate block text-xs">
                                         {t.EmployeeName} {t.EmployeeCode && `· ${t.EmployeeCode}`}
@@ -516,6 +609,19 @@ const HistoryPage = () => {
                                     {isIn ? '+' : '-'}{Math.abs(t.Qty)}
                                 </span>
                             </div>
+                            {t.ReturnOf ? (
+                                <p className="mt-2 text-[11px] font-bold text-emerald-700">คืนของ (จากการเบิก #{t.ReturnOf})</p>
+                            ) : t.ReturnedAt ? (
+                                <p className="mt-2 text-[11px] font-bold text-slate-500">คืนแล้ว</p>
+                            ) : canReturn && isReturnableRow(t, isAdminUser) ? (
+                                <button
+                                    type="button"
+                                    onClick={() => { setReturnTarget(t); setReturnReason(''); setReturnError(''); }}
+                                    className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 py-2 rounded-lg transition-all"
+                                >
+                                    <Undo2 size={14} /> คืนของ
+                                </button>
+                            ) : null}
                         </div>
                     );
                 })}
@@ -523,6 +629,80 @@ const HistoryPage = () => {
                     <EmptyState message="ไม่พบข้อมูล" />
                 )}
             </div>
+
+            {/* ✅ RETURN CONFIRM — ต้องระบุเหตุผลก่อนคืนของ */}
+            {returnTarget && (
+                <Portal>
+                <div
+                    className="fixed inset-0 z-[75] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={() => !returning && setReturnTarget(null)}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-start justify-between p-5 pb-3">
+                            <div>
+                                <h3 className="font-bold text-slate-800">คืนของจากการเบิกนี้?</h3>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    {returnTarget.ProductName} · จำนวน <b>{Math.abs(returnTarget.Qty)}</b> ชิ้น · เบิกเมื่อ {formatThaiDate(returnTarget.TransDate)}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-1">สต็อกจะเพิ่มกลับ และประวัติเดิมจะยังคงอยู่ครบ</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setReturnTarget(null)}
+                                disabled={returning}
+                                aria-label="ปิด"
+                                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 disabled:opacity-40"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="px-5 space-y-3 pb-5">
+                            <div>
+                                <label htmlFor="return-reason" className="text-xs font-bold text-slate-500 block mb-1.5">
+                                    เหตุผลการคืน <span className="text-red-500">*</span>
+                                </label>
+                                <textarea
+                                    id="return-reason"
+                                    autoFocus
+                                    value={returnReason}
+                                    onChange={(e) => setReturnReason(e.target.value)}
+                                    placeholder="เช่น เบิกผิดรายการ / เปลี่ยนเป็นอีกชิ้น"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-amber-100 outline-none resize-none h-20"
+                                />
+                            </div>
+                            {returnError && (
+                                <p className="text-xs font-bold text-red-600 flex items-center gap-1.5">
+                                    <AlertTriangle size={14} /> {returnError}
+                                </p>
+                            )}
+                            <div className="grid grid-cols-3 gap-2 pt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setReturnTarget(null)}
+                                    disabled={returning}
+                                    className="col-span-1 py-2 rounded-lg text-sm font-bold text-slate-500 border border-slate-200 hover:bg-slate-100 disabled:opacity-50"
+                                >
+                                    ยกเลิก
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleReturn}
+                                    disabled={!returnReason.trim() || returning}
+                                    className="col-span-2 py-2 rounded-lg text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-200 disabled:opacity-50 disabled:shadow-none"
+                                >
+                                    {returning ? 'กำลังบันทึก...' : 'ยืนยันคืนของ'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </Portal>
+            )}
 
             {/* Pagination */}
             {sortedTransactions.length > 0 && (

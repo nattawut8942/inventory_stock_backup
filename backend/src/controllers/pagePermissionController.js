@@ -1,5 +1,5 @@
 import { sql, getPool } from '../config/db.js';
-import { allPermissionKeys, catalogForClient, PAGES, ACTION_LABELS } from '../config/permissions.config.js';
+import { allPermissionKeys, catalogForClient, PAGES, ACTION_LABELS, isValidPermission } from '../config/permissions.config.js';
 import {
     getPermissionMode, loadUserAccess, getUserPermissionList, getDefaultPermissionList,
     normalisePermissionInput, setUserPermissions, setDefaultPermissions, getAuditLog,
@@ -130,6 +130,42 @@ export const clearLogSummary = async (req, res) => {
         res.json({ success: true });
     } catch (err) {
         console.error('Clear log summary error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// GET /permissions/holders?page=inventory (Admin)
+// One row per non-Admin user; for each action of the page, whether they hold it.
+// Admins always pass every check, so they are not listed here.
+export const getPermissionHolders = async (req, res) => {
+    const page = String(req.query.page || '');
+    const pageDef = PAGES.find((p) => p.key === page);
+    if (!pageDef) return res.status(400).json({ error: 'ไม่พบหน้านี้ในระบบ', page });
+    try {
+        const r = await getPool().request()
+            .input('p', sql.NVarChar, page)
+            .query(`
+                SELECT u.EmpCode, u.Name, u.Username, u.Role, u.EmpPic, g.Action
+                FROM dbo.Stock_Users u
+                LEFT JOIN dbo.Stock_PagePermissions g
+                       ON g.EmpCode = u.EmpCode AND g.PageKey = @p
+                WHERE u.Role <> 'Admin'
+                ORDER BY u.Name, u.EmpCode`);
+        const byEmp = new Map();
+        for (const row of r.recordset) {
+            if (!byEmp.has(row.EmpCode)) {
+                byEmp.set(row.EmpCode, { EmpCode: row.EmpCode, Name: row.Name, Username: row.Username, Role: row.Role, EmpPic: row.EmpPic, actions: [] });
+            }
+            if (row.Action) byEmp.get(row.EmpCode).actions.push(row.Action);
+        }
+        res.json({
+            page,
+            label: pageDef.label,
+            actions: pageDef.actions.map((a) => ({ key: a, label: ACTION_LABELS[a] })),
+            users: [...byEmp.values()],
+        });
+    } catch (err) {
+        console.error('Get permission holders error:', err);
         res.status(500).json({ error: err.message });
     }
 };

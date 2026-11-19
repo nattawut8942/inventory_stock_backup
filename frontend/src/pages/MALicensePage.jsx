@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCan } from '../context/PermissionContext';
 import AlertModal from '../components/AlertModal';
 import Portal from '../components/Portal';
+import MAReportView from '../components/MAReportView';
 import { API_BASE } from '../config/api';
 
 
@@ -758,6 +759,8 @@ const MALicensePage = () => {
     const itemsPerPage = 20;
     const intervalRef = useRef(null);
     const [tvMode, setTvMode] = useState(false);
+    const [showReport, setShowReport] = useState(false);
+    const [showTimeline, setShowTimeline] = useState(false);
     const [tvTheme, setTvTheme] = useState('dark');
 
     // Esc: ปิด dropdown → ปิดหน้าต่างต่ออายุ → ปิด detail (ฟอร์มแก้ไขไม่ปิดด้วย Esc กันข้อมูลที่พิมพ์หาย)
@@ -1176,10 +1179,12 @@ const MALicensePage = () => {
     };
 
     const activeCat = CATEGORIES.find(c => c.key === activeTab);
+    if (showReport) return <MAReportView onBack={() => setShowReport(false)} />;
+    if (showTimeline) return <MAAllHistory onBack={() => setShowTimeline(false)} />;
     if (tvMode) return <MATVView items={items} onBack={() => { if (document.fullscreenElement) document.exitFullscreen?.(); setTvMode(false); }} theme={tvTheme} onToggleTheme={() => setTvTheme(t => t === 'dark' ? 'light' : 'dark')}
         onRefresh={fetchItems} lastFetchedAt={lastFetchedAt} fetchError={fetchError} renderCell={renderCellValue} />;
     return (
-        <div className="space-y-6 w-full">
+        <div className="space-y-6 w-full uppercase">
             {/* Header & Stats */}
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
                 <h2 className="text-3xl font-black text-slate-800">MA / LICENSE</h2>
@@ -1219,9 +1224,9 @@ const MALicensePage = () => {
             </div>
 
             {/* Header Controls */}
-            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex flex-col gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
                 {/* Category Tabs */}
-                <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100 w-full xl:w-auto overflow-x-auto">
+                <div className="flex flex-wrap gap-1 bg-slate-50 p-1 rounded-xl border border-slate-100 w-full">
                     {CATEGORIES.map(cat => {
                         const CatIcon = cat.icon;
                         return (
@@ -1235,7 +1240,7 @@ const MALicensePage = () => {
                 </div>
 
                 {/* Filter & Controls */}
-                <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+                <div className="flex flex-wrap items-center gap-2 w-full">
                     <div className="relative flex-1 min-w-[150px] h-[36px]">
                         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input type="text" placeholder="ค้นหา..." className="w-full h-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -1260,6 +1265,12 @@ const MALicensePage = () => {
                         </button>
                     </div>
 
+                    <button onClick={() => setShowTimeline(true)} className="h-[36px] flex items-center gap-1.5 px-3 rounded-lg font-bold text-xs text-white bg-violet-600 hover:bg-violet-700 shadow-sm transition-colors">
+                        🕘 ประวัติ
+                    </button>
+                    <button onClick={() => setShowReport(true)} className="h-[36px] flex items-center gap-1.5 px-3 rounded-lg font-bold text-xs text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors">
+                        📊 รายงาน
+                    </button>
                     <button onClick={() => setTvMode(true)}
                         className="h-[36px] flex items-center gap-1.5 px-3 rounded-lg font-bold text-xs text-white bg-slate-800 hover:bg-slate-700 shadow-sm transition-colors">
                         📺 TV Mode
@@ -1628,6 +1639,284 @@ const ClientTag = ({ ip, mac }) => (
     <p className="text-[10px] text-slate-400 font-mono break-all">IP {ip || '-'} · MAC {mac || '-'}</p>
 );
 
+// ประวัติการเปลี่ยนแปลงของทุกรายการ: ใครทำอะไร กับรายการไหน เปลี่ยนค่าอะไร (รูปแบบเดียวกับไทม์ไลน์ของ IP Management)
+const MAX_CHANGES_SHOWN = 4;
+const EVENT_TONE = {
+    CREATE: 'bg-blue-50 text-blue-700 ring-blue-200',
+    UPDATE: 'bg-amber-50 text-amber-700 ring-amber-200',
+    STATUS: 'bg-slate-100 text-slate-700 ring-slate-200',
+    RENEW_STEP: 'bg-violet-50 text-violet-700 ring-violet-200',
+    RENEW_COMPLETE: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    DELETE: 'bg-red-50 text-red-700 ring-red-200',
+    ATTACH: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
+    DETACH: 'bg-rose-50 text-rose-700 ring-rose-200',
+};
+const AVATAR_TONES = ['bg-indigo-500', 'bg-violet-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-sky-500'];
+const initialsOf = (name) => {
+    const parts = String(name || '').split(/[.\s_]+/).filter(Boolean);
+    return parts.slice(0, 2).map((s) => s[0]).join('').toUpperCase() || '?';
+};
+const toneOf = (name) => AVATAR_TONES[[...String(name || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_TONES.length];
+const dayLabelOf = (d) => new Date(d).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const timeOf = (d) => new Date(d).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+
+// ประวัติการเปลี่ยนแปลงของทุกรายการ: ใครทำอะไร กับรายการไหน เปลี่ยนค่าอะไร และจากเครื่องไหน
+const MAAllHistory = ({ onBack }) => {
+    const [rows, setRows] = useState(null);
+    const [err, setErr] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [type, setType] = useState('');
+    const [q, setQ] = useState('');
+    const [expanded, setExpanded] = useState(() => new Set());
+
+    const load = useCallback(async () => {
+        setLoading(true); setErr(null);
+        try {
+            const params = new URLSearchParams({ limit: '300' });
+            if (type) params.set('eventType', type);
+            if (q.trim()) params.set('q', q.trim());
+            const res = await fetch(`${API_BASE}/ma/history?${params}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            setRows(await res.json());
+        } catch (e) {
+            setErr(e.message);
+        } finally {
+            setLoading(false);
+        }
+    }, [type, q]);
+
+    // รอ 300 ms หลังพิมพ์ค้นหา ก่อนยิง API
+    useEffect(() => {
+        const t = setTimeout(load, 300);
+        return () => clearTimeout(t);
+    }, [load]);
+
+    const counts = useMemo(() => {
+        const c = {};
+        (rows || []).forEach((r) => { c[r.EventType] = (c[r.EventType] || 0) + 1; });
+        return c;
+    }, [rows]);
+
+    const groups = useMemo(() => {
+        const out = [];
+        let last = null;
+        (rows || []).forEach((r) => {
+            const key = new Date(r.CreatedAt).toDateString();
+            if (!last || last.key !== key) { last = { key, label: dayLabelOf(r.CreatedAt), items: [] }; out.push(last); }
+            last.items.push(r);
+        });
+        return out;
+    }, [rows]);
+
+    // สรุปจากรายการที่แสดงอยู่: ใครทำบ่อยสุด และรายการไหนมีประวัติมากสุด
+    const topActors = useMemo(() => {
+        const m = new Map();
+        (rows || []).forEach((r) => { const k = r.ActorUser || 'ไม่ทราบผู้ทำ'; m.set(k, (m.get(k) || 0) + 1); });
+        return [...m].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+    }, [rows]);
+    const topItems = useMemo(() => {
+        const m = new Map();
+        (rows || []).forEach((r) => { const k = r.ItemName || `(รายการ #${r.ItemID})`; m.set(k, (m.get(k) || 0) + 1); });
+        return [...m].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+    }, [rows]);
+
+    const toggleExpanded = (id) => setExpanded((prev) => {
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+    });
+
+    const stats = [
+        { label: 'รายการที่แสดง', value: rows ? rows.length : '–', tone: 'text-slate-800' },
+        { label: 'แก้ไขข้อมูล', value: counts.UPDATE || 0, tone: 'text-amber-600' },
+        { label: 'ต่ออายุ', value: (counts.RENEW_STEP || 0) + (counts.RENEW_COMPLETE || 0), tone: 'text-violet-600' },
+        { label: 'ลบรายการ', value: counts.DELETE || 0, tone: 'text-red-600' },
+    ];
+
+    return (
+        <div className="min-h-screen bg-slate-50 uppercase">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-3">
+
+                {/* ── Hero ── */}
+                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-violet-600 text-white px-4 py-3 sm:px-5 shadow-md shadow-indigo-200/60">
+                    <div className="absolute -right-10 -top-10 w-44 h-44 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+                    <div className="relative flex flex-wrap items-start justify-between gap-4">
+                        <div className="min-w-0">
+                            <button onClick={onBack} className="inline-flex items-center gap-1 text-[11px] font-bold text-white/80 hover:text-white mb-1">
+                                <ChevronLeft size={14} /> กลับไปหน้า MA
+                            </button>
+                            <h1 className="text-lg sm:text-xl font-black tracking-tight">ประวัติการเปลี่ยนแปลง</h1>
+                            <p className="text-xs text-white/80 mt-0.5">ใครทำอะไรกับรายการ MA เปลี่ยนค่าอะไร และทำจากเครื่องไหน</p>
+                        </div>
+                        <button onClick={load}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-white/15 hover:bg-white/25 backdrop-blur ring-1 ring-white/25 transition-colors">
+                            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> รีเฟรช
+                        </button>
+                    </div>
+                </div>
+
+                <div className="grid lg:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
+                {/* ── Side panel: ตัวกรอง สถิติ และสรุป (อยู่ขวาบนจอกว้าง) ── */}
+                <aside className="order-first lg:order-last lg:sticky lg:top-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                        {stats.map((s) => (
+                            <div key={s.label} className="bg-white rounded-xl border border-slate-200 px-3 py-2 shadow-sm">
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{s.label}</p>
+                                <p className={`text-lg font-black tabular-nums ${s.tone}`}>{typeof s.value === 'number' ? s.value.toLocaleString() : s.value}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-2.5 space-y-2">
+                        <div className="relative">
+                            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาชื่อรายการ หรือชื่อผู้ทำ"
+                                className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 transition" />
+                        </div>
+                        <select value={type} onChange={(e) => setType(e.target.value)}
+                            className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white focus:ring-2 focus:ring-indigo-100">
+                            <option value="">ทุกการกระทำ</option>
+                            {Object.entries(EVENT_META).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+                        </select>
+                    </div>
+
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
+                        <p className="text-xs font-black text-slate-700 mb-2">ผู้ทำรายการบ่อยที่สุด</p>
+                        {topActors.length === 0 && <p className="text-xs text-slate-400">ยังไม่มีข้อมูล</p>}
+                        <div className="space-y-2.5">
+                            {topActors.map((a) => (
+                                <div key={a.name}>
+                                    <div className="flex items-center justify-between text-xs gap-2">
+                                        <span className="font-semibold text-slate-700 truncate">{a.name}</span>
+                                        <span className="font-bold text-slate-500 tabular-nums">{a.count}</span>
+                                    </div>
+                                    <div className="h-1.5 mt-1 rounded-full bg-slate-100 overflow-hidden">
+                                        <div className={`h-full rounded-full ${toneOf(a.name)}`} style={{ width: `${(a.count / topActors[0].count) * 100}%` }} />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
+                        <p className="text-xs font-black text-slate-700 mb-2">รายการที่มีประวัติมากที่สุด</p>
+                        {topItems.length === 0 && <p className="text-xs text-slate-400">ยังไม่มีข้อมูล</p>}
+                        <div className="space-y-2.5">
+                            {topItems.map((it) => (
+                                <div key={it.name}>
+                                    <div className="flex items-center justify-between text-xs gap-2">
+                                        <span className="font-semibold text-slate-700 truncate">{it.name}</span>
+                                        <span className="font-bold text-slate-500 tabular-nums">{it.count}</span>
+                                    </div>
+                                    <div className="h-1.5 mt-1 rounded-full bg-slate-100 overflow-hidden">
+                                        <div className="h-full rounded-full bg-indigo-500" style={{ width: `${(it.count / topItems[0].count) * 100}%` }} />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </aside>
+
+                {/* ── List ── */}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    {err && (
+                        <div className="m-4 p-4 rounded-xl bg-red-50 border border-red-100 text-sm text-red-600">โหลดประวัติไม่สำเร็จ: {err}</div>
+                    )}
+
+                    {!err && !rows && (
+                        <div className="p-5 space-y-4 animate-pulse">
+                            {[0, 1, 2, 3].map((i) => (
+                                <div key={i} className="flex gap-4">
+                                    <div className="w-10 h-10 rounded-full bg-slate-200 shrink-0" />
+                                    <div className="flex-1 space-y-2">
+                                        <div className="h-3 w-1/3 bg-slate-200 rounded" />
+                                        <div className="h-3 w-2/3 bg-slate-100 rounded" />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {!err && rows && rows.length === 0 && (
+                        <div className="py-16 flex flex-col items-center text-center px-6">
+                            <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                                <Clock size={24} className="text-slate-400" />
+                            </div>
+                            <p className="font-bold text-slate-700">ไม่พบประวัติ</p>
+                            <p className="text-sm text-slate-400 mt-1">ลองเปลี่ยนตัวกรองหรือคำค้นหา</p>
+                        </div>
+                    )}
+
+                    {!err && rows && rows.length > 0 && groups.map((g) => (
+                        <div key={g.key}>
+                            <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-2 bg-slate-50/95 backdrop-blur border-y border-slate-100">
+                                <span className="text-xs font-bold text-slate-600">{g.label}</span>
+                                <span className="text-[11px] font-semibold text-slate-400">{g.items.length} รายการ</span>
+                            </div>
+                            <ul className="divide-y divide-slate-100">
+                                {g.items.map((ev) => {
+                                    const tone = EVENT_TONE[ev.EventType] || 'bg-slate-100 text-slate-600 ring-slate-200';
+                                    const label = (EVENT_META[ev.EventType] || { label: ev.EventType }).label;
+                                    const changes = Array.isArray(ev.changes) ? ev.changes : [];
+                                    const isOpen = expanded.has(ev.HistoryID);
+                                    const shown = isOpen ? changes : changes.slice(0, MAX_CHANGES_SHOWN);
+                                    const hiddenCount = changes.length - shown.length;
+                                    return (
+                                        <li key={ev.HistoryID} className="px-4 py-2.5 flex gap-3 hover:bg-slate-50/70 transition-colors">
+                                            <div className={`w-8 h-8 rounded-full text-white text-[11px] font-black flex items-center justify-center shrink-0 shadow-sm ${toneOf(ev.ActorUser)}`}>
+                                                {initialsOf(ev.ActorUser)}
+                                            </div>
+                                            <div className="min-w-0 flex-1 space-y-2">
+                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                                    <span className="text-sm font-bold text-slate-800">{ev.ActorUser || 'ไม่ทราบผู้ทำ'}</span>
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ring-1 ${tone}`}>{label}</span>
+                                                    <span className="ml-auto text-xs font-mono text-slate-400 tabular-nums">{timeOf(ev.CreatedAt)}</span>
+                                                </div>
+
+                                                <div className="flex flex-wrap items-center gap-2 text-sm">
+                                                    <span className="font-semibold text-slate-700 truncate max-w-full">{ev.ItemName || `(รายการ #${ev.ItemID})`}</span>
+                                                    {ev.Category && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{ev.Category}</span>}
+                                                    {ev.IsDeleted && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-600">ลบแล้ว</span>}
+                                                </div>
+
+                                                {ev.Note && <p className="text-xs text-slate-500 italic">{ev.Note}</p>}
+
+                                                {shown.length > 0 && (
+                                                    <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 space-y-1">
+                                                        {shown.map((c, i) => (
+                                                            <div key={`${c.field}-${i}`} className="flex flex-wrap items-center gap-1.5 text-xs">
+                                                                <span className="font-semibold text-slate-500 min-w-[92px]">{FIELD_LABELS[c.field] || c.field}</span>
+                                                                {fmtChangeVal(c.field, c.old) !== '—' && (
+                                                                    <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 line-through decoration-rose-300">{fmtChangeVal(c.field, c.old)}</span>
+                                                                )}
+                                                                {fmtChangeVal(c.field, c.old) !== '—' && <span className="text-slate-400">→</span>}
+                                                                <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold">{fmtChangeVal(c.field, c.new)}</span>
+                                                            </div>
+                                                        ))}
+                                                        {changes.length > MAX_CHANGES_SHOWN && (
+                                                            <button onClick={() => toggleExpanded(ev.HistoryID)}
+                                                                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700">
+                                                                {isOpen ? 'ย่อรายการ' : `ดูเพิ่มอีก ${hiddenCount} รายการ`}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                <ClientTag ip={ev.ClientIP} mac={ev.ClientMAC} />
+                                            </div>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </div>
+                    ))}
+                </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const MAHistoryList = ({ history }) => {
     if (!history) return <p className="px-4 py-3 text-xs text-slate-400">กำลังโหลดประวัติ...</p>;
     const { events = [], renewals = [] } = history;
@@ -1718,6 +2007,7 @@ const MADetailModal = ({ item, isAdmin, canDelete, onClose, onEdit, onStatusChan
     const renewal = getRenewal(item.RenewalStatus);
     const price = useCountUp(item.Price || 0, 900);
     const [menu, setMenu] = useState(null); // 'status' | 'renewal' | null
+    const [pendingStep, setPendingStep] = useState(null); // ขั้นตอนที่รอยืนยันจากแถบ
     const menuRef = useRef(null);
 
     useEffect(() => {
@@ -1830,7 +2120,7 @@ const MADetailModal = ({ item, isAdmin, canDelete, onClose, onEdit, onStatusChan
                         </div>
                         <div className="space-y-3">
                         <DetailSection title="ต่ออายุ" icon={RefreshCw} tone={DETAIL_TONES.violet}>
-                            <RenewalStepper value={item.RenewalStatus} onPick={isAdmin ? (v) => onRenewalChange(item, v) : null} />
+                            <RenewalStepper value={item.RenewalStatus} onPick={isAdmin ? (v) => setPendingStep(v) : null} />
                             {isAdmin && <p className="text-center text-[10px] text-slate-400 -mt-1 pb-2">กดที่ขั้นตอนเพื่อเปลี่ยนสถานะต่ออายุ</p>}
                             <DetailRow icon={FileText} label="เลขที่ PR" value={item.PRNumber || '-'} copy />
                             <DetailRow icon={CreditCard} label="เลขที่ PO ใหม่" value={item.NewPONumber || '-'} copy />
@@ -1879,6 +2169,31 @@ const MADetailModal = ({ item, isAdmin, canDelete, onClose, onEdit, onStatusChan
                         </div>
                     )}
                 </motion.div>
+
+                {/* ── ยืนยันก่อนเปลี่ยนขั้นตอนต่ออายุ ── */}
+                <AnimatePresence>
+                    {pendingStep && (
+                        <motion.div key="confirm-step" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            className="absolute inset-0 z-[80] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4"
+                            onMouseDown={(e) => { if (e.target === e.currentTarget) setPendingStep(null); }}>
+                            <motion.div role="alertdialog" aria-modal="true" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+                                className="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-5">
+                                <p className="text-[11px] font-black uppercase tracking-wider text-violet-600">ยืนยันการเปลี่ยนขั้นตอน</p>
+                                <p className="mt-2 text-sm text-slate-700">
+                                    เปลี่ยนสถานะต่ออายุจาก <b>{getRenewal(item.RenewalStatus)?.label || 'ยังไม่ดำเนินการ'}</b> เป็น <b>{getRenewal(pendingStep)?.label}</b> ?
+                                </p>
+                                <p className="mt-1 text-[11px] text-slate-500">การเปลี่ยนนี้จะถูกบันทึกในประวัติพร้อมชื่อและ IP ของคุณ</p>
+                                <div className="mt-4 flex justify-end gap-2">
+                                    <button type="button" onClick={() => setPendingStep(null)}
+                                        className="px-4 py-2 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">ยกเลิก</button>
+                                    <button type="button" autoFocus
+                                        onClick={() => { const v = pendingStep; setPendingStep(null); onRenewalChange(item, v); }}
+                                        className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-violet-600 hover:bg-violet-700">ยืนยัน</button>
+                                </div>
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </motion.div>
         </Portal>
     );
@@ -2084,6 +2399,7 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
         ...(isEdit ? { ItemID: item.ItemID } : {}),
     });
     const [errors, setErrors] = useState({});
+    const [confirmSave, setConfirmSave] = useState(false);
     // ส่วนการต่ออายุ: เปิดอัตโนมัติถ้ามีข้อมูลอยู่แล้ว ไม่งั้นพับไว้ให้ฟอร์มสั้นลง
     const [showRenewal, setShowRenewal] = useState(!!(item?.RenewalStatus || item?.PRNumber || item?.NewPONumber));
 
@@ -2098,6 +2414,8 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
         if (!form.SubType) newErrors.SubType = 'กรุณาเลือกประเภทย่อย';
         if (!form.ItemName.trim()) newErrors.ItemName = 'กรุณากรอกชื่อรายการ';
         if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
+        // แก้ไขรายการ: ให้ยืนยันก่อนบันทึก
+        if (isEdit) { setConfirmSave(true); return; }
         onSave(form);
     };
 
@@ -2301,11 +2619,33 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                     </div>
                 </motion.div>
             </div>
+            {/* ── ยืนยันก่อนบันทึกการแก้ไข ── */}
+            <AnimatePresence>
+                {confirmSave && (
+                    <motion.div key="confirm-save" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[90] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4"
+                        onMouseDown={(e) => { if (e.target === e.currentTarget) setConfirmSave(false); }}>
+                        <motion.div role="alertdialog" aria-modal="true" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+                            className="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-5">
+                            <p className="text-[11px] font-black uppercase tracking-wider text-indigo-600">ยืนยันการบันทึก</p>
+                            <p className="mt-2 text-sm text-slate-700">บันทึกการแก้ไข <b>{form.ItemName || 'รายการนี้'}</b> ใช่หรือไม่?</p>
+                            <p className="mt-1 text-[11px] text-slate-500">การเปลี่ยนแปลงจะถูกบันทึกในประวัติพร้อมชื่อ IP และ MAC ของคุณ</p>
+                            <div className="mt-4 flex justify-end gap-2">
+                                <button type="button" onClick={() => setConfirmSave(false)}
+                                    className="px-4 py-2 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">ยกเลิก</button>
+                                <button type="button" autoFocus
+                                    onClick={() => { setConfirmSave(false); onSave(form); }}
+                                    className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700">ยืนยันบันทึก</button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </Portal>
     );
 };
 
-const FormSection = ({ n, title, children }) => (
+const FormSection =({ n, title, children }) => (
     <section className="rounded-xl border border-slate-200 bg-white">
         <header className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50/70 rounded-t-xl">
             <span className="w-5 h-5 rounded-full bg-slate-800 text-white text-[10px] font-black flex items-center justify-center shrink-0">{n}</span>

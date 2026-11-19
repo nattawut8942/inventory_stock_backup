@@ -100,7 +100,8 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                     ItemName: item.ItemName,
                     QtyOrdered: item.QtyOrdered,
                     UnitCost: item.UnitCost,
-                    BG_No: item.BG_No || ''
+                    BG_No: item.BG_No || '',
+                    DetailID: item.DetailID || null
                 }));
                 setPoItems(items);
 
@@ -111,6 +112,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                     setSelectedVendor({ VendorID: null, VendorName: initialData.VendorName });
                 }
                 setActiveTab('manual');
+                setPoFile(null); // ไม่ให้ไฟล์ของใบก่อนหน้าค้างในฟอร์ม (ไฟล์ที่แนบแล้วอยู่ในรายละเอียด PO)
             } else {
                 setNewPO({
                     PO_ID: generatePONumber(),
@@ -809,8 +811,8 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                                             <Plus size={14} /> เพิ่มรายการ
                                         </button>
                                     </div>
-                                    {itemsLocked && <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">PO นี้รับของไปแล้ว แก้ไขได้เฉพาะหัวใบ (Vendor, Budget No., PR No., วันที่กำหนดส่ง ฯลฯ) รายการสินค้าและจำนวนถูกล็อก</div>}
-                                    <fieldset disabled={itemsLocked} className="contents">
+                                    {itemsLocked && <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">PO นี้รับของไปแล้ว แก้ไขได้เฉพาะหัวใบ และ BG No. ของแต่ละรายการ (ชื่อสินค้า จำนวน ราคา ถูกล็อก)</div>}
+                                    <div className="contents">
                                     {/* ✅ Header row เพิ่ม BG No. */}
                                     <div className="hidden sm:flex gap-2 items-center px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                         <div className="flex-1">ชื่ออุปกรณ์</div>
@@ -822,7 +824,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                                     <div className="space-y-2 relative z-[100]">
                                         {poItems.map((item, index) => (
                                             <div key={index} className="flex flex-col sm:flex-row gap-2 sm:items-center bg-slate-50/50 p-2 rounded-lg border border-slate-200 relative">
-                                                <div className="flex-1 w-full">
+                                                <div className={`flex-1 w-full ${itemsLocked ? 'pointer-events-none opacity-60' : ''}`}>
                                                     <div className="sm:hidden text-[10px] font-bold text-slate-400 mb-1 uppercase">ชื่ออุปกรณ์</div>
                                                     <ProductCombobox
                                                         value={{ ProductID: item.ProductID, ItemName: item.ItemName }}
@@ -854,6 +856,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                                                         <input
                                                             type="number"
                                                             min="1"
+                                                            disabled={itemsLocked}
                                                             value={item.QtyOrdered}
                                                             onChange={(e) => updateItem(index, 'QtyOrdered', parseInt(e.target.value) || 1)}
                                                             className="w-full sm:w-16 bg-white border border-slate-200 p-2 rounded-lg text-sm text-center outline-none focus:border-indigo-500"
@@ -865,13 +868,14 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                                                             type="number"
                                                             min="0"
                                                             placeholder="ราคา"
+                                                            disabled={itemsLocked}
                                                             value={item.UnitCost}
                                                             onChange={(e) => updateItem(index, 'UnitCost', parseFloat(e.target.value) || 0)}
                                                             className="w-full sm:w-24 bg-white border border-slate-200 p-2 rounded-lg text-sm text-right outline-none focus:border-indigo-500"
                                                         />
                                                     </div>
                                                     {poItems.length > 1 && (
-                                                        <button type="button" onClick={() => removeItem(index)} className="sm:ml-1 text-red-400 hover:text-red-500 p-2 sm:p-1 bg-red-50 sm:bg-transparent rounded-lg sm:rounded-none h-[38px] w-[38px] sm:h-auto sm:w-auto flex items-center justify-center">
+                                                        <button type="button" disabled={itemsLocked} onClick={() => removeItem(index)} className="sm:ml-1 text-red-400 hover:text-red-500 p-2 sm:p-1 bg-red-50 sm:bg-transparent rounded-lg sm:rounded-none h-[38px] w-[38px] sm:h-auto sm:w-auto flex items-center justify-center">
                                                             <X size={18} className="sm:w-4 sm:h-4" />
                                                         </button>
                                                     )}
@@ -879,7 +883,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                                             </div>
                                         ))}
                                     </div>
-                                    </fieldset>
+                                    </div>
                                     <p className="text-right text-sm font-bold text-indigo-600 mt-2">ยอดรวม: ฿{getTotalAmount().toLocaleString()}</p>
                                 </div>
 
@@ -899,7 +903,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                                     <button type="button" onClick={onClose} className="flex-1 bg-slate-100 text-slate-600 py-2.5 rounded-lg text-sm font-bold hover:bg-slate-200 transition-all">
                                         ยกเลิก
                                     </button>
-                                    <button type="submit" className="flex-[2] bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-all shadow-md shadow-indigo-200">
+                                    <button type="submit" disabled={!isEditMode && !poFile} title={!isEditMode && !poFile ? 'ต้องแนบไฟล์ PO ก่อนสร้างใบสั่งซื้อ' : undefined} className="flex-[2] bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-all shadow-md shadow-indigo-200 disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed">
                                         {isEditMode ? 'บันทึกการแก้ไข' : 'สร้างใบสั่งซื้อ'}
                                     </button>
                                 </div>

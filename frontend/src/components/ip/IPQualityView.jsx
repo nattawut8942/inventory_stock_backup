@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Loader2, X, Upload, Download, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { RefreshCw, Loader2, X, Upload, Download, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
+import PCMOSyncModal from './PCMOSyncModal';
+import Portal from '../Portal';
 
 // คุณภาพข้อมูล IP: จองแล้วข้อมูลไม่ครบ / online แต่ไม่มีใครจอง / จองค้าง + เติมข้อมูลหลายรายการ + นำเข้า Excel
 const FIELDS = [
@@ -20,9 +22,11 @@ const blank = (v) => v == null || String(v).trim() === '';
 const inputCls = 'mt-1 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 disabled:opacity-60';
 
 const Overlay = ({ children, onClose, width = 'max-w-lg' }) => (
-    <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={onClose}>
-        <div className={`bg-white rounded-2xl shadow-2xl w-full ${width} max-h-[90vh] overflow-hidden flex flex-col`} onClick={e => e.stopPropagation()}>{children}</div>
-    </div>
+    <Portal>
+        <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={onClose}>
+            <div className={`bg-white rounded-2xl shadow-2xl w-full ${width} max-h-[90vh] overflow-hidden flex flex-col`} onClick={e => e.stopPropagation()}>{children}</div>
+        </div>
+    </Portal>
 );
 
 // ─── เติมข้อมูล / จองหลายรายการ ───────────────────────────────────────────────
@@ -307,6 +311,7 @@ export default function IPQualityView({ api, authHeaders, canEdit, putIP, actor,
         <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm text-slate-500 mr-auto">ตรวจรายการ IP ที่ข้อมูลไม่ครบ ไม่ทราบเจ้าของ หรือจองค้าง แล้วแก้ทีละหลายรายการ</p>
+                {canEdit && <button onClick={() => setModal('sync')} className="h-9 px-3 rounded-xl bg-indigo-600 text-white text-xs font-bold inline-flex items-center gap-1.5 hover:bg-indigo-700 shadow-sm"><Layers size={14} />เติมจาก PC/MO</button>}
                 {canEdit && <button onClick={() => setModal('import')} className="h-9 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 inline-flex items-center gap-1.5 hover:bg-slate-50"><Upload size={14} />นำเข้า Excel</button>}
                 <button onClick={load} className="h-9 w-9 rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 flex items-center justify-center" title="รีเฟรช"><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /></button>
             </div>
@@ -365,6 +370,7 @@ export default function IPQualityView({ api, authHeaders, canEdit, putIP, actor,
             </>)}
 
             {modal === 'fill' && <BulkFillModal ips={[...selected]} mode={tab === 'rogue' ? 'rogue' : 'missing'} progress={progress} onClose={() => setModal(null)} onConfirm={applyFill} />}
+            {modal === 'sync' && <PCMOSyncModal api={api} authHeaders={authHeaders} onClose={() => setModal(null)} onDone={load} showToast={showToast} />}
             {modal === 'import' && <ImportModal progress={progress} onClose={() => setModal(null)} onApply={applyImport} />}
             {modal === 'release' && (
                 <Overlay onClose={progress ? undefined : () => setModal(null)} width="max-w-sm">

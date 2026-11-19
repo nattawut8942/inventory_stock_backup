@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo } from 'react';
-import { ShoppingCart, X, Check, Phone, Calendar, Clock, Package, User, Building2, Hash, MapPin, FileText, Paperclip, Eye, Download } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ShoppingCart, X, Check, Phone, Calendar, Clock, Package, User, Building2, Hash, MapPin, FileText, Paperclip, Eye, Download, Trash2 } from 'lucide-react';
 import Portal from './Portal';
+import AlertModal from './AlertModal';
 import { formatThaiDate } from '../utils/formatDate';
 import { API_BASE } from '../config/api';
 
@@ -27,6 +28,22 @@ const daysUntil = (dateStr) => {
  * PODetailModal - รายละเอียด PO (ออกแบบใหม่: สรุปยอด, ความคืบหน้า, ตารางรายการ)
  */
 const PODetailModal = ({ po, vendors = [], onClose }) => {
+    // ไฟล์แนบ: เก็บสำเนาในหน้านี้ เพื่อให้ลบแล้วหายทันที
+    const [attachments, setAttachments] = useState(po?.Attachments || []);
+    const [attToDelete, setAttToDelete] = useState(null);
+    const [attError, setAttError] = useState('');
+    useEffect(() => { setAttachments(po?.Attachments || []); }, [po]);
+    const deleteAttachment = async () => {
+        const a = attToDelete;
+        setAttToDelete(null);
+        try {
+            const res = await fetch(`${API_BASE}/po-attachments/${a.AttachmentID}`, { method: 'DELETE' });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok || d.success === false) throw new Error(d.error || `HTTP ${res.status}`);
+            setAttachments(prev => prev.filter(x => x.AttachmentID !== a.AttachmentID));
+        } catch (e) { setAttError(`ลบไฟล์ไม่สำเร็จ: ${e.message}`); }
+    };
+
     // ปิดด้วย Escape
     useEffect(() => {
         if (!po) return;
@@ -60,7 +77,7 @@ const PODetailModal = ({ po, vendors = [], onClose }) => {
         { icon: Calendar, label: 'วันที่สร้าง', value: formatThaiDate(po.RequestDate) },
         { icon: Clock, label: 'กำหนดส่ง (Due)', value: po.DueDate ? formatThaiDate(po.DueDate) : '-' },
         { icon: Hash, label: 'PR No.', value: po.PR_No || '-' },
-        { icon: FileText, label: 'Budget No.', value: po.BudgetNo || '-' },
+        { icon: FileText, label: 'BG No.', value: [...new Set((po.Items || []).map(i => i.BG_No).filter(Boolean))].join(', ') || '-' },
         { icon: MapPin, label: 'Delivery To', value: po.DeliveryTo || '-' },
     ];
 
@@ -215,12 +232,12 @@ const PODetailModal = ({ po, vendors = [], onClose }) => {
 
                         {/* ไฟล์ PO */}
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 md:p-5">
-                            <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Paperclip size={14} /> ไฟล์ PO ({(po.Attachments || []).length})</h4>
-                            {(po.Attachments || []).length === 0 ? (
+                            <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Paperclip size={14} /> ไฟล์ PO ({attachments.length})</h4>
+                            {attachments.length === 0 ? (
                                 <p className="text-sm text-slate-400">ไม่มีไฟล์แนบ</p>
                             ) : (
                                 <div className="space-y-2">
-                                    {po.Attachments.map(a => (
+                                    {attachments.map(a => (
                                         <div key={a.AttachmentID} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/60">
                                             <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-500 flex items-center justify-center shrink-0">
                                                 <FileText size={16} />
@@ -247,11 +264,18 @@ const PODetailModal = ({ po, vendors = [], onClose }) => {
                                             >
                                                 <Download size={13} />
                                             </a>
+                                            <button type="button" onClick={() => setAttToDelete(a)} title="ลบไฟล์แนบ" aria-label={`ลบไฟล์ ${a.FileName}`}
+                                                className="shrink-0 p-1.5 rounded-lg bg-white border border-slate-200 text-rose-500 hover:bg-rose-50 hover:border-rose-200">
+                                                <Trash2 size={13} />
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
                             )}
                         </div>
+
+                        <AlertModal isOpen={!!attToDelete} type="danger" title="ลบไฟล์แนบ?" message={attToDelete ? `ลบ "${attToDelete.FileName}" ออกจาก PO นี้ (ไม่สามารถย้อนกลับได้)` : ''} confirmText="ลบไฟล์" cancelText="ยกเลิก" onConfirm={deleteAttachment} onCancel={() => setAttToDelete(null)} />
+                        <AlertModal isOpen={!!attError} type="danger" title="ลบไม่สำเร็จ" message={attError} confirmText="ตกลง" onConfirm={() => setAttError('')} />
 
                         {/* Remark */}
                         {po.Remark && (

@@ -30,7 +30,7 @@ export const PAGES = [
     { key: 'dashboard',       group: 'ทั่วไป', label: 'Dashboard', route: '/dashboard', actions: ['view'] },
     { key: 'activity',        group: 'ทั่วไป', label: 'Activity',  route: '/activity',  actions: CRUD },
     // ── Inventory & Procurement ──
-    { key: 'inventory',       group: 'Inventory & Procurement', label: 'Stock Inventory',  route: '/inventory',       actions: ['view', 'withdraw', 'edit', 'delete'] },
+    { key: 'inventory',       group: 'Inventory & Procurement', label: 'Stock Inventory',  route: '/inventory',       actions: ['view', 'withdraw', 'return', 'edit', 'delete'] },
     { key: 'stock-count',     group: 'Inventory & Procurement', label: 'Stock Count',      route: null,               actions: ['view', 'count', 'adjust', 'edit', 'delete'] },
     { key: 'ink-toner',       group: 'Inventory & Procurement', label: 'Ink & Toner',      route: '/ink-toner',       actions: ['view'] },
     { key: 'printer-health',  group: 'Inventory & Procurement', label: 'Printer Health',   route: '/printer-health',  actions: ['view', 'create', 'edit'] },

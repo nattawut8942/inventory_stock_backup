@@ -1,6 +1,23 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, Plus, X, Eye, Search, Calendar, Filter, Check, Upload, FileText, RefreshCw, Trash2, Pencil, ChevronUp, ChevronDown, ArrowUpDown, Download, Lock, Truck, Clock, Package } from 'lucide-react';
+import { ShoppingCart, Plus, X, Eye, Search, Calendar, Filter, Check, Upload, FileText, RefreshCw, Trash2, Pencil, ChevronUp, ChevronDown, ArrowUpDown, Download, Lock, Truck, Clock, Package, Paperclip } from 'lucide-react';
+
+// ไอคอนบอกสถานะไฟล์แนบ: มีไฟล์ = แสดงจำนวน, ยังไม่มี = จางและบอกว่ายังไม่แนบ
+const AttachBadge = ({ po }) => {
+    const n = (po.Attachments || []).length;
+    if (n === 0) {
+        return (
+            <span title="ยังไม่ได้แนบไฟล์" className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-100 border border-dashed border-slate-300 rounded-md px-1.5 py-0.5">
+                <Paperclip size={11} /> ยังไม่แนบ
+            </span>
+        );
+    }
+    return (
+        <span title={`แนบแล้ว ${n} ไฟล์`} className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5">
+            <Paperclip size={11} /> {n}
+        </span>
+    );
+};
 import * as XLSX from 'xlsx';
 import { motion } from 'motion/react';
 import { useData } from '../context/DataContext';
@@ -22,6 +39,8 @@ import { formatThaiDate } from '../utils/formatDate';
 const OPEN_STATUSES = ['Open', 'Pending', 'Partial'];
 const isOpenStatus = (s) => OPEN_STATUSES.includes(s);
 const statusLabel = (s) => (s === 'Open' ? 'Pending' : s);
+// BG No. ของทุกรายการในใบ (ใบเดียวอาจมีหลาย BG)
+const poBgList = (po) => [...new Set((po.Items || []).map(i => i.BG_No).filter(Boolean))].join(', ');
 const STATUS_CHIP = {
     Completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
     Partial: 'bg-amber-100 text-amber-700 border-amber-200',
@@ -218,7 +237,7 @@ const PurchaseOrdersPage = () => {
         const q = searchTerm.trim().toLowerCase();
         if (!q) return true;
         const hay = [
-            po.PO_ID, po.VendorName, po.PR_No, po.BudgetNo, po.RequestedBy, po.DeliveryTo,
+            po.PO_ID, po.VendorName, po.PR_No, poBgList(po), po.RequestedBy, po.DeliveryTo,
             ...(po.Items || []).flatMap(it => [it.ItemName, it.ProductName, it.BG_No])
         ].filter(Boolean).join(' ').toLowerCase();
         return q.split(/\s+/).every(t => hay.includes(t));
@@ -306,7 +325,7 @@ const PurchaseOrdersPage = () => {
                 'ผู้บันทึก': po.RequestedBy || '',
                 'แผนก': po.Section || '',
                 'PR No.': po.PR_No || '',
-                'Budget No.': po.BudgetNo || '',
+                'BG No.': poBgList(po),
                 'สถานะ': statusLabel(po.Status),
                 'รับแล้ว': pr.received,
                 'สั่งทั้งหมด': pr.ordered,
@@ -624,7 +643,7 @@ const PurchaseOrdersPage = () => {
                                             const full = pr.ordered > 0 && pr.received >= pr.ordered;
                                             return (
                                                 <tr key={po.PO_ID} className="hover:bg-indigo-50/40 transition-colors cursor-pointer" onClick={() => setSelectedPO(po)}>
-                                                    <td className="p-2 pl-4 font-bold text-slate-800 font-mono text-xs">{po.PO_ID}</td>
+                                                    <td className="p-2 pl-4 font-bold text-slate-800 font-mono text-xs"><div className="flex items-center gap-2 flex-wrap">{po.PO_ID}<AttachBadge po={po} /></div></td>
                                                     <td className="p-2 hidden sm:table-cell text-slate-600 text-xs">{formatThaiDate(po.RequestDate)}</td>
                                                     <td className="p-2">
                                                         <div className="font-medium text-slate-800 break-words leading-tight">{po.VendorName || '-'}</div>
@@ -632,7 +651,7 @@ const PurchaseOrdersPage = () => {
                                                     </td>
                                                     <td className="p-2 hidden md:table-cell">
                                                         <div className="text-slate-700 text-xs truncate max-w-[200px]" title={(po.Items || []).map(i => i.ItemName || i.ProductName).join(', ')}>{itemsSummary(po)}</div>
-                                                        {po.BudgetNo && <div className="text-[10px] text-slate-400 font-mono">BG {po.BudgetNo}</div>}
+                                                        {poBgList(po) && <div className="text-[10px] text-slate-400 font-mono">BG {poBgList(po)}</div>}
                                                     </td>
                                                     <td className="p-2">
                                                         <div className="text-xs text-slate-700">{po.DueDate ? formatThaiDate(po.DueDate) : '-'}</div>
@@ -695,7 +714,7 @@ const PurchaseOrdersPage = () => {
 
                                         <div className="flex justify-between items-start gap-2 mt-1">
                                             <div className="min-w-0">
-                                                <p className="font-mono font-black text-slate-800 text-sm">{po.PO_ID}</p>
+                                                <div className="flex items-center gap-2 flex-wrap"><p className="font-mono font-black text-slate-800 text-sm">{po.PO_ID}</p><AttachBadge po={po} /></div>
                                                 <p className="text-xs text-slate-600 font-medium break-words">{po.VendorName || 'ไม่ระบุผู้ขาย'}</p>
                                             </div>
                                             <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusChip(po.Status)}`}>

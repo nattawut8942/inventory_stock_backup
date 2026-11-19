@@ -4,6 +4,8 @@ import { getForecast } from '../controllers/productController.js';
 // --- 1. Import ฟังก์ชันใหม่จาก Controller (ต้องไปสร้างรับใน Controller ด้วย) ---
 // หรือถ้าจะเรียกตรงจาก Service เพื่อเทสเร็วๆ ให้ import จาก emailService โดยตรง
 import { sendDailyReport, sendMonthlyInventoryReport } from '../services/emailService.js';
+import { verifyToken } from '../middleware/authMiddleware.js';
+import { requireDbAdmin } from '../middleware/permissionMiddleware.js';
 
 const router = express.Router();
 
@@ -39,7 +41,8 @@ router.get('/test-daily', async (req, res) => {
 // --- 2. เพิ่ม Route สำหรับเทส Monthly Report ---
 
 // แบบ GET: สำหรับเทสผ่าน Browser (http://localhost:3002/ITinventory/api/test-monthly)
-router.get('/test-monthly', async (req, res) => {
+// Sends a real email to the report recipients, so Admin only (Authorization: Bearer <token>)
+router.get('/test-monthly', verifyToken, requireDbAdmin, async (req, res) => {
     try {
         const result = await sendMonthlyInventoryReport();
         res.json({ success: true, message: "Monthly Report Sent!", result });
@@ -49,7 +52,7 @@ router.get('/test-monthly', async (req, res) => {
 });
 
 // แบบ POST: สำหรับเทสผ่าน PowerShell ที่คุณใช้
-router.post('/test-monthly', async (req, res) => {
+router.post('/test-monthly', verifyToken, requireDbAdmin, async (req, res) => {
     try {
         const result = await sendMonthlyInventoryReport();
         res.json({ success: true, message: "Monthly Report Sent via POST!", result });

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, Loader2, Copy, Check, Sparkles } from 'lucide-react';
+import Portal from '../Portal';
 
 // แนะนำ IP ว่างใน subnet: ไม่ถูกจอง ไม่ online และไม่เคยเห็น/ไม่เห็นนานที่สุดก่อน
 export default function FreeIPFinder({ api, authHeaders, subnet, canReserve, onPick, onClose }) {
@@ -27,7 +28,7 @@ export default function FreeIPFinder({ api, authHeaders, subnet, canReserve, onP
     };
 
     return (
-        <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={onClose}>
+        <Portal><div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={onClose}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                 <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2.5">
@@ -64,5 +65,6 @@ export default function FreeIPFinder({ api, authHeaders, subnet, canReserve, onP
                 </div>
             </div>
         </div>
+    </Portal>
     );
 }

@@ -110,9 +110,7 @@ export const deletePOAttachment = async (req, res) => {
                     WHERE a.AttachmentID = @AttachmentID`);
         const row = info.recordset[0];
         if (!row) return res.status(404).json({ error: 'Attachment not found' });
-        if (row.Status !== 'Open' && row.Status !== 'Pending') {
-            return res.status(400).json({ error: 'PO นี้ดำเนินการแล้ว ลบไฟล์แนบไม่ได้' });
-        }
+        // ยกเลิกกฎเดิม "PO ที่รับของแล้วลบไฟล์ไม่ได้" ตามคำขอ — ยังคงต้องเหลือไฟล์อย่างน้อย 1 ไฟล์
         if (row.FileCount <= 1) {
             return res.status(400).json({ error: 'PO ต้องมีไฟล์แนบอย่างน้อย 1 ไฟล์' });
         }

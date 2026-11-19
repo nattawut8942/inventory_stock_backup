@@ -5,8 +5,31 @@ import Portal from './Portal';
 import { API_BASE } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 
+// ย่อรูปที่ใหญ่เกินไปก่อนอัปโหลด (ด้านยาวสุด 2048px, JPEG 85%) — รูปเล็กหรือไม่ใช่รูปจะส่งต้นฉบับ
+const compressImage = async (file) => {
+    if (!file.type.startsWith('image/') || file.size < 1.5 * 1024 * 1024) return file;
+    try {
+        const bitmap = await createImageBitmap(file);
+        const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close?.();
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+        if (!blob || blob.size >= file.size) return file;
+        return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+    } catch (err) {
+        return file;
+    }
+};
+
 const ActivityUploadModal = ({ isOpen, onClose, onUploaded, albums, categories = [], setAlertModal }) => {
     const { user } = useAuth();
+    const [dragOver, setDragOver] = useState(false);
+    const [progress, setProgress] = useState({ done: 0, total: 0 });
+    const [albumQuery, setAlbumQuery] = useState('');
+    const [previews, setPreviews] = useState([]);
 
     const [mode, setMode] = useState('existing'); // 'existing' | 'new'
     const [albumId, setAlbumId] = useState('');
@@ -22,12 +45,26 @@ const ActivityUploadModal = ({ isOpen, onClose, onUploaded, albums, categories =
     const [files, setFiles] = useState([]);
     const [submitting, setSubmitting] = useState(false);
 
+    // พรีวิวรูปที่เลือก และคืนหน่วยความจำเมื่อเปลี่ยนไฟล์
+    useEffect(() => {
+        const urls = files.map(f => URL.createObjectURL(f));
+        setPreviews(urls);
+        return () => urls.forEach(u => URL.revokeObjectURL(u));
+    }, [files]);
+
     if (!isOpen) return null;
+
+    const pickFiles = (list) => {
+        const imgs = Array.from(list || []).filter(f => f.type.startsWith('image/'));
+        if (imgs.length > 0) setFiles(imgs);
+    };
+
+    const filteredAlbums = albums.filter(a => a.Title.toLowerCase().includes(albumQuery.trim().toLowerCase()));
 
     const resetForm = () => {
         setMode('existing'); setAlbumId(''); setNewTitle(''); setNewDescription('');
         setCategory(categories[0]?.CategoryCode || '');
-        setCaption(''); setFiles([]);
+        setCaption(''); setFiles([]); setAlbumQuery(''); setProgress({ done: 0, total: 0 });
     };
 
     const handleSubmit = async () => {
@@ -63,7 +100,9 @@ const ActivityUploadModal = ({ isOpen, onClose, onUploaded, albums, categories =
 
             // อัปโหลดทีละไฟล์ วนลูปตามลำดับ (backend รับได้ครั้งละ 1 ไฟล์)
             let failCount = 0;
-            for (const f of files) {
+            setProgress({ done: 0, total: files.length });
+            for (const [i, original] of files.entries()) {
+                const f = await compressImage(original);
                 const formData = new FormData();
                 formData.append('imageFile', f);
                 formData.append('AlbumID', targetAlbumId);
@@ -73,10 +112,19 @@ const ActivityUploadModal = ({ isOpen, onClose, onUploaded, albums, categories =
 
                 const uploadRes = await fetch(`${API_BASE}/photos/upload`, { method: 'POST', body: formData });
                 if (!uploadRes.ok) failCount++;
+                setProgress({ done: i + 1, total: files.length });
             }
 
             if (failCount > 0) {
-                setAlertModal({ isOpen: true, type: 'error', title: 'อัปโหลดไม่ครบ', message: `อัปโหลดสำเร็จ ${files.length - failCount}/${files.length} รูป มีบางรูปอัปโหลดไม่สำเร็จ` });
+                const emptyNew = mode === 'new' && failCount === files.length;
+                setAlertModal({
+                    isOpen: true,
+                    type: 'error',
+                    title: 'อัปโหลดไม่ครบ',
+                    message: emptyNew
+                        ? 'สร้างอัลบัมแล้วแต่อัปโหลดรูปไม่สำเร็จ อัลบัมจึงยังว่างอยู่ ลองเพิ่มรูปจากหน้าต่างดูอัลบัม'
+                        : `อัปโหลดสำเร็จ ${files.length - failCount}/${files.length} รูป มีบางรูปอัปโหลดไม่สำเร็จ`,
+                });
             } else {
                 setAlertModal({ isOpen: true, type: 'success', title: 'สำเร็จ', message: `อัปโหลด ${files.length} รูปเรียบร้อย` });
             }
@@ -103,24 +151,39 @@ const ActivityUploadModal = ({ isOpen, onClose, onUploaded, albums, categories =
 
                     <div className="max-h-[70vh] overflow-y-auto px-5 py-4 space-y-4">
                         {/* Upload area — เลือกได้หลายไฟล์ */}
-                        <label className="border border-dashed border-slate-300 rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/30 transition-all">
-                            <UploadCloud size={22} className="text-slate-400 mb-2" />
+                        <label
+                            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                            onDragLeave={() => setDragOver(false)}
+                            onDrop={(e) => { e.preventDefault(); setDragOver(false); pickFiles(e.dataTransfer.files); }}
+                            className={`border border-dashed rounded-xl p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all ${dragOver ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/30'}`}
+                        >
+                            <UploadCloud size={22} className={`mb-2 ${dragOver ? 'text-indigo-500' : 'text-slate-400'}`} />
                             <span className="text-sm text-slate-600">
-                                {files.length > 0 ? `เลือกแล้ว ${files.length} รูป` : 'คลิกเพื่อเลือกรูป (เลือกได้หลายรูปพร้อมกัน)'}
+                                {dragOver ? 'ปล่อยรูปที่นี่' : files.length > 0 ? `เลือกแล้ว ${files.length} รูป (คลิกหรือลากเพื่อเปลี่ยน)` : 'ลากรูปมาวางที่นี่ หรือคลิกเพื่อเลือก'}
                             </span>
                             <input
                                 type="file"
                                 accept="image/*"
                                 multiple
                                 className="hidden"
-                                onChange={(e) => setFiles(Array.from(e.target.files || []))}
+                                onChange={(e) => pickFiles(e.target.files)}
                             />
                         </label>
 
                         {files.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                                {files.map((f, i) => (
-                                    <span key={i} className="text-[11px] bg-slate-100 text-slate-600 px-2 py-1 rounded-md truncate max-w-[140px]">{f.name}</span>
+                            <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto">
+                                {previews.map((src, i) => (
+                                    <div key={i} className="relative aspect-square rounded-md overflow-hidden bg-slate-100">
+                                        <img src={src} alt={files[i]?.name || ''} className="w-full h-full object-cover" />
+                                        <button
+                                            type="button"
+                                            onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
+                                            aria-label={`เอา ${files[i]?.name || 'รูป'} ออก`}
+                                            className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-red-500"
+                                        >
+                                            <X size={11} />
+                                        </button>
+                                    </div>
                                 ))}
                             </div>
                         )}
@@ -132,10 +195,23 @@ const ActivityUploadModal = ({ isOpen, onClose, onUploaded, albums, categories =
                         </div>
 
                         {mode === 'existing' ? (
-                            <select value={albumId} onChange={(e) => setAlbumId(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
-                                <option value="">-- เลือกอัลบัม --</option>
-                                {albums.map(a => <option key={a.AlbumID} value={a.AlbumID}>{a.Title}</option>)}
-                            </select>
+                            <div className="space-y-2">
+                                <input
+                                    value={albumQuery}
+                                    onChange={(e) => setAlbumQuery(e.target.value)}
+                                    placeholder="พิมพ์เพื่อค้นหาอัลบัม..."
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                                />
+                                <select
+                                    value={albumId}
+                                    onChange={(e) => setAlbumId(e.target.value)}
+                                    size={Math.min(6, Math.max(2, filteredAlbums.length + 1))}
+                                    className="w-full border border-slate-200 rounded-lg px-1 py-1 text-sm"
+                                >
+                                    <option value="">-- เลือกอัลบัม ({filteredAlbums.length}) --</option>
+                                    {filteredAlbums.map(a => <option key={a.AlbumID} value={a.AlbumID}>{a.Title}</option>)}
+                                </select>
+                            </div>
                         ) : (
                             <div className="grid grid-cols-2 gap-3">
                                 <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="ชื่ออัลบัม" className="col-span-2 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
@@ -153,7 +229,7 @@ const ActivityUploadModal = ({ isOpen, onClose, onUploaded, albums, categories =
                     <div className="flex gap-2 px-5 py-4 border-t border-slate-100">
                         <button onClick={() => { resetForm(); onClose(); }} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-[13px] py-2.5 rounded-xl transition-colors">ยกเลิก</button>
                         <button onClick={handleSubmit} disabled={submitting} className="flex-[2] bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-[13px] py-2.5 rounded-xl transition-colors">
-                            {submitting ? 'กำลังบันทึก...' : 'บันทึกรูป'}
+                            {submitting ? (progress.total > 0 ? `กำลังอัปโหลด ${progress.done}/${progress.total}` : 'กำลังบันทึก...') : 'บันทึกรูป'}
                         </button>
                     </div>
                 </motion.div>
