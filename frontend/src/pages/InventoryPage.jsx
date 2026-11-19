@@ -442,7 +442,37 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
     setPendingWithdraw(null);
   };
 
- const handleQtyConfirm = async () => {
+ // ── ยืนยันก่อนเบิก: เปิดกล่องยืนยันพร้อมสรุปรายการ แล้วค่อยเรียกงานจริงเมื่อกด "ยืนยันการเบิก"
+const askWithdrawConfirm = (summary, onYes) => {
+  setAlertModal({
+    isOpen: true,
+    type: 'info',
+    title: 'ยืนยันการเบิก',
+    message: summary,
+    confirmText: 'ยืนยันการเบิก',
+    cancelText: 'ยกเลิก',
+    onConfirm: () => {
+      setAlertModal(prev => ({ ...prev, isOpen: false }));
+      onYes();
+    },
+    onCancel: () => setAlertModal(prev => ({ ...prev, isOpen: false })),
+  });
+};
+
+const handleQtyConfirm = () => {
+  if (qtyModal.mode !== 'withdraw') return doQtyConfirm();
+  const product = qtyModal.product;
+  const recipientReady = selfUse ? !!user?.empcode : !!empData;
+  // ข้อมูลไม่ครบ ปล่อยให้ doQtyConfirm ตรวจและไม่แสดงกล่องยืนยัน
+  if (!product || selectQty <= 0 || !reasonDetail.trim() || !recipientReady) return doQtyConfirm();
+  const who = selfUse ? (user?.name || user?.username || '-') : (empData?.FormattedName || '-');
+  askWithdrawConfirm(
+    `${product.ProductName} · จำนวน ${selectQty} ชิ้น · เหตุผล: ${selectedReason}${reasonDetail.trim() ? ` (${reasonDetail.trim()})` : ''} · ผู้รับ: ${who}`,
+    () => doQtyConfirm()
+  );
+};
+
+const doQtyConfirm = async () => {
     const product = qtyModal.product;
     if (!product || selectQty <= 0) return;
     if (!reasonDetail.trim()) return;
@@ -506,7 +536,12 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
   const isInCart = (id) => cart.some(c => c.ProductID === id);
   const clearCart = () => setCart([]);
 
-  const executeWithdrawAll = async () => {
+  const confirmWithdrawAll = () => {
+    if (cart.length === 0) return;
+    askWithdrawConfirm(`ตะกร้า ${cart.length} รายการ · รวม ${getCartTotal()} ชิ้น`, () => doExecuteWithdrawAll());
+  };
+
+  const doExecuteWithdrawAll = async () => {
     if (cart.length === 0) return;
     // ✅ ห่อทั้งฟังก์ชันด้วย requireEmployee
     requireEmployee(async (employeeData) => {
@@ -567,7 +602,17 @@ const [assetSerialNumber, setAssetSerialNumber] = useState('');
     }
   };
 
- const handleScanWithdraw = async () => {
+ const handleScanWithdraw = () => {
+  const product = scanModal.foundProduct;
+  if (!product) return;
+  if (product.DeviceType === 'Asset' && (!scanSerialNumber.trim() || !isValidFixedAssetCode(scanFixedCode))) return doScanWithdraw();
+  askWithdrawConfirm(
+    `${product.ProductName} · จำนวน ${scanQty} ชิ้น · เหตุผล: ${scanReason}${scanReasonDetail.trim() ? ` (${scanReasonDetail.trim()})` : ''}`,
+    () => doScanWithdraw()
+  );
+};
+
+const doScanWithdraw = async () => {
     const product = scanModal.foundProduct;
     if (!product) return;
     if (product.DeviceType === 'Asset' && (!scanSerialNumber.trim() || !isValidFixedAssetCode(scanFixedCode))) return;
@@ -2085,7 +2130,7 @@ const handleFileUpload = async (file) => {
                       </div>
                       <div className="grid grid-cols-3 gap-3">
                         <button onClick={() => setIsCartOpen(false)} className="col-span-1 py-2 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100 transition-all border border-slate-200">ยกเลิก</button>
-                        <button onClick={executeWithdrawAll} className="col-span-2 bg-indigo-600 text-white font-bold py-2 rounded-lg text-sm hover:bg-indigo-700 shadow-md shadow-indigo-200 transition-all flex items-center justify-center gap-2"><Check size={16} /> ยืนยันการเบิก</button>
+                        <button onClick={confirmWithdrawAll} className="col-span-2 bg-indigo-600 text-white font-bold py-2 rounded-lg text-sm hover:bg-indigo-700 shadow-md shadow-indigo-200 transition-all flex items-center justify-center gap-2"><Check size={16} /> ยืนยันการเบิก</button>
                       </div>
                     </div>
                   )}
