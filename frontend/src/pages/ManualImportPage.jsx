@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../context/PermissionContext';
 import AlertModal from '../components/AlertModal';
 import { API_BASE } from '../config/api';
+import { MANAGEMENT_TYPES, managementTypeInfo } from '../utils/stockManagement';
 
 const EMPTY_FORM = {
     ProductName: '',
@@ -15,6 +16,7 @@ const EMPTY_FORM = {
     Quantity: '',
     MinStock: '',
     MaxStock: '',
+    ManagementType: '',   // '' = สินค้าใหม่ใช้ค่าเริ่มต้นของหมวด / สินค้าเดิมคงค่าเดิม
     Remark: ''
 };
 
@@ -217,6 +219,7 @@ const ManualImportPage = () => {
                     CurrentStock: formData.Quantity,
                     MinStock: formData.MinStock,
                     MaxStock: formData.MaxStock,
+                    ...(formData.ManagementType ? { ManagementType: formData.ManagementType } : {}),
                     Remark: formData.Remark.trim(),
                     UserID: user?.username
                 })
@@ -380,6 +383,28 @@ const ManualImportPage = () => {
                                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
                                         </div>
                                     </div>
+                                </div>
+
+                                <div>
+                                    <label htmlFor="mi-mgmt" className={labelBase}>การจัดการสต็อก</label>
+                                    <select
+                                        id="mi-mgmt"
+                                        name="ManagementType"
+                                        value={formData.ManagementType}
+                                        onChange={handleChange}
+                                        className="w-full bg-slate-50 border border-slate-200 p-4 rounded-xl focus:ring-2 focus:ring-cyan-100 focus:border-cyan-500 outline-none text-slate-800 font-medium"
+                                    >
+                                        <option value="">
+                                            {(() => {
+                                                const existing = autofillId !== null && products.find(p => p.ProductID === autofillId);
+                                                if (existing) return `คงค่าเดิม (${managementTypeInfo(existing).label})`;
+                                                const type = deviceTypes.find(t => t.TypeId === formData.DeviceType);
+                                                return type ? `ตามค่าเริ่มต้นของหมวด (${managementTypeInfo(type.DefaultManagementType || 'Rotating').label})` : 'ตามค่าเริ่มต้นของหมวด';
+                                            })()}
+                                        </option>
+                                        {MANAGEMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                                    </select>
+                                    <p className="mt-1 text-xs text-slate-400">หมุนเวียน: เตือน + คาดการณ์ · อุปกรณ์สำรอง: เตือนเมื่อต่ำกว่าขั้นต่ำ · เก็บในคลัง: ไม่เตือน ไม่สั่ง</p>
                                 </div>
 
                                 <div>

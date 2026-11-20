@@ -1,6 +1,9 @@
 import { sql, getPool } from '../config/db.js';
 import * as XLSX from 'xlsx';
 import { sendDailyReport } from '../services/emailService.js';
+import { hasManagementColumns, managementTypeSelect, lowStockWhere, isLowStock } from '../lib/stockManagement.js';
+
+const MGMT_LABEL_TH = { Rotating: 'สต็อกหมุนเวียน', Spare: 'อุปกรณ์สำรอง', Stored: 'ของเก็บในคลัง' };
 
 // เพิ่มเงื่อนไขประเภทอุปกรณ์เป็น subquery โดยส่งค่าเป็น parameter (ไม่ต่อ string ตรง ๆ)
 const categorySubquery = (request, categories) => {
@@ -26,6 +29,7 @@ export const exportReport = async (req, res) => {
 
     try {
         const pool = getPool();
+        const hasMgmt = await hasManagementColumns(pool);
         const dataTypes = types ? types.split(',') : ['products'];
         console.log('📊 Processing dataTypes:', dataTypes);
         const workbook = XLSX.utils.book_new();
@@ -43,7 +47,7 @@ export const exportReport = async (req, res) => {
                         SELECT 
                             p.ProductID, p.ProductName, p.DeviceType, 
                             p.CurrentStock, p.MinStock, p.MaxStock, 
-                            p.LastPrice, p.IsActive
+                            p.LastPrice, p.IsActive, ${managementTypeSelect('p', hasMgmt)}
                         FROM dbo.Stock_Products p
                         WHERE p.IsActive = 1
                         ORDER BY p.DeviceType, p.ProductName
@@ -52,12 +56,13 @@ export const exportReport = async (req, res) => {
                             'รหัสสินค้า': row.ProductID,
                             'ชื่อสินค้า': row.ProductName,
                             'ประเภท': row.DeviceType,
+                            'การจัดการ': MGMT_LABEL_TH[row.ManagementType] || MGMT_LABEL_TH.Rotating,
                             'คงเหลือ': row.CurrentStock,
                             'ต่ำสุด (Min)': row.MinStock,
                             'สูงสุด (Max)': row.MaxStock || '-',
                             'ราคา/หน่วย (฿)': row.LastPrice || 0,
                             'มูลค่ารวม (฿)': (row.CurrentStock || 0) * (row.LastPrice || 0),
-                            'สถานะ': row.CurrentStock <= row.MinStock ? '⚠️ ต่ำ' : '✅ ปกติ'
+                            'สถานะ': isLowStock(row) ? '⚠️ ต่ำ' : '✅ ปกติ'
                         }));
                         break;
                     }
@@ -66,7 +71,7 @@ export const exportReport = async (req, res) => {
                         const lowStockResult = await pool.request().query(`
     SELECT p.ProductID, p.ProductName, p.DeviceType,
            p.MinStock, p.MaxStock, p.CurrentStock, p.LastPrice,
-           p.business_priority,
+           p.business_priority, ${managementTypeSelect('p', hasMgmt)},
            CASE p.business_priority
                WHEN 1 THEN 'CRITICAL'
                WHEN 2 THEN 'HIGH'
@@ -83,7 +88,7 @@ export const exportReport = async (req, res) => {
                AND t.RefInfo NOT LIKE '%Stock Count Adjust%'
            ), 0) AS Usage3Months
     FROM dbo.Stock_Products p
-    WHERE p.IsActive = 1 AND p.MinStock > 0 AND p.CurrentStock <= p.MinStock
+    WHERE p.IsActive = 1 AND ${lowStockWhere('p', hasMgmt)}
     ORDER BY p.business_priority ASC, p.CurrentStock ASC
 `);
                         data = lowStockResult.recordset.filter(keepCategory).map(row => {
@@ -94,6 +99,7 @@ export const exportReport = async (req, res) => {
                                 'รหัสสินค้า': row.ProductID,
                                 'ชื่อสินค้า': row.ProductName,
                                 'ประเภท': row.DeviceType,
+                                'การจัดการ': MGMT_LABEL_TH[row.ManagementType] || MGMT_LABEL_TH.Rotating,
                                 'ลำดับความสำคัญ': row.priority_label,        // ✅ เพิ่ม
                                 'คงเหลือ': row.CurrentStock,
                                 'ต่ำสุด (Min)': row.MinStock,

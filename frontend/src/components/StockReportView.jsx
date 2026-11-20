@@ -110,6 +110,7 @@ export default function StockReportView() {
     const [view, setView] = useState('overview');
     const [type, setType] = useState('');
     const [location, setLocation] = useState('');
+    const [mgmt, setMgmt] = useState('');   // ประเภทการจัดการ (Rotating / Spare / Stored)
     const [data, setData] = useState(null);
     const [err, setErr] = useState('');
     const [loading, setLoading] = useState(false);
@@ -123,13 +124,14 @@ export default function StockReportView() {
             const p = new URLSearchParams();
             if (type) p.set('type', type);
             if (location) p.set('location', location);
+            if (mgmt) p.set('mgmt', mgmt);
             const res = await fetch(`${API_BASE}/stock/report?${p.toString()}`);
             if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'โหลดรายงานไม่สำเร็จ');
             setData(await res.json());
         } catch (e) { setErr(e.message); }
         finally { setLoading(false); }
     };
-    useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [type, location]);
+    useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [type, location, mgmt]);
 
     const rows = useMemo(() => {
         if (!data) return [];
@@ -191,6 +193,12 @@ export default function StockReportView() {
                     <option value="">ทุกสถานที่</option>
                     {data?.options.locations.map((l) => <option key={l} value={l}>{l}</option>)}
                 </select>
+                {view !== 'movement' && (
+                    <select value={mgmt} onChange={(e) => setMgmt(e.target.value)} aria-label="ประเภทการจัดการ" className="h-10 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium">
+                        <option value="">ทุกการจัดการ</option>
+                        {(data?.options.managementTypes || []).map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    </select>
+                )}
                 {view === 'overview' && (<>
                     <button onClick={load} className="h-10 w-10 rounded-xl border border-slate-200 hover:bg-slate-50 flex items-center justify-center" title="รีเฟรช">
                         <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
@@ -298,7 +306,7 @@ export default function StockReportView() {
             </>)}
 
             {view === 'movement' && <StockMovementView type={type} location={location} />}
-            {view === 'analysis' && <StockAnalysisView type={type} location={location} />}
+            {view === 'analysis' && <StockAnalysisView type={type} location={location} mgmt={mgmt} />}
             {view === 'procurement' && <StockProcurementView />}
             {view === 'countquality' && <StockCountQualityView />}
         </div>

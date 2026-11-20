@@ -1,5 +1,6 @@
 import { sql, getPool } from '../config/db.js';
 import { storePOFile, removeStoredPOFiles, insertPOAttachment, fetchPOAttachments } from './poAttachmentController.js';
+import { hasManagementColumns, applyTypeDefaultSql } from '../lib/stockManagement.js';
 
 // หา/สร้างอุปกรณ์ให้รายการที่ยังไม่มี ProductID
 // สร้างเป็น IsActive = 0 เพื่อให้ซ่อนจากหน้าคลัง/Master จนกว่าจะรับของ (ตอนรับจะเปิด IsActive = 1)
@@ -27,7 +28,8 @@ const resolveProductIdForItem = async (transaction, item) => {
         .query(`
             INSERT INTO dbo.Stock_Products (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, IsActive)
             VALUES (@ProductName, 'Consumable', 0, @UnitCost, 0, 0);
-            SELECT SCOPE_IDENTITY() AS NewID;
+            DECLARE @NewID INT = SCOPE_IDENTITY();${applyTypeDefaultSql('@NewID', await hasManagementColumns(getPool()))}
+            SELECT @NewID AS NewID;
         `);
     return created.recordset[0].NewID;
 };

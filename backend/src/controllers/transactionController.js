@@ -1,4 +1,5 @@
 import { sql, getPool } from '../config/db.js';
+import { hasManagementColumns, applyTypeDefaultSql } from '../lib/stockManagement.js';
 
 const getThaiDate = () => new Date();
 
@@ -197,7 +198,8 @@ export const receiveGoods = async (req, res) => {
                                 .query(`
                                     INSERT INTO dbo.Stock_Products (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, IsActive)
                                     VALUES (@ProductName, 'Consumable', 0, @UnitCost, 0, 1);
-                                    SELECT SCOPE_IDENTITY() AS NewID;
+                                    DECLARE @NewID INT = SCOPE_IDENTITY();${applyTypeDefaultSql('@NewID', await hasManagementColumns(getPool()))}
+                                    SELECT @NewID AS NewID;
                                 `);
                             finalProductID = createRes.recordset[0].NewID;
                         }

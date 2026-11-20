@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import ExcelJS from 'exceljs';
 import { sql, getPool } from '../config/db.js';
+import { hasManagementColumns, managementTypeSelect, lowStockWhere, isLowStock } from '../lib/stockManagement.js';
 
 // ==========================================================
 // 1. ฟังก์ชันเดิม (Daily) - ห้ามปรับตารางและข้อมูลเดิม
@@ -9,12 +10,13 @@ export const sendDailyReport = async () => {
     try {
         const pool = getPool();
 
-        // 1. Low Stock Items
+        // 1. Low Stock Items (ไม่รวมของเก็บในคลัง — กฎกลางใน lib/stockManagement.js)
+        const hasMgmt = await hasManagementColumns(pool);
         const lowStockResult = await pool.request().query(`
-            SELECT ProductID, ProductName, CurrentStock, MinStock, MaxStock, 
+            SELECT ProductID, ProductName, CurrentStock, MinStock, MaxStock,
                 LastPrice, lead_time_days
-            FROM dbo.Stock_Products 
-            WHERE CurrentStock <= MinStock AND MinStock >= 1 AND IsActive = 1
+            FROM dbo.Stock_Products
+            WHERE ${lowStockWhere('', hasMgmt)} AND IsActive = 1
         `);
 
         // 2. MA / Licenses
@@ -177,16 +179,18 @@ export const sendMonthlyInventoryReport = async () => {
         const pool = getPool();
         const monthName = new Date().toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
  
-        // Query ข้อมูลสต็อกทั้งหมด
+        // Query ข้อมูลสต็อกทั้งหมด (ของเก็บในคลัง: ToOrderQty = 0 และไม่นับเป็น low stock)
+        const hasMgmt = await hasManagementColumns(pool);
         const result = await pool.request().query(`
-            SELECT 
-                ProductID, ProductName, DeviceType, MinStock, MaxStock, 
-                CurrentStock, LastPrice, UnitOfMeasure, Location, 
+            SELECT
+                ProductID, ProductName, DeviceType, MinStock, MaxStock,
+                CurrentStock, LastPrice, UnitOfMeasure, Location,
                 business_priority, lead_time_days, priority_label,
+                ${managementTypeSelect('', hasMgmt)},
                 (CurrentStock * LastPrice) as TotalValue,
-                CASE 
-                    WHEN CurrentStock <= MinStock THEN (MaxStock - CurrentStock)
-                    ELSE 0 
+                CASE
+                    WHEN ${hasMgmt ? "ManagementType = 'Stored' THEN 0 WHEN " : ''}CurrentStock <= MinStock THEN (MaxStock - CurrentStock)
+                    ELSE 0
                 END as ToOrderQty
             FROM [dbInfrastructure].[dbo].[Stock_Products]
             WHERE IsActive = 1
@@ -195,7 +199,7 @@ export const sendMonthlyInventoryReport = async () => {
         const allStock = result.recordset;
  
         // ✅ declare ก่อน Excel block
-        const lowStockItems = allStock.filter(item => item.CurrentStock <= item.MinStock && item.MinStock > 0);
+        const lowStockItems = allStock.filter(isLowStock);
         const totalValueAll = allStock.reduce((sum, item) => sum + (item.TotalValue || 0), 0);
         const totalToOrderValue = lowStockItems.reduce((sum, item) => sum + (item.ToOrderQty * (item.LastPrice || 0)), 0);
  
@@ -309,7 +313,7 @@ export const sendMonthlyInventoryReport = async () => {
                 'LOW':      'FFF0FDF4'
             }[item.priority_label];
  
-            if (item.CurrentStock <= item.MinStock && item.MinStock > 0) {
+            if (isLowStock(item)) {
                 for (let col = 1; col <= 11; col++) {
                     row.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF1F2' } };
                 }

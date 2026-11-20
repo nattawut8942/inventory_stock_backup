@@ -10,6 +10,7 @@ import { formatThaiDate } from '../utils/formatDate';
 import StatCard from '../components/StatCard';
 import LoadingState from '../components/LoadingState';
 import { getChartColor, getBadgeStyle, getDeviceTypeColor } from '../utils/styleHelpers';
+import { isLowStock, isStored } from '../utils/stockManagement';
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 const RANGE_OPTIONS = [3, 6, 12];
@@ -133,7 +134,7 @@ const DashboardPage = () => {
         const productCount = products.length;
         const totalStock = products.reduce((sum, p) => sum + p.CurrentStock, 0);
         const totalValue = products.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
-        const lowStockCount = products.filter(p => p.CurrentStock <= p.MinStock && p.MinStock > 0).length;
+        const lowStockCount = products.filter(isLowStock).length;
         const activePOs = purchaseOrders.filter(po => po.Status !== 'Completed').length;
 
         return { productCount, totalStock, totalValue, lowStockCount, activePOs };
@@ -194,7 +195,7 @@ const DashboardPage = () => {
     // 4. Critical Low Stock Items (Top 5)
     const lowStockItems = useMemo(() => {
         return products
-    .filter(p => p.CurrentStock <= p.MinStock && p.MinStock > 0)
+    .filter(isLowStock)
     .sort((a, b) => {
         const priorityDiff = (a.business_priority || 3) - (b.business_priority || 3);
         if (priorityDiff !== 0) return priorityDiff;
@@ -251,7 +252,7 @@ const DashboardPage = () => {
     // 8. Recommended Order Trend
     const orderTrendItems = useMemo(() => {
         return products
-            .filter(p => p.CurrentStock > p.MinStock && p.MaxStock && p.MaxStock > 0)
+            .filter(p => !isStored(p) && p.CurrentStock > p.MinStock && p.MaxStock && p.MaxStock > 0)
             .map(p => {
                 const orderNeedPercent = Math.round(((p.MaxStock - p.CurrentStock) / p.MaxStock) * 100);
                 return {
@@ -289,7 +290,7 @@ const DashboardPage = () => {
     // 9b. Action-center counts (full lists, not the top-5 slices)
     const actionCounts = useMemo(() => {
         const now = Date.now();
-        const outOfStock = products.filter(p => p.CurrentStock <= 0 && p.MinStock > 0).length;
+        const outOfStock = products.filter(p => p.CurrentStock <= 0 && p.MinStock > 0 && !isStored(p)).length;
         const maDue = maItems.filter(ma => ma.Status !== 'Cancelled' && ma.EndDate
             && Math.ceil((new Date(ma.EndDate) - now) / DAY_MS) <= 90).length;
         const poStale = purchaseOrders.filter(po => po.Status !== 'Completed'

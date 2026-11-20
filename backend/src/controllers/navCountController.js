@@ -3,6 +3,7 @@
 import { getPool } from '../config/db.js';
 import { getItRequestPool } from '../config/itRequestDb.js';
 import { getSoundPool } from '../config/soundDb.js';
+import { hasManagementColumns, lowStockWhere } from '../lib/stockManagement.js';
 
 const countOrNull = async (fn) => {
     try {
@@ -55,10 +56,10 @@ export const getNavCounts = async (req, res) => {
               AND EndDate IS NOT NULL
               AND DATEDIFF(day, CAST(GETDATE() AS DATE), CAST(EndDate AS DATE)) BETWEEN 1 AND 60`)),
 
-        // สินค้าที่ของใกล้หมด (CurrentStock ≤ MinStock) — เกณฑ์เดียวกับ emailService.js
-        countOrNull(() => scalar(db(), `
+        // สินค้าที่ของใกล้หมด (CurrentStock ≤ MinStock, ไม่รวมของเก็บในคลัง) — กฎกลางใน lib/stockManagement.js
+        countOrNull(async () => scalar(db(), `
             SELECT COUNT(*) AS cnt FROM dbo.Stock_Products
-            WHERE IsActive = 1 AND MinStock >= 1 AND CurrentStock <= MinStock`)),
+            WHERE IsActive = 1 AND ${lowStockWhere('', await hasManagementColumns(db()))}`)),
 
         // กล้อง CCTV ที่ offline
         countOrNull(() => scalar(db(), `

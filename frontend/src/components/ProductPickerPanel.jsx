@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Package, X, Plus, AlertTriangle, ChevronUp, ChevronDown, Eye, Check } from 'lucide-react';
+import { isStored } from '../utils/stockManagement';
 
 const normalize = (s) => (s === null || s === undefined ? '' : String(s)).toLowerCase().trim();
 
@@ -214,7 +215,7 @@ const ProductPickerPanel = ({ products = [], deviceTypes = [], orderingItems = [
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                         {shown.map(p => {
-                            const isLow = p.CurrentStock != null && p.MinStock != null && Number(p.CurrentStock) <= Number(p.MinStock);
+                            const isLow = p.CurrentStock != null && p.MinStock != null && Number(p.CurrentStock) <= Number(p.MinStock) && !isStored(p);
                             const isSelected = selectedProductId && p.ProductID === selectedProductId;
                             const isExpanded = expandedId === p.ProductID;
                             return (

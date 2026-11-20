@@ -9,6 +9,7 @@ import AlertModal from '../components/AlertModal';
 import PermissionEditorModal, { PermissionLogModal, PermissionHoldersModal } from '../components/PermissionEditorModal';
 import { API_BASE, API_URL } from '../config/api';
 import { getBadgeStyle, getDeviceTypeColor, getChartColor } from '../utils/styleHelpers';
+import DeviceTypeManagementTab from '../components/DeviceTypeManagementTab';
 
 // Employee photo: URL saved from AD at login, else the standard DCI picture path by EmpCode.
 // Falls back to initials if the image can't load (no photo / off network).
@@ -34,7 +35,7 @@ const UserAvatar = ({ pic, empCode, name, size = 36 }) => {
 
 const ManagementPage = () => {
     const { user, token } = useAuth();
-    const { deviceTypes, vendors, refreshData } = useData();
+    const { deviceTypes, vendors, products, refreshData } = useData();
     const [activeTab, setActiveTab] = useState('admin');
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -64,12 +65,14 @@ const ManagementPage = () => {
     const pFactoryLayouts = mgmtFlags('mgmt-factory-layouts');
     const pRecordServers = mgmtFlags('mgmt-record-servers');
     const pActivityCategories = mgmtFlags('mgmt-activity-categories');
+    const pDeviceTypes = mgmtFlags('mgmt-device-types');
     // Users and Login Log can never be granted to anyone but Admin
     const visibleTabs = [
         isAdminUser && { id: 'admin', label: 'Users', icon: Users },
         pVendors.view && { id: 'vendors', label: 'Vendors', icon: Truck },
         pLocations.view && { id: 'locations', label: 'Locations', icon: Archive },
         pReasons.view && { id: 'reasons', label: 'Reasons', icon: MessageSquare },
+        pDeviceTypes.view && { id: 'device-types', label: 'Device Types', icon: ListChecks },
         pMATypes.view && { id: 'ma-types', label: 'MA Types', icon: FileKey },
         pBudgets.view && { id: 'budgets', label: 'Budgets', icon: DollarSign },
         pFactoryLayouts.view && { id: 'factory-layouts', label: 'Maps', icon: Map },
@@ -1243,6 +1246,18 @@ const handleFileSelect = (e) => {
                             </table>
                         </div>
                     </div>
+                )}
+
+                {/* DEVICE TYPES TAB — ค่าเริ่มต้นการจัดการสต็อกต่อหมวด */}
+                {activeTab === 'device-types' && (
+                    <DeviceTypeManagementTab
+                        deviceTypes={deviceTypes}
+                        products={products}
+                        canEdit={pDeviceTypes.edit}
+                        searchTerm={searchTerm}
+                        onSaved={refreshData}
+                        onAlert={(a) => setAlertModal({ isOpen: true, ...a })}
+                    />
                 )}
 
                 {/* MA TYPES TAB */}

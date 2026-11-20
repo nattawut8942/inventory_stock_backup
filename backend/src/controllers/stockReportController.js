@@ -1,4 +1,12 @@
 import { getPool, sql } from '../config/db.js';
+import {
+    hasManagementColumns, managementTypeSelect, normalizeManagementType, DEFAULT_MANAGEMENT_TYPE,
+    isLowStock, isReorderable, isForecastable, countsAsDeadStock, checksOverstock,
+} from '../lib/stockManagement.js';
+
+// ตัวกรองประเภทการจัดการ (?mgmt=Rotating|Spare|Stored) — ใช้ร่วมกันทั้งรายงานภาพรวมและรายงานวิเคราะห์
+const MGMT_LABELS = { Rotating: 'สต็อกหมุนเวียน', Spare: 'อุปกรณ์สำรอง', Stored: 'ของเก็บในคลัง' };
+const mgmtOptions = () => Object.entries(MGMT_LABELS).map(([id, label]) => ({ id, label }));
 
 // รายงาน Stock (Phase 1): ภาพรวมและมูลค่าคงคลัง
 // หมายเหตุ: มูลค่าทั้งหมดคิดจาก LastPrice ปัจจุบัน (ตาราง Transactions ไม่เก็บราคาต่อรายการ)
@@ -8,12 +16,13 @@ const num = (v) => Number(v) || 0;
 const round2 = (v) => Math.round(v * 100) / 100;
 
 // ลำดับความสำคัญ: ติดลบ > หมด > ต่ำกว่า Min > เกิน Max > ปกติ
-// (ต่ำกว่า Min = คงเหลือ <= MinStock เหมือนหน้า Report เดิม)
-const stockStatus = (cur, min, max) => {
+// (ต่ำกว่า Min = คงเหลือ <= MinStock เหมือนหน้า Report เดิม; ของเก็บในคลังไม่นับต่ำกว่า Min / เกิน Max)
+const stockStatus = (cur, min, max, mgmt) => {
+    const p = { CurrentStock: cur, MinStock: min, ManagementType: mgmt };
     if (cur < 0) return 'negative';
     if (cur === 0) return 'out';
-    if (min > 0 && cur <= min) return 'low';
-    if (max > 0 && cur > max) return 'over';
+    if (isLowStock(p)) return 'low';
+    if (checksOverstock(p) && max > 0 && cur > max) return 'over';
     return 'ok';
 };
 
@@ -36,11 +45,13 @@ export const getStockReport = async (req, res) => {
         const pool = getPool();
         const typeFilter = req.query.type ? String(req.query.type) : '';
         const locFilter = req.query.location ? String(req.query.location) : '';
+        const mgmtFilter = normalizeManagementType(req.query.mgmt) || '';
+        const hasMgmt = await hasManagementColumns(pool);
 
         const result = await pool.request().query(`
             SELECT p.ProductID, p.ProductName, p.DeviceType, t.Label AS TypeLabel,
                    p.MinStock, p.MaxStock, p.CurrentStock, p.LastPrice,
-                   p.UnitOfMeasure, p.Location
+                   p.UnitOfMeasure, p.Location, ${managementTypeSelect('p', hasMgmt)}
             FROM dbo.Stock_Products p
             LEFT JOIN dbo.Stock_DeviceTypes t ON t.TypeId = p.DeviceType
             WHERE p.IsActive = 1`);
@@ -52,6 +63,7 @@ export const getStockReport = async (req, res) => {
             const max = num(p.MaxStock);
             const price = num(p.LastPrice);
             const qty = Math.max(0, cur); // สต็อกติดลบไม่นับเป็นมูลค่า
+            const mgmt = normalizeManagementType(p.ManagementType) || DEFAULT_MANAGEMENT_TYPE;
             return {
                 ProductID: p.ProductID,
                 ProductName: p.ProductName,
@@ -59,13 +71,14 @@ export const getStockReport = async (req, res) => {
                 TypeLabel: p.TypeLabel || p.DeviceType || 'ไม่ระบุ',
                 Location: String(p.Location || '').trim() || 'ไม่ระบุ',
                 UnitOfMeasure: p.UnitOfMeasure || '',
+                ManagementType: mgmt,
                 CurrentStock: cur,
                 MinStock: min,
                 MaxStock: max,
                 LastPrice: price,
                 qty,
                 value: round2(qty * price),
-                status: stockStatus(cur, min, max),
+                status: stockStatus(cur, min, max, mgmt),
                 noPrice: !(price > 0),
             };
         });
@@ -75,9 +88,11 @@ export const getStockReport = async (req, res) => {
                 .map(([id, label]) => ({ id, label }))
                 .sort((a, b) => a.label.localeCompare(b.label, 'th')),
             locations: [...new Set(all.map((r) => r.Location))].sort((a, b) => a.localeCompare(b, 'th')),
+            managementTypes: mgmtOptions(),
         };
 
-        const rows = all.filter((r) => (!typeFilter || r.DeviceType === typeFilter) && (!locFilter || r.Location === locFilter));
+        const rows = all.filter((r) => (!typeFilter || r.DeviceType === typeFilter) && (!locFilter || r.Location === locFilter)
+            && (!mgmtFilter || r.ManagementType === mgmtFilter));
 
         const count = (st) => rows.filter((r) => r.status === st).length;
         const kpi = {
@@ -93,7 +108,7 @@ export const getStockReport = async (req, res) => {
 
         res.json({
             generatedAt: new Date(),
-            filters: { type: typeFilter || null, location: locFilter || null },
+            filters: { type: typeFilter || null, location: locFilter || null, mgmt: mgmtFilter || null },
             options,
             kpi,
             byType: group(rows, (r) => r.TypeLabel),
@@ -289,10 +304,13 @@ export const getStockAnalysisReport = async (req, res) => {
         const pool = getPool();
         const typeFilter = req.query.type ? String(req.query.type) : '';
         const locFilter = req.query.location ? String(req.query.location) : '';
+        const mgmtFilter = normalizeManagementType(req.query.mgmt) || '';
         const now = Date.now();
+        const hasMgmt = await hasManagementColumns(pool);
 
         const prodRes = await pool.request().query(`
             SELECT p.ProductID, p.ProductName, p.DeviceType, td.Label AS TypeLabel, p.CurrentStock, p.MinStock, p.MaxStock,
+                   ${managementTypeSelect('p', hasMgmt)},
                    p.LastPrice, p.UnitOfMeasure, p.Location, ISNULL(p.lead_time_days, 7) AS LeadTime,
                    ISNULL(v.VendorName, '-') AS VendorName
             FROM dbo.Stock_Products p
@@ -304,16 +322,33 @@ export const getStockAnalysisReport = async (req, res) => {
         const usageRes = await pool.request()
             .input('d365', sql.DateTime, new Date(now - 365 * DAY))
             .input('d90', sql.DateTime, new Date(now - 90 * DAY))
+            .input('d30', sql.DateTime, new Date(now - 30 * DAY))
             .query(`
                 SELECT ProductID, MAX(TransDate) AS LastOut,
                        SUM(CASE WHEN TransDate >= @d365 THEN ABS(Qty) ELSE 0 END) AS Out12,
-                       SUM(CASE WHEN TransDate >= @d90 THEN ABS(Qty) ELSE 0 END) AS Out3
+                       SUM(CASE WHEN TransDate >= @d90 THEN ABS(Qty) ELSE 0 END) AS Out3,
+                       SUM(CASE WHEN TransDate >= @d30 THEN ABS(Qty) ELSE 0 END) AS Out30
                 FROM dbo.Stock_Transactions
                 WHERE UPPER(LTRIM(RTRIM(TransType))) = 'OUT'
+                  AND ReturnedAt IS NULL   -- ไม่นับรายการเบิกที่คืนแล้ว (คืนแล้วไม่ใช่การใช้จริง)
                   AND ISNULL(RefInfo, '') NOT LIKE N'%ยกเลิก Invoice%'
                   AND ISNULL(RefInfo, '') NOT LIKE N'%Stock Count Adjust%'
                 GROUP BY ProductID`);
         const usage = Object.fromEntries(usageRes.recordset.map((u) => [u.ProductID, u]));
+
+        // การเติมสต็อค (รับเข้าจริง 365 วัน) — ไม่นับ ยกเลิก Invoice / Stock Count Adjust / คืนของ
+        const inRes = await pool.request()
+            .input('d365', sql.DateTime, new Date(now - 365 * DAY))
+            .query(`
+                SELECT ProductID, COUNT(*) AS InCount, SUM(ABS(Qty)) AS InQty, MAX(TransDate) AS LastIn
+                FROM dbo.Stock_Transactions
+                WHERE UPPER(LTRIM(RTRIM(TransType))) = 'IN'
+                  AND TransDate >= @d365
+                  AND ISNULL(RefInfo, '') NOT LIKE N'%ยกเลิก Invoice%'
+                  AND ISNULL(RefInfo, '') NOT LIKE N'%Stock Count Adjust%'
+                  AND ISNULL(RefInfo, '') NOT LIKE N'%คืนของ%'
+                GROUP BY ProductID`);
+        const inbound = Object.fromEntries(inRes.recordset.map((x) => [x.ProductID, x]));
 
         const all = prodRes.recordset.map((p) => {
             const u = usage[p.ProductID];
@@ -326,12 +361,17 @@ export const getStockAnalysisReport = async (req, res) => {
                 TypeLabel: p.TypeLabel || p.DeviceType || 'ไม่ระบุ',
                 Location: String(p.Location || '').trim() || 'ไม่ระบุ',
                 UnitOfMeasure: p.UnitOfMeasure || '',
+                ManagementType: normalizeManagementType(p.ManagementType) || DEFAULT_MANAGEMENT_TYPE,
                 VendorName: p.VendorName,
                 LeadTime: num(p.LeadTime) || 7,
                 cur, min: num(p.MinStock), max: num(p.MaxStock), price,
                 stockValue: Math.max(0, cur) * price,
                 out12: u ? num(u.Out12) : 0,
                 out3: u ? num(u.Out3) : 0,
+                out30: u ? num(u.Out30) : 0,
+                inCount: inbound[p.ProductID] ? num(inbound[p.ProductID].InCount) : 0,
+                inQty: inbound[p.ProductID] ? num(inbound[p.ProductID].InQty) : 0,
+                lastIn: inbound[p.ProductID]?.LastIn || null,
                 lastOutDays: u && u.LastOut ? Math.floor((now - new Date(u.LastOut).getTime()) / DAY) : null,
             };
         });
@@ -339,8 +379,19 @@ export const getStockAnalysisReport = async (req, res) => {
         const options = {
             types: [...new Map(all.map((r) => [r.DeviceType, r.TypeLabel])).entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label, 'th')),
             locations: [...new Set(all.map((r) => r.Location))].sort((a, b) => a.localeCompare(b, 'th')),
+            managementTypes: mgmtOptions(),
         };
-        const rows = all.filter((r) => (!typeFilter || r.DeviceType === typeFilter) && (!locFilter || r.Location === locFilter));
+        const rows = all.filter((r) => (!typeFilter || r.DeviceType === typeFilter) && (!locFilter || r.Location === locFilter)
+            && (!mgmtFilter || r.ManagementType === mgmtFilter));
+        // กฎตามประเภทการจัดการ (ดู lib/stockManagement.js)
+        //   คาดการณ์ / Days of cover / ประเมินการเติม / Dead stock : เฉพาะสต็อกหมุนเวียน
+        //   รายการสั่งซื้อ / Overstock : ไม่รวมของเก็บในคลัง
+        //   ABC / Aging / Turnover : นับทุกประเภท (เป็นเรื่องมูลค่า)
+        const forecastable = rows.filter(isForecastable);
+        const excluded = {
+            spare: rows.filter((r) => r.ManagementType === 'Spare').length,
+            stored: rows.filter((r) => r.ManagementType === 'Stored').length,
+        };
 
         // ── ABC ──
         const abcBase = rows.filter((r) => r.out12 > 0).map((r) => ({ ...r, abcValue: r.out12 * r.price })).sort((a, b) => b.abcValue - a.abcValue);
@@ -368,14 +419,14 @@ export const getStockAnalysisReport = async (req, res) => {
         const agingTotal = aging.reduce((s, b) => s + b.value, 0);
         aging.forEach((b) => { b.value = round2(b.value); b.share = agingTotal > 0 ? Math.round((b.value / agingTotal) * 100) : 0; });
         // Dead stock = ไม่มีการเบิกใน 90 วัน (นิยามเดียวกับหน้า Report เดิม)
-        const dead = inStock.filter((r) => r.out3 === 0).sort((a, b) => b.stockValue - a.stockValue);
+        const dead = inStock.filter((r) => r.out3 === 0 && countsAsDeadStock(r)).sort((a, b) => b.stockValue - a.stockValue);
         const deadStock = {
             count: dead.length, value: round2(dead.reduce((s, r) => s + r.stockValue, 0)),
             items: dead.slice(0, 100).map((r) => ({ ProductID: r.ProductID, ProductName: r.ProductName, TypeLabel: r.TypeLabel, Location: r.Location, CurrentStock: r.cur, value: round2(r.stockValue), lastOutDays: r.lastOutDays })),
         };
 
         // ── Days of cover (อัตราเบิก 90 วัน) ──
-        const cover = rows.filter((r) => r.out3 > 0).map((r) => {
+        const cover = forecastable.filter((r) => r.out3 > 0).map((r) => {
             const daily = r.out3 / 90;
             const days = Math.max(0, r.cur) / daily;
             return { ProductID: r.ProductID, ProductName: r.ProductName, TypeLabel: r.TypeLabel, CurrentStock: r.cur, dailyUse: Math.round(daily * 100) / 100, days: Math.round(days), LeadTime: r.LeadTime, critical: days <= r.LeadTime };
@@ -395,26 +446,86 @@ export const getStockAnalysisReport = async (req, res) => {
         })).sort((a, b) => b.outValue - a.outValue);
 
         // ── สั่งซื้อ (คงเหลือ ≤ Min และ Min > 0; สั่งเพิ่ม = Max − คงเหลือ, ไม่มี Max ใช้ Min) ──
-        const reorderItems = rows.filter((r) => r.min > 0 && r.cur <= r.min).map((r) => {
+        // Spare part อยู่ในรายการเดียวกันแต่มี ManagementType = 'Spare' ให้หน้าจอแยกหัวข้อ "เติมของสำรอง"
+        const reorderItems = rows.filter((r) => r.min > 0 && r.cur <= r.min && isReorderable(r)).map((r) => {
             const target = r.max > 0 ? r.max : r.min;
             const qty = Math.max(0, target - Math.max(0, r.cur));
             const daily = r.out3 / 90;
             return {
                 ProductID: r.ProductID, ProductName: r.ProductName, TypeLabel: r.TypeLabel, VendorName: r.VendorName, LeadTime: r.LeadTime,
+                ManagementType: r.ManagementType,
                 CurrentStock: r.cur, MinStock: r.min, MaxStock: r.max, suggestQty: qty, price: r.price, estCost: round2(qty * r.price),
                 daysLeft: daily > 0 ? Math.round(Math.max(0, r.cur) / daily) : null,
             };
         }).sort((a, b) => b.estCost - a.estCost);
-        const reorder = { count: reorderItems.length, totalCost: round2(reorderItems.reduce((s, r) => s + r.estCost, 0)), noPrice: reorderItems.filter((r) => !(r.price > 0)).length, items: reorderItems };
+        const reorder = {
+            count: reorderItems.length, totalCost: round2(reorderItems.reduce((s, r) => s + r.estCost, 0)), noPrice: reorderItems.filter((r) => !(r.price > 0)).length,
+            spareCount: reorderItems.filter((r) => r.ManagementType === 'Spare').length,
+            items: reorderItems,
+        };
+
+        // ── คาดการณ์การใช้ + แนะนำการสั่ง ──
+        // อัตราการใช้คาดการณ์/วัน = 60% (30 วันล่าสุด) + 40% (90 วัน) ; Safety = 7 วันของการใช้
+        // จุดสั่ง (ROP) = การใช้ระหว่าง Lead time + Safety ; จำนวนแนะนำ = ให้พอถึงรอบ 30 วันหลังรอของ
+        const SAFETY_DAYS = 7;
+        const REVIEW_DAYS = 30;
+        const forecastRows = forecastable.map((r) => {
+            const d30 = r.out30 / 30;
+            const d90 = r.out3 / 90;
+            const fDaily = 0.6 * d30 + 0.4 * d90;
+            if (!(fDaily > 0)) return null;
+            const cur = Math.max(0, r.cur);
+            const safety = Math.ceil(fDaily * SAFETY_DAYS);
+            const rop = Math.ceil(fDaily * r.LeadTime + safety);
+            const orderUpTo = Math.ceil(fDaily * (r.LeadTime + REVIEW_DAYS) + safety);
+            const suggestedQty = Math.max(0, orderUpTo - cur);
+            const daysLeft = Math.floor(cur / fDaily);
+            const orderInDays = daysLeft - r.LeadTime;
+            const status = orderInDays <= 0 ? 'สั่งทันที' : orderInDays <= 7 ? 'ควรสั่งภายใน 7 วัน' : 'ปกติ';
+            // ต้องการเติมครั้งละเท่าไหร่ = ใช้ได้ประมาณ 30 วัน (อย่างน้อย 1)
+            const recommendPerOrder = Math.max(1, Math.ceil(fDaily * REVIEW_DAYS));
+            const avgIn = r.inCount > 0 ? r.inQty / r.inCount : null;
+            const ratio = avgIn !== null ? avgIn / recommendPerOrder : null;
+            const restockVerdict = avgIn === null ? 'ไม่มีประวัติรับเข้า'
+                : ratio < 0.7 ? 'เติมน้อยไป' : ratio > 1.5 ? 'เติมมากไป' : 'พอดี';
+            return {
+                ProductID: r.ProductID, ProductName: r.ProductName, TypeLabel: r.TypeLabel, VendorName: r.VendorName, LeadTime: r.LeadTime,
+                CurrentStock: r.cur, price: r.price,
+                daily30: round2(d30), daily90: round2(d90),
+                trendPct: d90 > 0 ? Math.round(((d30 - d90) / d90) * 100) : null,
+                forecastDaily: round2(fDaily), forecastMonth: Math.round(fDaily * 30),
+                rop, suggestedQty, estCost: round2(suggestedQty * r.price),
+                daysLeft, orderInDays, status,
+                inCount: r.inCount, avgIn: avgIn === null ? null : round2(avgIn), lastIn: r.lastIn,
+                recommendPerOrder, restockVerdict,
+                refillDays: avgIn === null ? null : Math.round(avgIn / fDaily),
+            };
+        }).filter(Boolean);
+        forecastRows.sort((a, b) => (a.orderInDays ?? 1e9) - (b.orderInDays ?? 1e9));
+        const forecast = {
+            count: forecastRows.length,
+            urgentCount: forecastRows.filter((x) => x.status === 'สั่งทันที').length,
+            soonCount: forecastRows.filter((x) => x.status === 'ควรสั่งภายใน 7 วัน').length,
+            totalEstCost: round2(forecastRows.reduce((s, x) => s + x.estCost, 0)),
+            items: forecastRows.slice(0, 200),
+        };
+        const restockList = forecastRows.filter((x) => x.restockVerdict !== 'ไม่มีประวัติรับเข้า');
+        const restock = {
+            underCount: restockList.filter((x) => x.restockVerdict === 'เติมน้อยไป').length,
+            overCount: restockList.filter((x) => x.restockVerdict === 'เติมมากไป').length,
+            noHistoryCount: forecastRows.length - restockList.length,
+            items: [...restockList].sort((a, b) => (a.restockVerdict === 'เติมน้อยไป' ? 0 : a.restockVerdict === 'เติมมากไป' ? 1 : 2) - (b.restockVerdict === 'เติมน้อยไป' ? 0 : b.restockVerdict === 'เติมมากไป' ? 1 : 2)).slice(0, 200),
+        };
 
         // ── Overstock ──
-        const over = rows.filter((r) => r.max > 0 && r.cur > r.max).map((r) => ({ ProductID: r.ProductID, ProductName: r.ProductName, TypeLabel: r.TypeLabel, CurrentStock: r.cur, MaxStock: r.max, excessQty: r.cur - r.max, excessValue: round2((r.cur - r.max) * r.price) })).sort((a, b) => b.excessValue - a.excessValue);
+        const over = rows.filter((r) => r.max > 0 && r.cur > r.max && checksOverstock(r)).map((r) => ({ ProductID: r.ProductID, ProductName: r.ProductName, TypeLabel: r.TypeLabel, CurrentStock: r.cur, MaxStock: r.max, excessQty: r.cur - r.max, excessValue: round2((r.cur - r.max) * r.price) })).sort((a, b) => b.excessValue - a.excessValue);
         const overstock = { count: over.length, value: round2(over.reduce((s, r) => s + r.excessValue, 0)), items: over.slice(0, 50) };
 
         res.json({
             generatedAt: new Date(),
-            filters: { type: typeFilter || null, location: locFilter || null },
+            filters: { type: typeFilter || null, location: locFilter || null, mgmt: mgmtFilter || null },
             options,
+            excluded,   // จำนวน Spare / ของเก็บ ที่ไม่ถูกนับในคาดการณ์ / Dead stock (ให้หน้าจอแสดงป้ายบอก)
             abc: { total: round2(abcTotal), summary: abcSummary, items: abcRows.slice(0, 100), itemCount: abcRows.length },
             aging: { total: round2(agingTotal), buckets: aging },
             deadStock,
@@ -422,7 +533,9 @@ export const getStockAnalysisReport = async (req, res) => {
             turnover,
             reorder,
             overstock,
-            note: 'มูลค่าคิดจากราคาซื้อล่าสุด (LastPrice) • ABC ใช้มูลค่าเบิก 12 เดือน • Dead stock = ไม่มีการเบิกใน 90 วัน • Days of cover อิงอัตราเบิกเฉลี่ย 90 วัน',
+            forecast,
+            restock,
+            note: 'มูลค่าคิดจากราคาซื้อล่าสุด (LastPrice) • ABC ใช้มูลค่าเบิก 12 เดือน • Dead stock = ไม่มีการเบิกใน 90 วัน • Days of cover อิงอัตราเบิกเฉลี่ย 90 วัน • คาดการณ์ใช้ 60% จาก 30 วัน + 40% จาก 90 วัน • การเติม = รับเข้าจริง 365 วัน',
         });
     } catch (err) {
         console.error('Stock Analysis Report Error:', err);

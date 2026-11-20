@@ -1,5 +1,6 @@
 import { sql, getPool } from '../config/db.js';
 import { isDbAdmin } from '../middleware/permissionMiddleware.js';
+import { hasManagementColumns, managementTypeSelect, normalizeManagementType } from '../lib/stockManagement.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -28,11 +29,12 @@ export const uploadImage = (req, res) => {
 export const getProducts = async (req, res) => {
     try {
         const pool = getPool();
+        const hasMgmt = await hasManagementColumns(pool);
         const result = await pool.request().query(`
-    SELECT ProductID, ProductName, DeviceType, MinStock, MaxStock, 
-        CurrentStock, LastPrice, UnitOfMeasure, IsActive, ImageURL, 
+    SELECT ProductID, ProductName, DeviceType, MinStock, MaxStock,
+        CurrentStock, LastPrice, UnitOfMeasure, IsActive, ImageURL,
         Location, BarcodeID, business_priority,
-        lead_time_days, VendorID
+        lead_time_days, VendorID, ${managementTypeSelect('', hasMgmt)}
     FROM dbo.Stock_Products
     WHERE IsActive = 1
 `);
@@ -96,6 +98,16 @@ export const updateProduct = async (req, res) => {
         if (BarcodeID !== undefined) {
             request.input('BarcodeID', sql.NVarChar, BarcodeID);
             query += `, BarcodeID = @BarcodeID`;
+        }
+
+        // ประเภทการจัดการ: ส่งมาเฉพาะเมื่อต้องการเปลี่ยน (ไม่ส่ง = คงค่าเดิม)
+        if (req.body.ManagementType !== undefined) {
+            const mgmt = normalizeManagementType(req.body.ManagementType);
+            if (!mgmt) return res.status(400).json({ error: 'ประเภทการจัดการไม่ถูกต้อง' });
+            if (await hasManagementColumns(pool)) {
+                request.input('ManagementType', sql.VarChar(20), mgmt);
+                query += `, ManagementType = @ManagementType`;
+            }
         }
 
         query += `,
@@ -185,6 +197,11 @@ export const manualImport = async (req, res) => {
     const userId = typeof UserID === 'string' && UserID.trim() ? UserID.trim().toUpperCase() : null;
     const now = getThaiDate();
 
+    // ประเภทการจัดการ (ไม่บังคับ): ไม่ส่ง = สินค้าใหม่ใช้ค่าเริ่มต้นของหมวด, สินค้าเดิมคงค่าเดิม
+    const mgmtInput = isBlank(body.ManagementType) ? null : normalizeManagementType(body.ManagementType);
+    if (!isBlank(body.ManagementType) && !mgmtInput) return res.status(400).json({ error: 'ประเภทการจัดการไม่ถูกต้อง' });
+    const hasMgmt = await hasManagementColumns(getPool());
+
     // ---- Transaction ----
     let began = false;
     const transaction = new sql.Transaction(getPool());
@@ -220,6 +237,7 @@ export const manualImport = async (req, res) => {
                 .input('MaxStock', sql.Int, maxStockInput)
                 .input('DeviceType', sql.VarChar(50), deviceType)
                 .input('Location', sql.NVarChar(100), location)
+                .input('ManagementType', sql.VarChar(20), mgmtInput)
                 .query(`
                     UPDATE dbo.Stock_Products
                     SET CurrentStock = CurrentStock + @Qty,
@@ -227,7 +245,8 @@ export const manualImport = async (req, res) => {
                         MinStock = @MinStock,
                         MaxStock = COALESCE(@MaxStock, MaxStock),
                         DeviceType = @DeviceType,
-                        Location = COALESCE(@Location, Location),
+                        Location = COALESCE(@Location, Location),${hasMgmt ? `
+                        ManagementType = COALESCE(@ManagementType, ManagementType),` : ''}
                         IsActive = 1
                     OUTPUT DELETED.CurrentStock AS PrevStock, INSERTED.CurrentStock AS NewStock
                     WHERE ProductID = @ProductID
@@ -246,7 +265,16 @@ export const manualImport = async (req, res) => {
                 .input('Location', sql.NVarChar(100), location)
                 .input('business_priority', sql.TinyInt, 3)
                 .input('priority_label', sql.NVarChar(20), 'MEDIUM')
-                .query(`
+                .input('ManagementType', sql.VarChar(20), mgmtInput)
+                .query(hasMgmt ? `
+                    INSERT INTO dbo.Stock_Products
+                        (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, MaxStock, Location, IsActive, business_priority, priority_label, ManagementType)
+                    OUTPUT INSERTED.ProductID, INSERTED.CurrentStock AS NewStock
+                    VALUES (@ProductName, @DeviceType, @CurrentStock, @UnitCost, @MinStock, @MaxStock, @Location, 1, @business_priority, @priority_label,
+                        COALESCE(@ManagementType,
+                                 (SELECT DefaultManagementType FROM dbo.Stock_DeviceTypes WHERE TypeId = @DeviceType),
+                                 'Rotating'))
+                ` : `
                     INSERT INTO dbo.Stock_Products
                         (ProductName, DeviceType, CurrentStock, LastPrice, MinStock, MaxStock, Location, IsActive, business_priority, priority_label)
                     OUTPUT INSERTED.ProductID, INSERTED.CurrentStock AS NewStock
@@ -480,7 +508,10 @@ const { CurrentStock: currentStock, DeviceType } = checkStock.recordset[0];
                 .input('TransDate', sql.DateTime, now)
                 .input('EmployeeCode', sql.VarChar, EmployeeCode || null)    // ✅
                 .input('EmployeeName', sql.NVarChar, EmployeeName || null)  // ✅
-                .input('CostCenter', sql.VarChar, CostCenter || null)       // ✅
+                // เบิกใช้เอง (หรือ 7510) → เก็บศูนย์ต้นทุนเป็น 7510 ถ้าไม่ได้ระบุมา
+                .input('CostCenter', sql.VarChar, (SelfUse === true || String(CostCenter || '').trim() === INTERNAL_COST_CENTER)
+                    ? (String(CostCenter || '').trim() || INTERNAL_COST_CENTER)
+                    : (CostCenter || null))
                 .input('SerialNumber', sql.NVarChar, SerialNumber || null)       // ✅ ใหม่
                 .input('FixedAssetCode', sql.NVarChar, FixedAssetCode || null)   // ✅ ใหม่
                 .input('SelfUse', sql.Bit, (SelfUse === true || String(CostCenter || '').trim() === INTERNAL_COST_CENTER) ? 1 : 0)   // เบิกใช้ในแผนกไอที = ใช้เอง
@@ -508,7 +539,10 @@ const { CurrentStock: currentStock, DeviceType } = checkStock.recordset[0];
 export const getDeviceTypes = async (req, res) => {
     try {
         const pool = getPool();
-        const result = await pool.request().query('SELECT TypeId, Label FROM dbo.Stock_DeviceTypes');
+        const hasMgmt = await hasManagementColumns(pool);
+        const result = await pool.request().query(hasMgmt
+            ? `SELECT TypeId, Label, ISNULL(DefaultManagementType, 'Rotating') AS DefaultManagementType FROM dbo.Stock_DeviceTypes`
+            : `SELECT TypeId, Label, 'Rotating' AS DefaultManagementType FROM dbo.Stock_DeviceTypes`);
         res.json(result.recordset);
     } catch (err) {
         console.error('Get Types Error:', err);
@@ -518,16 +552,23 @@ export const getDeviceTypes = async (req, res) => {
 
 // CREATE Device Type
 export const createDeviceType = async (req, res) => {
-    const { TypeId, Label } = req.body;
+    const { TypeId, Label, DefaultManagementType } = req.body;
     if (!TypeId || !Label) {
         return res.status(400).json({ error: 'TypeId and Label are required' });
     }
+    const mgmt = DefaultManagementType === undefined || DefaultManagementType === null || DefaultManagementType === ''
+        ? null : normalizeManagementType(DefaultManagementType);
+    if (DefaultManagementType && !mgmt) return res.status(400).json({ error: 'ประเภทการจัดการไม่ถูกต้อง' });
     try {
         const pool = getPool();
+        const hasMgmt = await hasManagementColumns(pool);
         await pool.request()
             .input('TypeId', sql.VarChar, TypeId)
             .input('Label', sql.NVarChar, Label)
-            .query('INSERT INTO dbo.Stock_DeviceTypes (TypeId, Label) VALUES (@TypeId, @Label)');
+            .input('DefaultManagementType', sql.VarChar(20), mgmt)
+            .query(hasMgmt
+                ? 'INSERT INTO dbo.Stock_DeviceTypes (TypeId, Label, DefaultManagementType) VALUES (@TypeId, @Label, @DefaultManagementType)'
+                : 'INSERT INTO dbo.Stock_DeviceTypes (TypeId, Label) VALUES (@TypeId, @Label)');
         res.json({ success: true, message: 'Type added' });
     } catch (err) {
         console.error('Add Type Error:', err);
@@ -536,17 +577,42 @@ export const createDeviceType = async (req, res) => {
 };
 
 // UPDATE Device Type
+// DefaultManagementType: ค่าเริ่มต้นของสินค้าใหม่ในหมวด
+// ApplyToProducts = true: เปลี่ยนสินค้าที่มีอยู่ในหมวดนี้ทั้งหมดเป็นค่าเดียวกันด้วย (ใช้ตอนจัดประเภทครั้งแรก)
 export const updateDeviceType = async (req, res) => {
     const { id } = req.params;
-    const { Label } = req.body;
+    const { Label, DefaultManagementType, ApplyToProducts } = req.body;
+    const mgmt = DefaultManagementType === undefined ? undefined : normalizeManagementType(DefaultManagementType);
+    if (DefaultManagementType !== undefined && !mgmt) return res.status(400).json({ error: 'ประเภทการจัดการไม่ถูกต้อง' });
+    let began = false;
+    const pool = getPool();
+    const transaction = new sql.Transaction(pool);
     try {
-        const pool = getPool();
-        await pool.request()
+        const hasMgmt = await hasManagementColumns(pool);
+        if (mgmt && !hasMgmt) {
+            return res.status(409).json({ error: 'ยังไม่ได้รัน migration ประเภทการจัดการ (2026-11-20_stock_management_type.sql)' });
+        }
+        await transaction.begin();
+        began = true;
+        const setMgmt = mgmt ? ', DefaultManagementType = @DefaultManagementType' : '';
+        await new sql.Request(transaction)
             .input('TypeId', sql.VarChar, id)
             .input('Label', sql.NVarChar, Label)
-            .query('UPDATE dbo.Stock_DeviceTypes SET Label = @Label WHERE TypeId = @TypeId');
-        res.json({ success: true });
+            .input('DefaultManagementType', sql.VarChar(20), mgmt || null)
+            .query(`UPDATE dbo.Stock_DeviceTypes SET Label = @Label${setMgmt} WHERE TypeId = @TypeId`);
+        let productsUpdated = 0;
+        if (mgmt && ApplyToProducts === true) {
+            const r = await new sql.Request(transaction)
+                .input('TypeId', sql.VarChar, id)
+                .input('ManagementType', sql.VarChar(20), mgmt)
+                .query(`UPDATE dbo.Stock_Products SET ManagementType = @ManagementType
+                        WHERE DeviceType = @TypeId AND ManagementType <> @ManagementType`);
+            productsUpdated = r.rowsAffected[0] || 0;
+        }
+        await transaction.commit();
+        res.json({ success: true, productsUpdated });
     } catch (err) {
+        if (began) await transaction.rollback().catch(() => {});
         console.error('Update Type Error:', err);
         res.status(500).json({ error: err.message });
     }
@@ -580,8 +646,10 @@ export const deleteDeviceType = async (req, res) => {
 export const getForecast = async (req, res) => {
     try {
         const pool = getPool();
+        const hasMgmt = await hasManagementColumns(pool);
         const result = await pool.request().query(`
-            SELECT 
+            SELECT
+                ${managementTypeSelect('p', hasMgmt)},
                 p.ProductID,
                 p.ProductName,
                 p.DeviceType,
@@ -597,7 +665,8 @@ export const getForecast = async (req, res) => {
             FROM Stock_Products p
             LEFT JOIN Stock_Vendors v ON p.VendorID = v.VendorID
             WHERE p.CurrentStock <= p.MinStock
-              AND p.IsActive = 1
+              AND p.IsActive = 1${hasMgmt ? `
+              AND p.ManagementType <> 'Stored'` : ''}
         `);
 
         const items = result.recordset.map(item => {

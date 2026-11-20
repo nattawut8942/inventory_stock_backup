@@ -66,7 +66,7 @@ const Title = ({ title, hint, right }) => (
     </div>
 );
 
-export default function StockAnalysisView({ type, location }) {
+export default function StockAnalysisView({ type, location, mgmt }) {
     const [data, setData] = useState(null);
     const [err, setErr] = useState('');
     const [loading, setLoading] = useState(false);
@@ -79,6 +79,7 @@ export default function StockAnalysisView({ type, location }) {
                 const p = new URLSearchParams();
                 if (type) p.set('type', type);
                 if (location) p.set('location', location);
+                if (mgmt) p.set('mgmt', mgmt);
                 const res = await fetch(`${API_BASE}/stock/report/analysis?${p.toString()}`);
                 if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'โหลดรายงานไม่สำเร็จ');
                 const json = await res.json();
@@ -87,20 +88,41 @@ export default function StockAnalysisView({ type, location }) {
             finally { if (!cancelled) setLoading(false); }
         })();
         return () => { cancelled = true; };
-    }, [type, location]);
+    }, [type, location, mgmt]);
 
     const exportExcel = () => {
         if (!data) return;
         const wb = XLSX.utils.book_new();
         const add = (name, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), name);
-        add('รายการสั่งซื้อ', data.reorder.items.map((r) => ({ 'สินค้า': r.ProductName, 'ประเภท': r.TypeLabel, 'Vendor': r.VendorName, 'คงเหลือ': r.CurrentStock, 'Min': r.MinStock, 'Max': r.MaxStock, 'สั่งเพิ่ม': r.suggestQty, 'ราคา (฿)': r.price, 'ประมาณการ (฿)': r.estCost, 'Lead time (วัน)': r.LeadTime, 'ใช้ได้อีก (วัน)': r.daysLeft ?? '' })));
+        add('รายการสั่งซื้อ', data.reorder.items.map((r) => ({ 'สินค้า': r.ProductName, 'ประเภท': r.TypeLabel, 'การจัดการ': r.ManagementType === 'Spare' ? 'อุปกรณ์สำรอง' : 'สต็อกหมุนเวียน', 'Vendor': r.VendorName, 'คงเหลือ': r.CurrentStock, 'Min': r.MinStock, 'Max': r.MaxStock, 'สั่งเพิ่ม': r.suggestQty, 'ราคา (฿)': r.price, 'ประมาณการ (฿)': r.estCost, 'Lead time (วัน)': r.LeadTime, 'ใช้ได้อีก (วัน)': r.daysLeft ?? '' })));
         add('ABC', data.abc.items.map((r) => ({ 'Class': r.cls, 'สินค้า': r.ProductName, 'ประเภท': r.TypeLabel, 'เบิก 12 เดือน (ชิ้น)': r.qty, 'มูลค่าเบิก (฿)': r.value, 'สะสม (%)': r.cumPct })));
         add('Aging', data.aging.buckets.map((b) => ({ 'ช่วง': b.label, 'รายการ': b.count, 'มูลค่า (฿)': b.value, 'สัดส่วน (%)': b.share })));
         add('Dead stock', data.deadStock.items.map((r) => ({ 'สินค้า': r.ProductName, 'ประเภท': r.TypeLabel, 'สถานที่': r.Location, 'คงเหลือ': r.CurrentStock, 'มูลค่า (฿)': r.value, 'เบิกล่าสุด (วันที่แล้ว)': r.lastOutDays ?? 'ไม่เคยเบิก' })));
         add('Days of cover', data.daysOfCover.items.map((r) => ({ 'สินค้า': r.ProductName, 'คงเหลือ': r.CurrentStock, 'เบิกเฉลี่ย/วัน': r.dailyUse, 'ใช้ได้อีก (วัน)': r.days, 'Lead time (วัน)': r.LeadTime, 'วิกฤต': r.critical ? 'Y' : '' })));
         add('Turnover', data.turnover.map((t) => ({ 'ประเภท': t.key, 'มูลค่าคงคลัง (฿)': t.stockValue, 'มูลค่าเบิก 12 เดือน (฿)': t.outValue, 'Turnover (เท่า)': t.turnover ?? '', 'วันที่ stock อยู่ได้': t.daysOfStock ?? '' })));
         add('Overstock', data.overstock.items.map((r) => ({ 'สินค้า': r.ProductName, 'คงเหลือ': r.CurrentStock, 'Max': r.MaxStock, 'เกิน (ชิ้น)': r.excessQty, 'มูลค่าส่วนเกิน (฿)': r.excessValue })));
+        if (data.forecast) {
+            add('คาดการณ์สั่ง', data.forecast.items.map((r) => ({ 'สินค้า': r.ProductName, 'ประเภท': r.TypeLabel, 'Vendor': r.VendorName, 'ใช้ 30 วัน/วัน': r.daily30, 'ใช้ 90 วัน/วัน': r.daily90, 'เปลี่ยนแปลง (%)': r.trendPct ?? 'ใหม่', 'คาดการณ์/เดือน': r.forecastMonth, 'คงเหลือ': r.CurrentStock, 'จุดสั่ง (ROP)': r.rop, 'สถานะ': r.status, 'แนะนำสั่ง (ชิ้น)': r.suggestedQty, 'ประมาณการ (฿)': r.estCost })));
+            add('การเติมสต็อค', data.restock.items.map((r) => ({ 'สินค้า': r.ProductName, 'รับเข้า (ครั้ง/ปี)': r.inCount, 'เติมเฉลี่ย/ครั้ง': r.avgIn, 'ควรเติมครั้งละ': r.recommendPerOrder, 'ใช้หมดใน (วัน)': r.refillDays ?? '', 'ผล': r.restockVerdict })));
+        }
         XLSX.writeFile(wb, `Stock_Analysis_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    };
+
+    // Export รายงานส่วนเดียว (แนบกับใบขอสั่งซื้อได้) — มีชีต "หมายเหตุ" อธิบายวิธีคำนวณ
+    const exportSection = (name, rows) => {
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), name.slice(0, 31));
+        const notes = [
+            { 'หัวข้อ': 'วันที่สร้างรายงาน', 'รายละเอียด': new Date().toLocaleString('th-TH') },
+            { 'หัวข้อ': 'ข้อมูลจาก', 'รายละเอียด': data?.generatedAt ? new Date(data.generatedAt).toLocaleString('th-TH') : '' },
+            { 'หัวข้อ': 'อัตราการใช้คาดการณ์', 'รายละเอียด': '60% ของการเบิก 30 วันล่าสุด + 40% ของการเบิก 90 วัน (ไม่นับรายการที่คืนแล้ว)' },
+            { 'หัวข้อ': 'จุดสั่ง (ROP)', 'รายละเอียด': 'อัตราการใช้ × Lead time + สำรอง 7 วัน' },
+            { 'หัวข้อ': 'แนะนำสั่ง', 'รายละเอียด': 'ให้พอใช้ถึงรอบ 30 วันหลัง Lead time แล้วหักคงเหลือออก' },
+            { 'หัวข้อ': 'การเติมสต็อค', 'รายละเอียด': 'เทียบการรับเข้าเฉลี่ยต่อครั้ง (365 วัน) กับ "ควรเติมครั้งละ" = ใช้ได้ 30 วัน • น้อยกว่า 70% = เติมน้อยไป • มากกว่า 150% = เติมมากไป' },
+            { 'หัวข้อ': 'Lead time', 'รายละเอียด': 'ตั้งค่าที่สินค้าแต่ละรายการ (ค่า Lead time ในหน้า Stock Inventory) ต้องตรงกับเวลาจัดส่งจริง' },
+        ];
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(notes), 'หมายเหตุ');
+        XLSX.writeFile(wb, `${name}_${new Date().toISOString().slice(0, 10)}.xlsx`);
     };
 
     return (
@@ -118,6 +140,12 @@ export default function StockAnalysisView({ type, location }) {
             {err && <Card className="border-red-200 bg-red-50 text-red-700 text-sm flex items-center gap-2"><AlertTriangle size={16} /> {err}</Card>}
 
             {data && (<>
+                {data.excluded && (data.excluded.spare > 0 || data.excluded.stored > 0) && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
+                        ไม่นับในคาดการณ์ / Days of cover / Dead stock: อุปกรณ์สำรอง {data.excluded.spare} รายการ, ของเก็บในคลัง {data.excluded.stored} รายการ
+                        {data.excluded.stored > 0 && ' • ของเก็บในคลังไม่อยู่ในรายการสั่งซื้อและ Overstock'}
+                    </div>
+                )}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     <Kpi icon={ShoppingCart} tone="orange" label="ต้องสั่งซื้อ" value={`${data.reorder.count} รายการ`} sub={`ประมาณการ ${baht(data.reorder.totalCost)}${data.reorder.noPrice ? ` • ไม่มีราคา ${data.reorder.noPrice}` : ''}`} />
                     <Kpi icon={Hourglass} tone="red" label="วิกฤต (ใช้หมดก่อนของมา)" value={`${data.daysOfCover.criticalCount} รายการ`} sub="Days of cover ≤ Lead time" />
@@ -126,8 +154,8 @@ export default function StockAnalysisView({ type, location }) {
                 </div>
 
                 <Card>
-                    <Title title="🛒 รายการที่ต้องสั่งซื้อ" hint={`คงเหลือ ≤ Min • สั่งเพิ่ม = Max − คงเหลือ (ไม่มี Max ใช้ Min) • รวมประมาณการ ${baht(data.reorder.totalCost)}`} />
-                    <Table limit={10} rows={data.reorder.items} rowKey={(r) => r.ProductID} empty="ไม่มีรายการต่ำกว่า Min"
+                    <Title title="🛒 รายการที่ต้องสั่งซื้อ" hint={`คงเหลือ ≤ Min • สั่งเพิ่ม = Max − คงเหลือ (ไม่มี Max ใช้ Min) • รวมประมาณการ ${baht(data.reorder.totalCost)}${data.reorder.spareCount ? ` • เติมอุปกรณ์สำรอง ${data.reorder.spareCount} รายการ` : ''}`} />
+                    <Table limit={10} rows={data.reorder.items.filter((r) => r.ManagementType !== 'Spare')} rowKey={(r) => r.ProductID} empty="ไม่มีรายการต่ำกว่า Min"
                         columns={[
                             { h: 'สินค้า', cell: (r) => <span className="font-medium text-slate-800">{r.ProductName}</span>, cls: 'max-w-[260px] truncate' },
                             { h: 'ประเภท', cell: (r) => r.TypeLabel, cls: 'text-slate-600' },
@@ -140,6 +168,65 @@ export default function StockAnalysisView({ type, location }) {
                             { h: 'Lead time', right: true, cell: (r) => `${r.LeadTime} วัน`, cls: 'text-slate-500' },
                         ]} />
                 </Card>
+
+                {data.reorder.spareCount > 0 && (
+                    <Card>
+                        <Title title="🧰 เติมอุปกรณ์สำรอง" hint="อุปกรณ์สำรองที่เหลือต่ำกว่าขั้นต่ำ • สั่งเพิ่มให้ถึง Max (ไม่มี Max ใช้ Min) • ไม่ได้คาดการณ์จากการใช้" />
+                        <Table limit={10} rows={data.reorder.items.filter((r) => r.ManagementType === 'Spare')} rowKey={(r) => r.ProductID} empty="ไม่มีอุปกรณ์สำรองต่ำกว่า Min"
+                            columns={[
+                                { h: 'สินค้า', cell: (r) => <span className="font-medium text-slate-800">{r.ProductName}</span>, cls: 'max-w-[260px] truncate' },
+                                { h: 'ประเภท', cell: (r) => r.TypeLabel, cls: 'text-slate-600' },
+                                { h: 'Vendor', cell: (r) => r.VendorName, cls: 'text-slate-600' },
+                                { h: 'คงเหลือ', right: true, cell: (r) => <b>{r.CurrentStock}</b> },
+                                { h: 'Min/Max', right: true, cell: (r) => `${r.MinStock}/${r.MaxStock || '-'}`, cls: 'text-slate-500' },
+                                { h: 'สั่งเพิ่ม', right: true, cell: (r) => <b className="text-orange-600">{r.suggestQty}</b> },
+                                { h: 'ประมาณการ', right: true, cell: (r) => (r.price > 0 ? baht(r.estCost) : <span className="text-red-500 text-xs font-bold">ไม่มีราคา</span>) },
+                                { h: 'ใช้ได้อีก', right: true, cell: (r) => (r.daysLeft === null ? '-' : `${r.daysLeft} วัน`), cls: 'text-slate-500' },
+                                { h: 'Lead time', right: true, cell: (r) => `${r.LeadTime} วัน`, cls: 'text-slate-500' },
+                            ]} />
+                    </Card>
+                )}
+
+                {data.forecast && (<>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <Kpi icon={Hourglass} tone="red" label="สั่งทันที" value={`${data.forecast.urgentCount} รายการ`} sub="ถึงจุดต้องสั่งแล้ว (คิดจาก Lead time)" />
+                        <Kpi icon={AlertTriangle} tone="orange" label="ควรสั่งภายใน 7 วัน" value={`${data.forecast.soonCount} รายการ`} sub="ใกล้ถึงจุดสั่ง" />
+                        <Kpi icon={ShoppingCart} tone="indigo" label="ประมาณการสั่งตามการใช้จริง" value={baht(data.forecast.totalEstCost)} sub={`${data.forecast.count} รายการที่มีการใช้`} />
+                        <Kpi icon={Layers} tone="sky" label="เติมไม่พอ / เติมเกิน" value={`${data.restock.underCount} / ${data.restock.overCount}`} sub="จากการรับเข้าเฉลี่ยต่อครั้ง เทียบปริมาณที่ควรเติม" />
+                    </div>
+
+                    <Card>
+                        <Title title="🔮 คาดการณ์การใช้และแนะนำการสั่ง"
+                            hint="ใช้คาดการณ์ = 60% (30 วันล่าสุด) + 40% (90 วัน) • จุดสั่ง = ใช้ระหว่าง Lead time + Safety 7 วัน • แนะนำสั่ง = ให้พอถึงรอบ 30 วันหลังรอของ"
+                            right={<button onClick={() => exportSection('คาดการณ์การสั่ง', data.forecast.items.map((r) => ({ 'สินค้า': r.ProductName, 'ประเภท': r.TypeLabel, 'Vendor': r.VendorName, 'Lead time (วัน)': r.LeadTime, 'ใช้ 30 วัน/วัน': r.daily30, 'ใช้ 90 วัน/วัน': r.daily90, 'เปลี่ยนแปลง (%)': r.trendPct ?? 'ใหม่', 'คาดการณ์/เดือน': r.forecastMonth, 'คงเหลือ': r.CurrentStock, 'จุดสั่ง (ROP)': r.rop, 'สถานะ': r.status, 'แนะนำสั่ง (ชิ้น)': r.suggestedQty, 'ประมาณการ (฿)': r.estCost })))} className="h-9 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5"><Download size={14} /> Export คาดการณ์</button>} />
+                        <Table limit={10} rows={data.forecast.items} rowKey={(r) => r.ProductID} empty="ยังไม่มีการใช้ใน 90 วัน"
+                            columns={[
+                                { h: 'สินค้า', cell: (r) => r.ProductName, cls: 'font-medium text-slate-800 max-w-[220px] truncate' },
+                                { h: 'ใช้ 30 วัน', right: true, cell: (r) => (r.trendPct === null ? <span className="text-slate-400">ใหม่</span> : <span className={`font-bold ${r.trendPct > 20 ? 'text-red-600' : r.trendPct < -20 ? 'text-emerald-600' : 'text-slate-600'}`}>{r.trendPct > 0 ? '↑' : r.trendPct < 0 ? '↓' : '→'} {Math.abs(r.trendPct)}%</span>) },
+                                { h: 'คาดการณ์/เดือน', right: true, cell: (r) => `${r.forecastMonth} ชิ้น` },
+                                { h: 'คงเหลือ', right: true, cell: (r) => r.CurrentStock },
+                                { h: 'จุดสั่ง (ROP)', right: true, cell: (r) => r.rop, cls: 'text-slate-500' },
+                                { h: 'Lead time', right: true, cell: (r) => `${r.LeadTime} วัน`, cls: 'text-slate-500' },
+                                { h: 'สถานะ', cell: (r) => <span className={`text-xs font-bold ${r.status === 'สั่งทันที' ? 'text-red-600' : r.status.startsWith('ควร') ? 'text-orange-600' : 'text-emerald-600'}`}>{r.status}</span> },
+                                { h: 'แนะนำสั่ง', right: true, cell: (r) => <b className="text-indigo-600">{r.suggestedQty} ชิ้น</b> },
+                            ]} />
+                    </Card>
+
+                    <Card>
+                        <Title title="📦 การเติมสต็อค — เติมแต่ละครั้งพอหรือไม่"
+                            hint={`เทียบการรับเข้าเฉลี่ยต่อครั้ง (365 วัน) กับปริมาณที่ควรเติมครั้งละ (ใช้ได้ 30 วัน) • น้อยไป = ต่ำกว่า 70% • มากไป = เกิน 150% • ไม่มีประวัติรับเข้า ${data.restock.noHistoryCount} รายการ`}
+                            right={<button onClick={() => exportSection('การเติมสต็อค', data.restock.items.map((r) => ({ 'สินค้า': r.ProductName, 'ประเภท': r.TypeLabel, 'Vendor': r.VendorName, 'Lead time (วัน)': r.LeadTime, 'รับเข้า (ครั้ง/ปี)': r.inCount, 'เติมเฉลี่ย/ครั้ง': r.avgIn, 'ควรเติมครั้งละ': r.recommendPerOrder, 'ใช้หมดใน (วัน)': r.refillDays ?? '', 'ผล': r.restockVerdict, 'ราคา (฿)': r.price })))} className="h-9 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5"><Download size={14} /> Export การเติม</button>} />
+                        <Table limit={10} rows={data.restock.items} rowKey={(r) => r.ProductID} empty="ยังไม่มีประวัติการรับเข้าที่เทียบได้"
+                            columns={[
+                                { h: 'สินค้า', cell: (r) => r.ProductName, cls: 'font-medium text-slate-800 max-w-[220px] truncate' },
+                                { h: 'รับเข้า (ครั้ง/ปี)', right: true, cell: (r) => r.inCount },
+                                { h: 'เติมเฉลี่ย/ครั้ง', right: true, cell: (r) => `${r.avgIn} ชิ้น` },
+                                { h: 'ควรเติมครั้งละ', right: true, cell: (r) => <b className="text-indigo-600">{r.recommendPerOrder} ชิ้น</b> },
+                                { h: 'ใช้หมดใน', right: true, cell: (r) => (r.refillDays === null ? '-' : `${r.refillDays} วัน`), cls: 'text-slate-500' },
+                                { h: 'ผล', cell: (r) => <span className={`text-xs font-bold px-2 py-0.5 rounded-md border ${r.restockVerdict === 'เติมน้อยไป' ? 'bg-red-50 text-red-700 border-red-200' : r.restockVerdict === 'เติมมากไป' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{r.restockVerdict}</span> },
+                            ]} />
+                    </Card>
+                </>)}
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                     <Card>

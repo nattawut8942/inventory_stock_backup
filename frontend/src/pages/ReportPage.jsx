@@ -8,6 +8,7 @@ import AlertModal from '../components/AlertModal';
 import { getChartColor, getBadgeStyle } from '../utils/styleHelpers';
 import { formatThaiDateShort } from '../utils/formatDate';
 import { API_BASE, API_URL } from '../config/api';
+import { isLowStock } from '../utils/stockManagement';
 
 // ─── Helper: check if date falls in range ────────────────────────────────────
 const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -299,7 +300,7 @@ const ReportPage = () => {
     // Calculate stats from real data
     const totalProducts = products.length;
     const totalValue = products.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
-    const lowStockCount = products.filter(p => p.CurrentStock <= p.MinStock && p.MinStock > 0).length;
+    const lowStockCount = products.filter(isLowStock).length;
     const pendingPOCount = (purchaseOrders || []).filter(po => po.Status !== 'Completed').length;
     const transactionCount = (transactions || []).filter(isCountedMovement).length;
 
@@ -896,7 +897,7 @@ const ReportPage = () => {
 
     // ─── Stock: สินค้าต้องสั่ง / สต็อกผิดปกติ / ราคาไม่มี / มูลค่าตามสถานที่ / Turnover / แนวโน้ม ───
     const reorderList = useMemo(() => (products || [])
-        .filter(p => p.IsActive !== false && Number(p.MinStock) > 0 && Number(p.CurrentStock || 0) <= Number(p.MinStock))
+        .filter(p => p.IsActive !== false && isLowStock(p))
         .map(p => {
             const cur = Number(p.CurrentStock || 0);
             const target = Number(p.MaxStock) > 0 ? Number(p.MaxStock) : Number(p.MinStock);

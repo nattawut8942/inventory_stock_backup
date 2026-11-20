@@ -4,6 +4,7 @@ import { ShoppingCart, Printer, AlertTriangle, X, CheckCircle2 } from 'lucide-re
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE } from '../config/api';
+import { isStored } from '../utils/stockManagement';
 
 const PurchaseRequestForm = () => {
     const { products } = useData();
@@ -12,8 +13,8 @@ const PurchaseRequestForm = () => {
 
     // Low Stock Logic
     const [showLowStock, setShowLowStock] = useState(false);
-    // Include items where current stock is less than or equal to min stock (even if min stock is 0)
-    const lowStockItems = products ? products.filter(p => p.CurrentStock != null && p.MinStock != null && Number(p.CurrentStock) <= Number(p.MinStock)) : [];
+    // Include items where current stock is less than or equal to min stock (even if min stock is 0) — ไม่รวมของเก็บในคลัง
+    const lowStockItems = products ? products.filter(p => p.CurrentStock != null && p.MinStock != null && Number(p.CurrentStock) <= Number(p.MinStock) && !isStored(p)) : [];
 
     // Form State
     const [form, setForm] = useState({

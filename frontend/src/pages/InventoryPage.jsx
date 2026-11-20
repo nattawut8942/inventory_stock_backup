@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Search, Monitor, Network, Archive, Database, Package, List, LayoutGrid, Edit2, Trash2, X, TrendingUp, TrendingDown, AlertTriangle, DollarSign, HardDrive, Mouse, Droplet, Printer, ShoppingBag, ShoppingCart, Minus, Plus, FileEdit, ScanLine, Check, Truck, Settings, ClipboardList, FileBarChart } from 'lucide-react';
+import { Search, Monitor, Network, Archive, Database, Package, List, LayoutGrid, Edit2, Trash2, X, TrendingUp, TrendingDown, AlertTriangle, DollarSign, HardDrive, Mouse, Droplet, Printer, ShoppingBag, ShoppingCart, Minus, Plus, FileEdit, ScanLine, Check, Truck, Settings, ClipboardList, FileBarChart, ArrowUpDown, ChevronUp, ChevronDown } from 'lucide-react';
 import Barcode from 'react-barcode';
 import { motion, AnimatePresence, animate } from 'motion/react';
 import { useData } from '../context/DataContext';
@@ -11,6 +11,7 @@ import Portal from '../components/Portal';
 import AdjustStockModal from '../components/AdjustStockModal';
 import { getBadgeStyle, getColorGradient, getChartColor, getDeviceTypeColor } from '../utils/styleHelpers';
 import { formatThaiDate } from '../utils/formatDate';
+import { MANAGEMENT_TYPES, managementTypeInfo, managementTypeOf, isLowStock, isStored } from '../utils/stockManagement';
 import { API_BASE, API_URL } from '../config/api';
 import StockCountPage from './StockCountPage';
 import StockReportView from '../components/StockReportView';
@@ -138,10 +139,13 @@ const isReturnableRow = (h, isAdmin) =>
 
 // สถานะสต็อกของการ์ด: ใช้ทั้งป้ายข้อความและแถบสีด้านซ้าย (ไม่ต้องใช้ MinStock ก็แสดงได้)
 const getStockState = (p) => {
+  if (isStored(p)) {
+    return { label: 'เก็บในคลัง', chip: 'bg-slate-100 text-slate-500 border-slate-200', edge: 'border-l-slate-300' };
+  }
   if (!(p.MinStock > 0)) {
     return { label: 'ไม่ได้ตั้งขั้นต่ำ', chip: 'bg-slate-100 text-slate-500 border-slate-200', edge: 'border-l-slate-300' };
   }
-  if (p.CurrentStock <= p.MinStock) {
+  if (isLowStock(p)) {
     return { label: 'ต่ำกว่าขั้นต่ำ', chip: 'bg-red-50 text-red-600 border-red-200', edge: 'border-l-red-500' };
   }
   return { label: 'ปกติ', chip: 'bg-emerald-50 text-emerald-600 border-emerald-200', edge: 'border-l-emerald-500' };
@@ -202,8 +206,11 @@ const InventoryPage = () => {
   const location = useLocation();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState('all');
+  const [selectedMgmt, setSelectedMgmt] = useState('all');   // ประเภทการจัดการ: all | Rotating | Spare | Stored
   const [showLowStock, setShowLowStock] = useState(location.state?.filter === 'lowstock');
   const [viewMode, setViewMode] = useState('grid');
+  const [listSort, setListSort] = useState({ key: null, dir: 'asc' }); // การเรียงของมุมมอง list (คลิกหัวคอลัมน์)
+  const [listPage, setListPage] = useState(1);
   const [activeTab, setActiveTab] = useState('inventory');
   const [editItem, setEditItem] = useState(null);
   const [historyItem, setHistoryItem] = useState(null);
@@ -507,7 +514,7 @@ const doQtyConfirm = async () => {
             RefInfo: getRefInfo(),
             EmployeeCode: selfUse ? user?.empcode : empData?.EmployeeCode,
             EmployeeName: selfUse ? user?.name : empData?.FormattedName,
-            CostCenter: selfUse ? null : empData?.CostCenter,
+            CostCenter: selfUse ? '7510' : empData?.CostCenter,
             SelfUse: selfUse,
             SerialNumber: product.DeviceType === 'Asset' ? assetSerialNumber.trim() : null,
             FixedAssetCode: product.DeviceType === 'Asset' ? assetFixedCode.trim() : null,
@@ -686,13 +693,14 @@ const doScanWithdraw = async () => {
     (!q || [p.ProductName, p.BarcodeID, p.ProductID, p.Location, p.VendorName]
       .some(v => v != null && String(v).toLowerCase().includes(q))) &&
     (selectedType === 'all' || p.DeviceType === selectedType) &&
-    (!showLowStock || (p.CurrentStock <= p.MinStock && p.MinStock > 0))
+    (selectedMgmt === 'all' || managementTypeOf(p) === selectedMgmt) &&
+    (!showLowStock || isLowStock(p))
   );
 
   const sortedProducts = [...filteredProducts].sort((a, b) => {
     if (gridSort === 'priority') {
       const urgency = (p) => {
-        const isLow = p.CurrentStock <= p.MinStock && p.MinStock > 0;
+        const isLow = isLowStock(p);
         const isCritical = p.business_priority === 1;
         if (isLow && isCritical) return 0;
         if (isLow) return 1;
@@ -713,8 +721,47 @@ const doScanWithdraw = async () => {
     return 0;
   });
 
+  // เรียงแถวของมุมมอง list ตามหัวคอลัมน์ที่คลิก (ไม่กระทบมุมมอง grid)
+  const LIST_SORT_VALUE = {
+    name: p => p.ProductName || '',
+    category: p => p.DeviceType || '',
+    price: p => p.LastPrice || 0,
+    stock: p => p.CurrentStock ?? 0,
+    min: p => p.MinStock ?? 0,
+    location: p => p.Location || '',
+    status: p => (isLowStock(p) ? 0 : 1),
+    priority: p => p.business_priority ?? 99,
+  };
+  const listProducts = listSort.key && LIST_SORT_VALUE[listSort.key]
+    ? [...sortedProducts].sort((a, b) => {
+      const get = LIST_SORT_VALUE[listSort.key];
+      const va = get(a), vb = get(b);
+      const r = typeof va === 'string' ? va.localeCompare(vb, 'th') : va - vb;
+      return listSort.dir === 'asc' ? r : -r;
+    })
+    : sortedProducts;
+  const toggleListSort = (key) => { setListPage(1); setListSort(s => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' })); };
+  // แบ่งหน้าเฉพาะมุมมอง list ทีละ 20 รายการ
+  const LIST_PAGE_SIZE = 20;
+  const listTotalPages = Math.max(1, Math.ceil(listProducts.length / LIST_PAGE_SIZE));
+  const listPageSafe = Math.min(listPage, listTotalPages);
+  const listPageItems = listProducts.slice((listPageSafe - 1) * LIST_PAGE_SIZE, listPageSafe * LIST_PAGE_SIZE);
+  useEffect(() => { setListPage(1); }, [searchTerm, selectedType, selectedMgmt, showLowStock]);
+  const listTh = (key, label, align = 'text-left') => {
+    const active = listSort.key === key;
+    const Arrow = !active ? ArrowUpDown : listSort.dir === 'asc' ? ChevronUp : ChevronDown;
+    return (
+      <th className={`px-3 py-2 ${align} cursor-pointer select-none hover:bg-slate-100 transition-colors ${active ? 'text-indigo-700' : ''}`}
+        onClick={() => toggleListSort(key)} aria-sort={active ? (listSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+        <span className={`inline-flex items-center gap-1 ${align === 'text-center' ? 'justify-center' : ''}`}>
+          {label}<Arrow size={11} className={active ? 'text-indigo-600' : 'text-slate-300'} />
+        </span>
+      </th>
+    );
+  };
+
   const totalProducts = products.length;
-  const lowStockCount = products.filter(p => p.CurrentStock <= p.MinStock && p.MinStock > 0).length;
+  const lowStockCount = products.filter(isLowStock).length;
   const totalValue = products.reduce((sum, p) => sum + (p.CurrentStock * (p.LastPrice || 0)), 0);
   const typeDistribution = deviceTypes.map(t => ({ name: t.Label, count: products.filter(p => p.DeviceType === t.TypeId).length }));
 
@@ -871,22 +918,22 @@ const handleFileUpload = async (file) => {
   const exportVisibleCsv = () => {
     const today = new Date().toISOString().slice(0, 10);
     downloadCsv(`inventory_${today}.csv`,
-      ['รหัส', 'ชื่อ', 'หมวดหมู่', 'คงเหลือ', 'ขั้นต่ำ', 'สูงสุด', 'ราคา/หน่วย', 'สถานที่เก็บ', 'Vendor', 'สถานะ'],
+      ['รหัส', 'ชื่อ', 'หมวดหมู่', 'การจัดการ', 'คงเหลือ', 'ขั้นต่ำ', 'สูงสุด', 'ราคา/หน่วย', 'สถานที่เก็บ', 'Vendor', 'สถานะ'],
       sortedProducts.map(p => [
-        p.ProductID, p.ProductName, p.DeviceType, p.CurrentStock, p.MinStock, p.MaxStock || '',
+        p.ProductID, p.ProductName, p.DeviceType, managementTypeInfo(p).label, p.CurrentStock, p.MinStock, p.MaxStock || '',
         p.LastPrice || 0, p.Location || '', p.VendorName || '',
-        p.MinStock > 0 && p.CurrentStock <= p.MinStock ? 'ต่ำกว่าขั้นต่ำ' : 'ปกติ',
+        isLowStock(p) ? 'ต่ำกว่าขั้นต่ำ' : 'ปกติ',
       ]));
   };
 
   // รายการที่ควรสั่งซื้อ: จำนวนแนะนำ = ระดับสูงสุด (หรือ 2× ขั้นต่ำ) - คงเหลือ
   const exportReorderCsv = () => {
     const today = new Date().toISOString().slice(0, 10);
-    const low = products.filter(p => p.MinStock > 0 && p.CurrentStock <= p.MinStock);
+    const low = products.filter(isLowStock);   // ไม่รวมของเก็บในคลัง; อุปกรณ์สำรองระบุในคอลัมน์การจัดการ
     downloadCsv(`reorder_${today}.csv`,
-      ['รหัส', 'ชื่อ', 'คงเหลือ', 'ขั้นต่ำ', 'จำนวนแนะนำให้สั่ง', 'Vendor', 'Lead time (วัน)'],
+      ['รหัส', 'ชื่อ', 'การจัดการ', 'คงเหลือ', 'ขั้นต่ำ', 'จำนวนแนะนำให้สั่ง', 'Vendor', 'Lead time (วัน)'],
       low.map(p => [
-        p.ProductID, p.ProductName, p.CurrentStock, p.MinStock,
+        p.ProductID, p.ProductName, managementTypeInfo(p).label, p.CurrentStock, p.MinStock,
         Math.max(1, (p.MaxStock || p.MinStock * 2) - p.CurrentStock),
         p.VendorName || '', p.lead_time_days ?? 7,
       ]));
@@ -967,7 +1014,7 @@ const handleFileUpload = async (file) => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <StatCard icon={Package} title="อุปกรณ์ทั้งหมด" value={totalProducts} color="from-blue-500 to-blue-600" />
           <StatCard icon={DollarSign} title="มูลค่าสต็อค" value={totalValue} format={(n) => `฿${Math.round(n).toLocaleString()}`} color="from-purple-500 to-purple-600" />
-          <StatCard icon={AlertTriangle} title="สต็อกต่ำ" value={lowStockCount} changeType={lowStockCount > 0 ? 'down' : 'up'} color="from-orange-500 to-orange-600" onClick={() => { setShowLowStock(true); setSearchTerm(''); setSelectedType('all'); }} />
+          <StatCard icon={AlertTriangle} title="สต็อกต่ำ" value={lowStockCount} changeType={lowStockCount > 0 ? 'down' : 'up'} color="from-orange-500 to-orange-600" onClick={() => { setShowLowStock(true); setSearchTerm(''); setSelectedType('all'); setSelectedMgmt('all'); }} />
           <StatCard icon={LayoutGrid} title="หมวดหมู่" value={deviceTypes.length} color="from-pink-500 to-pink-600" />
         </div>
 
@@ -989,6 +1036,10 @@ const handleFileUpload = async (file) => {
             <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} className="bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-medium text-slate-700 shadow-sm focus:border-indigo-500 outline-none cursor-pointer">
               <option value="all">ทุกประเภท</option>
               {deviceTypes.map(t => <option key={t.TypeId} value={t.TypeId}>{t.Label}</option>)}
+            </select>
+            <select value={selectedMgmt} onChange={(e) => setSelectedMgmt(e.target.value)} aria-label="ประเภทการจัดการ" title="ประเภทการจัดการ" className="bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-medium text-slate-700 shadow-sm focus:border-indigo-500 outline-none cursor-pointer">
+              <option value="all">ทุกการจัดการ</option>
+              {MANAGEMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
             <button onClick={() => setShowLowStock(!showLowStock)} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all font-bold text-sm ${showLowStock ? 'bg-red-50 text-red-600 border-red-200 shadow-sm ring-2 ring-red-100' : 'bg-white text-slate-500 border-slate-200 hover:text-red-500 hover:border-red-200'}`}>
               <AlertTriangle size={16} className={showLowStock ? 'fill-current' : ''} />
@@ -1018,9 +1069,9 @@ const handleFileUpload = async (file) => {
             </button>
           ))}
           <div className="flex items-center gap-2 ml-auto">
-            {(searchTerm || selectedType !== 'all' || showLowStock) && (
+            {(searchTerm || selectedType !== 'all' || selectedMgmt !== 'all' || showLowStock) && (
               <button
-                onClick={() => { setSearchTerm(''); setSelectedType('all'); setShowLowStock(false); }}
+                onClick={() => { setSearchTerm(''); setSelectedType('all'); setSelectedMgmt('all'); setShowLowStock(false); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-all"
               >
                 <X size={13} /> ล้าง filter
@@ -1056,60 +1107,57 @@ const handleFileUpload = async (file) => {
 
         {/* LIST VIEW */}
         {viewMode === 'list' && (
-          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-lg overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gradient-to-r from-slate-50 to-slate-100 text-slate-700 uppercase text-[12px] tracking-widest border-b border-slate-200">
+          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="bg-white rounded-lg border border-slate-200 overflow-hidden overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-700 uppercase text-[11px] tracking-wide border-b border-slate-200">
                 <tr>
-                  <th className="p-4 pl-6 w-10">
+                  <th className="px-3 py-2 pl-4 w-10">
                     <input type="checkbox" aria-label="เลือกทั้งหมด" checked={allVisibleSelected} onChange={toggleSelectAll} className="w-4 h-4 accent-indigo-600 cursor-pointer" />
                   </th>
-                  <th className="p-4">รายการ</th>
-                  <th className="p-4">หมวดหมู่</th>
-                  <th className="p-4">ราคาต่อหน่วย</th>
-                  <th className="p-4 text-center">คงเหลือ</th>
-                  <th className="p-4 text-center">ขั้นต่ำ</th>
-                  <th className="p-4">ที่เก็บ</th>
-                  <th className="p-4">สถานะ</th>
-                  <th className="p-4">Priority</th>
-                  <th className="p-4 text-center">เบิกจ่าย</th>
-                  <th className="p-4 text-center">ประวัติอุปกรณ์</th>
-                  {isAdmin && <th className="p-4 text-center">จัดการ</th>}
+                  {listTh('name', 'รายการ')}
+                  {listTh('category', 'หมวดหมู่')}
+                  {listTh('price', 'ราคาต่อหน่วย')}
+                  {listTh('stock', 'คงเหลือ', 'text-center')}
+                  {listTh('min', 'ขั้นต่ำ', 'text-center')}
+                  {listTh('location', 'ที่เก็บ')}
+                  {listTh('status', 'สถานะ')}
+                  {listTh('priority', 'Priority')}
+                  <th className="px-2 py-2 text-center">เบิกจ่าย</th>
+                  <th className="px-2 py-2 text-center">ประวัติอุปกรณ์</th>
+                  {isAdmin && <th className="px-2 py-2 text-center">จัดการ</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {sortedProducts.map((p, idx) => {
-                  const Icon = getIcon(p.DeviceType);
+                {listPageItems.map((p, idx) => {
                   const inCart = isInCart(p.ProductID);
                   return (
                     <motion.tr key={p.ProductID} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.min(idx, 12) * 0.03 }} className={`hover:bg-slate-50 transition-colors ${selectedIds.includes(p.ProductID) ? 'bg-indigo-50' : inCart ? 'bg-indigo-50/30' : ''}`}>
-                      <td className="p-4 pl-6">
+                      <td className="px-3 py-2 pl-4">
                         <input type="checkbox" aria-label={`เลือก ${p.ProductName}`} checked={selectedIds.includes(p.ProductID)} onChange={() => toggleSelect(p.ProductID)} className="w-4 h-4 accent-indigo-600 cursor-pointer" />
                       </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${getColorGradient(p.DeviceType)} flex items-center justify-center overflow-hidden shrink-0 shadow-md`}>
-                            {p.ImageURL ? <img loading="lazy" src={`${API_URL}${p.ImageURL}`} alt="" className="w-full h-full object-cover" /> : <Icon size={18} className="text-white" />}
-                          </div>
-                          <div>
-                            <span className="font-bold text-slate-700 block truncate max-w-[200px]">{p.ProductName}</span>
-                            {inCart && <span className="text-[10px] text-indigo-600 font-bold bg-indigo-100 px-1.5 rounded-sm">ในตะกร้า</span>}
-                          </div>
-                        </div>
+                      <td className="px-3 py-2">
+                        <span className="font-semibold text-slate-800 block truncate max-w-[260px]">{p.ProductName}</span>
+                        {inCart && <span className="text-[10px] text-indigo-600 font-bold">ในตะกร้า</span>}
                       </td>
-                      <td className="p-4">
-                        <span className="flex items-center w-fit gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold shadow-sm text-white" style={{ backgroundColor: getChartColor(p.DeviceType) }}>{p.DeviceType}</span>
+                      <td className="px-3 py-2">
+                        <span className="flex items-center w-fit gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-white" style={{ backgroundColor: getChartColor(p.DeviceType) }}>{p.DeviceType}</span>
+                        {managementTypeOf(p) !== 'Rotating' && (
+                          <span title={managementTypeInfo(p).hint} className={`mt-1 inline-block px-1.5 py-px rounded border text-[9px] font-bold ${managementTypeInfo(p).cls}`}>{managementTypeInfo(p).short}</span>
+                        )}
                       </td>
-                      <td className="p-4 text-slate-500 font-mono">฿{p.LastPrice?.toLocaleString()}</td>
-                      <td className={`p-4 text-center font-mono font-bold text-lg ${p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'text-red-500' : 'text-emerald-600'}`}>{p.CurrentStock}</td>
-                      <td className="p-4 text-center text-slate-400 font-mono">{p.MinStock}</td>
-                      <td className="p-4 text-slate-500 font-medium text-xs">{p.Location || '-'}</td>
-                      <td className="p-4">
-                        {p.CurrentStock <= p.MinStock && p.MinStock > 0
+                      <td className="px-3 py-2 text-slate-500 font-mono">฿{p.LastPrice?.toLocaleString()}</td>
+                      <td className={`px-2 py-2 text-center font-mono font-bold text-sm ${isLowStock(p) ? 'text-red-500' : isStored(p) ? 'text-slate-500' : 'text-emerald-600'}`}>{p.CurrentStock}</td>
+                      <td className="px-2 py-2 text-center text-slate-400 font-mono">{p.MinStock}</td>
+                      <td className="px-3 py-2 text-slate-500 font-medium text-xs">{p.Location || '-'}</td>
+                      <td className="px-3 py-2">
+                        {isLowStock(p)
                           ? <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-1 rounded-lg border border-red-100 flex items-center gap-1 w-fit"><AlertTriangle size={12} /> ต่ำ</span>
+                          : isStored(p)
+                          ? <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200">เก็บในคลัง</span>
                           : <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">ปกติ</span>
                         }
                       </td>
-                      <td className="p-4">
+                      <td className="px-3 py-2">
                         {/* ✅ FIX: ใช้ array lookup แทน object literal ใน JSX */}
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${p.business_priority === 1 ? 'bg-red-100 text-red-700 border-red-200' :
                           p.business_priority === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
@@ -1119,26 +1167,26 @@ const handleFileUpload = async (file) => {
                           {(['', 'Critical', 'High', 'Medium', 'Low'][p.business_priority]) ?? 'Medium'}
                         </span>
                       </td>
-                      <td className="p-4 text-center">
+                      <td className="px-2 py-2 text-center">
                         <div className="flex justify-center gap-1">
-                          {canWithdraw && <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-lg disabled:opacity-30" title="เพิ่มลงตะกร้า" aria-label="เพิ่มลงตะกร้า"><ShoppingCart size={16} /></button>}
-                          {canWithdraw && <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg disabled:opacity-30" title="เบิกด่วน" aria-label="เบิกด่วน"><ShoppingBag size={16} /></button>}
+                          {canWithdraw && <button onClick={() => openCartModal(p)} disabled={p.CurrentStock <= 0} className="p-1 text-indigo-600 hover:bg-indigo-100 rounded-lg disabled:opacity-30" title="เพิ่มลงตะกร้า" aria-label="เพิ่มลงตะกร้า"><ShoppingCart size={14} /></button>}
+                          {canWithdraw && <button onClick={() => openWithdrawModal(p)} disabled={p.CurrentStock <= 0} className="p-1 text-emerald-600 hover:bg-emerald-100 rounded-lg disabled:opacity-30" title="เบิกด่วน" aria-label="เบิกด่วน"><ShoppingBag size={14} /></button>}
                         </div>
                       </td>
-                      <td className="p-4 text-center">
+                      <td className="px-2 py-2 text-center">
                         <div className="flex justify-center gap-1">
-                          <button onClick={() => viewHistory(p)} className="text-slate-400 hover:text-indigo-600 transition-colors p-1.5 hover:bg-indigo-50 rounded-lg" title="ดูประวัติ" aria-label="ดูประวัติ"><Search size={16} /></button>
-                          <button onClick={() => setDetailItem(p)} className="text-slate-400 hover:text-blue-600 transition-colors p-1.5 hover:bg-blue-50 rounded-lg" title="ดูรายละเอียด" aria-label="ดูรายละเอียด">
+                          <button onClick={() => viewHistory(p)} className="text-slate-400 hover:text-indigo-600 transition-colors p-1 hover:bg-indigo-50 rounded-lg" title="ดูประวัติ" aria-label="ดูประวัติ"><Search size={14} /></button>
+                          <button onClick={() => setDetailItem(p)} className="text-slate-400 hover:text-blue-600 transition-colors p-1 hover:bg-blue-50 rounded-lg" title="ดูรายละเอียด" aria-label="ดูรายละเอียด">
                             <div className="w-4 h-4 rounded-full border border-current flex items-center justify-center font-bold text-[10px]">i</div>
                           </button>
-                          <button onClick={() => setBarcodeItem(p)} className="text-slate-400 hover:text-emerald-600 transition-colors p-1.5 hover:bg-emerald-50 rounded-lg" title="พิมพ์บาร์โค้ด" aria-label="พิมพ์บาร์โค้ด"><Printer size={16} /></button>
+                          <button onClick={() => setBarcodeItem(p)} className="text-slate-400 hover:text-emerald-600 transition-colors p-1 hover:bg-emerald-50 rounded-lg" title="พิมพ์บาร์โค้ด" aria-label="พิมพ์บาร์โค้ด"><Printer size={14} /></button>
                         </div>
                       </td>
                       {isAdmin && (
-                        <td className="p-4">
+                        <td className="px-3 py-2">
                           <div className="flex justify-center gap-2">
-                            {canEdit && <button onClick={() => setEditItem(p)} aria-label={`แก้ไข ${p.ProductName}`} title="แก้ไข" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
-                            {canDelete && <button onClick={() => handleDelete(p.ProductID)} aria-label={`ลบ ${p.ProductName}`} title="ลบ" className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
+                            {canEdit && <button onClick={() => setEditItem(p)} aria-label={`แก้ไข ${p.ProductName}`} title="แก้ไข" className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={14} /></button>}
+                            {canDelete && <button onClick={() => handleDelete(p.ProductID)} aria-label={`ลบ ${p.ProductName}`} title="ลบ" className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={14} /></button>}
                           </div>
                         </td>
                       )}
@@ -1147,6 +1195,21 @@ const handleFileUpload = async (file) => {
                 })}
               </tbody>
             </table>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-3 py-2 border-t border-slate-200 bg-slate-50 text-xs text-slate-600">
+              <span>
+                ทั้งหมด <span className="font-bold text-slate-800">{listProducts.length}</span> รายการ
+                {listProducts.length > 0 && <> · แสดง {(listPageSafe - 1) * LIST_PAGE_SIZE + 1}–{Math.min(listPageSafe * LIST_PAGE_SIZE, listProducts.length)}</>}
+              </span>
+              {listTotalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => setListPage(1)} disabled={listPageSafe === 1} className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40">«</button>
+                  <button type="button" onClick={() => setListPage(p => Math.max(1, p - 1))} disabled={listPageSafe === 1} className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40">‹ ก่อนหน้า</button>
+                  <span className="px-2 font-bold text-slate-800">หน้า {listPageSafe} / {listTotalPages}</span>
+                  <button type="button" onClick={() => setListPage(p => Math.min(listTotalPages, p + 1))} disabled={listPageSafe === listTotalPages} className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40">ถัดไป ›</button>
+                  <button type="button" onClick={() => setListPage(listTotalPages)} disabled={listPageSafe === listTotalPages} className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40">»</button>
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
 
@@ -1156,7 +1219,7 @@ const handleFileUpload = async (file) => {
             {sortedProducts.map((p, idx) => {
               const inCart = isInCart(p.ProductID);
               return (
-                <motion.div key={p.ProductID} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(idx, 12) * 0.03 }} className={`group bg-white rounded-2xl border border-l-4 ${getStockState(p).edge} p-2 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${selectedIds.includes(p.ProductID) ? 'border-indigo-400 ring-2 ring-indigo-300' : inCart ? 'border-indigo-300 ring-2 ring-indigo-100' :p.CurrentStock <= p.MinStock && p.MinStock > 0 ? 'border-red-200 hover:border-red-300' : 'border-slate-100 hover:border-indigo-200 hover:ring-1 hover:ring-indigo-100'}`}>
+                <motion.div key={p.ProductID} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(idx, 12) * 0.03 }} className={`group bg-white rounded-2xl border border-l-4 ${getStockState(p).edge} p-2 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${selectedIds.includes(p.ProductID) ? 'border-indigo-400 ring-2 ring-indigo-300' : inCart ? 'border-indigo-300 ring-2 ring-indigo-100' :isLowStock(p) ? 'border-red-200 hover:border-red-300' : 'border-slate-100 hover:border-indigo-200 hover:ring-1 hover:ring-indigo-100'}`}>
                   <div className={`absolute top-0 left-0 w-full h-20 bg-gradient-to-br ${getColorGradient(p.DeviceType)} opacity-10 z-0`} />
 
                   {/* ✅ เลือกหลายรายการ */}
@@ -1195,10 +1258,11 @@ const handleFileUpload = async (file) => {
                     <h3 className="font-bold text-slate-800 text-xs mb-1 line-clamp-2 min-h-[1.25rem]">{p.ProductName}</h3>
                     {inCart && <span className="text-[10px] text-indigo-600 font-bold bg-indigo-100 px-1.5 py-0.5 rounded-sm mb-1">ในตะกร้า</span>}
                     {(() => {
-                      const low = p.CurrentStock <= 0 || (p.CurrentStock <= p.MinStock && p.MinStock > 0);
-                      const warn = !low && p.MinStock > 0 && p.CurrentStock <= p.MinStock * 1.5;
-                      const tone = low ? 'text-red-500' : warn ? 'text-amber-500' : 'text-emerald-500';
-                      const bar = low ? 'bg-red-400' : warn ? 'bg-amber-400' : 'bg-emerald-400';
+                      // ของเก็บในคลังไม่เตือน (แสดงยอดอย่างเดียว)
+                      const low = isLowStock(p) || (p.CurrentStock <= 0 && !isStored(p));
+                      const warn = !low && !isStored(p) && p.MinStock > 0 && p.CurrentStock <= p.MinStock * 1.5;
+                      const tone = low ? 'text-red-500' : warn ? 'text-amber-500' : isStored(p) ? 'text-slate-500' : 'text-emerald-500';
+                      const bar = low ? 'bg-red-400' : warn ? 'bg-amber-400' : isStored(p) ? 'bg-slate-300' : 'bg-emerald-400';
                       const cap = Math.max(p.MaxStock || 0, p.MinStock * 2, p.CurrentStock, 1);
                       const pct = Math.min(100, Math.round((Math.max(p.CurrentStock, 0) / cap) * 100));
                       return (
@@ -1225,6 +1289,9 @@ const handleFileUpload = async (file) => {
                           </div>
                           <div className="w-full flex items-center gap-1.5 text-[10px] text-slate-500 mb-2 min-w-0">
                             <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-px rounded shrink-0 text-white" style={{ backgroundColor: getChartColor(p.DeviceType) }}>{p.DeviceType}</span>
+                            {managementTypeOf(p) !== 'Rotating' && (
+                              <span title={managementTypeInfo(p).hint} className={`text-[9px] font-bold px-1.5 py-px rounded border shrink-0 ${managementTypeInfo(p).cls}`}>{managementTypeInfo(p).short}</span>
+                            )}
                             <Archive size={11} className="shrink-0 text-slate-400" />
                             <span className="truncate">{p.Location || 'ยังไม่ระบุที่เก็บ'}</span>
                           </div>
@@ -1277,8 +1344,8 @@ const handleFileUpload = async (file) => {
             <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3"><Search size={26} /></div>
             <p className="font-bold text-slate-700">ไม่พบอุปกรณ์ที่ตรงกับการค้นหา</p>
             <p className="text-sm text-slate-400 mt-1">ลองเปลี่ยนคำค้น หรือเอาตัวกรองออกเพื่อดูรายการทั้งหมด</p>
-            {(searchTerm || selectedType !== 'all' || showLowStock) && (
-              <button onClick={() => { setSearchTerm(''); setSelectedType('all'); setShowLowStock(false); }} className="mt-4 px-4 py-2 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-200 transition-all">
+            {(searchTerm || selectedType !== 'all' || selectedMgmt !== 'all' || showLowStock) && (
+              <button onClick={() => { setSearchTerm(''); setSelectedType('all'); setSelectedMgmt('all'); setShowLowStock(false); }} className="mt-4 px-4 py-2 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-200 transition-all">
                 ล้างตัวกรองทั้งหมด
               </button>
             )}
@@ -1528,6 +1595,17 @@ const handleFileUpload = async (file) => {
                         </Field>
                         <Field label="ความสำคัญ"><PriorityPicker name="business_priority" defaultValue={editItem.business_priority ?? 3} /></Field>
                       </div>
+                      <Field label="การจัดการสต็อก">
+                        <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="การจัดการสต็อก">
+                          {MANAGEMENT_TYPES.map(t => (
+                            <label key={t.id} title={t.hint} className="cursor-pointer">
+                              <input type="radio" name="ManagementType" value={t.id} defaultChecked={managementTypeOf(editItem) === t.id} className="peer sr-only" />
+                              <span className="block text-center px-2 py-1.5 rounded-xl border border-slate-200 text-[12px] font-semibold text-slate-500 bg-white peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-200 transition-colors">{t.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <span className="block text-[10px] text-slate-400 mt-1">หมุนเวียน: เตือน + คาดการณ์การสั่ง · อุปกรณ์สำรอง: เตือนเมื่อต่ำกว่าขั้นต่ำ · เก็บในคลัง: ไม่เตือน ไม่สั่ง</span>
+                      </Field>
                       <Field label="ขั้นต่ำ / สูงสุด">
                         <div className="flex items-center gap-2">
                           <input name="MinStock" type="number" defaultValue={editItem.MinStock} className={`${inlineCls} font-mono flex-1`} />
@@ -1620,7 +1698,8 @@ const handleFileUpload = async (file) => {
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap gap-1.5 mb-1">
                         <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/20 text-white border border-white/30">{detailItem.DeviceType}</span>
-                        {detailItem.CurrentStock <= detailItem.MinStock && detailItem.MinStock > 0 && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/20 text-white border border-white/30">{managementTypeInfo(detailItem).label}</span>
+                        {isLowStock(detailItem) && (
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-500/70 text-white border border-red-400/50">Low Stock</span>
                         )}
                         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${detailItem.business_priority === 1 ? 'bg-red-500/70 text-white border-red-400/50' :
@@ -1643,7 +1722,7 @@ const handleFileUpload = async (file) => {
                 {/* ── Metric tiles ── */}
                 <div className="grid grid-cols-4 gap-1.5 px-4 pt-3 pb-1">
                   {[
-                    { label: 'คงเหลือ', value: detailItem.CurrentStock, color: detailItem.CurrentStock <= detailItem.MinStock && detailItem.MinStock > 0 ? 'text-red-500' : 'text-emerald-600' },
+                    { label: 'คงเหลือ', value: detailItem.CurrentStock, color: isLowStock(detailItem) ? 'text-red-500' : 'text-emerald-600' },
                     { label: 'ขั้นต่ำ', value: detailItem.MinStock, color: 'text-slate-700' },
                     { label: 'สูงสุด', value: detailItem.MaxStock || '—', color: 'text-slate-700' },
                     { label: 'ราคา/หน่วย', value: `฿${detailItem.LastPrice?.toLocaleString() ?? '—'}`, color: 'text-slate-700', sm: true },
@@ -1664,6 +1743,7 @@ const handleFileUpload = async (file) => {
                       {[
                         { label: 'ชื่อสินค้า', value: detailItem.ProductName, span: true },
                         { label: 'หมวดหมู่', value: detailItem.DeviceType },
+                        { label: 'การจัดการ', value: managementTypeInfo(detailItem).label },
                         { label: 'หน่วยนับ', value: detailItem.UnitOfMeasure || '—' },
                         { label: 'บาร์โค้ด', value: detailItem.BarcodeID || '—', mono: true, span: true },
                         { label: 'ที่เก็บ', value: detailItem.Location || 'ไม่ได้ระบุ', span: true },
@@ -1708,8 +1788,10 @@ const handleFileUpload = async (file) => {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-[11px] text-slate-400">สถานะสต็อค</span>
-                      {detailItem.CurrentStock <= detailItem.MinStock && detailItem.MinStock > 0
+                      {isLowStock(detailItem)
                         ? <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">ต่ำกว่าขั้นต่ำ</span>
+                        : isStored(detailItem)
+                        ? <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">เก็บในคลัง (ไม่เตือน)</span>
                         : <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">ปกติ</span>
                       }
                     </div>
@@ -1811,7 +1893,7 @@ const handleFileUpload = async (file) => {
                           const min = Number(qtyModal.product.MinStock) || 0;
                           const max = Math.max(Number(qtyModal.product.MaxStock) || 0, min, cur, 1);
                           const pct = (v) => Math.min(100, (v / max) * 100);
-                          const low = min > 0 && cur <= min;
+                          const low = isLowStock(qtyModal.product);
                           return (
                             <>
                               <div className="relative mt-2 h-2 rounded-full bg-slate-100">
