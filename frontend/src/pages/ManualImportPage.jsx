@@ -16,7 +16,7 @@ const EMPTY_FORM = {
     Quantity: '',
     MinStock: '',
     MaxStock: '',
-    ManagementType: '',   // '' = สินค้าใหม่ใช้ค่าเริ่มต้นของหมวด / สินค้าเดิมคงค่าเดิม
+    ManagementType: '',   // '' = อุปกรณ์ใหม่ใช้ค่าเริ่มต้นของหมวด / อุปกรณ์เดิมคงค่าเดิม
     Remark: ''
 };
 
@@ -239,7 +239,7 @@ const ManualImportPage = () => {
                 data.action === 'updated' ? `เพิ่มเข้าสต็อกเดิม ${added} ชิ้น` : `เพิ่มอุปกรณ์ใหม่ ${added} ชิ้น`,
                 `สต็อกคงเหลือ: ${data.newStock} ชิ้น`
             ];
-            if (data.reactivated) lines.push('สินค้านี้เคยถูกปิดใช้งาน ระบบเปิดใช้งานอีกครั้งแล้ว');
+            if (data.reactivated) lines.push('อุปกรณ์นี้เคยถูกปิดใช้งาน ระบบเปิดใช้งานอีกครั้งแล้ว');
 
             setResultModal({
                 isOpen: true,
@@ -473,7 +473,7 @@ const ManualImportPage = () => {
                                     <div className="p-5 rounded-2xl border border-slate-200 bg-white">
                                         <div className="flex flex-wrap items-center gap-2 mb-4">
                                             <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${existingProduct ? 'bg-cyan-100 text-cyan-800' : 'bg-emerald-100 text-emerald-800'}`}>
-                                                {existingProduct ? 'สินค้าเดิม · เพิ่มเข้าสต็อก' : 'สินค้าใหม่'}
+                                                {existingProduct ? 'อุปกรณ์เดิม · เพิ่มเข้าสต็อก' : 'อุปกรณ์ใหม่'}
                                             </span>
                                         </div>
 
@@ -549,7 +549,7 @@ const ManualImportPage = () => {
                                         </div>
                                     </div>
                                     <p className="text-xs text-orange-700/70">
-                                        ถ้าเว้นสต็อกสูงสุดว่างไว้ สินค้าเดิมจะใช้ค่าเดิม ส่วนสินค้าใหม่จะไม่กำหนดค่า
+                                        ถ้าเว้นสต็อกสูงสุดว่างไว้ อุปกรณ์เดิมจะใช้ค่าเดิม ส่วนอุปกรณ์ใหม่จะไม่กำหนดค่า
                                     </p>
                                 </div>
                             </div>

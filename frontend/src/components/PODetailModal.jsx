@@ -171,7 +171,7 @@ const PODetailModal = ({ po, vendors = [], onClose }) => {
                         {/* Items */}
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                             <div className="px-4 md:px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-                                <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-2"><Package size={14} /> รายการสินค้า ({items.length})</h4>
+                                <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-2"><Package size={14} /> รายการอุปกรณ์ ({items.length})</h4>
                                 <span className="text-xs font-bold text-indigo-600">รวม {money(summary.totalAmount)}</span>
                             </div>
                             <div className="overflow-x-auto">
@@ -223,7 +223,7 @@ const PODetailModal = ({ po, vendors = [], onClose }) => {
                                             );
                                         })}
                                         {items.length === 0 && (
-                                            <tr><td colSpan={5} className="p-6 text-center text-slate-400 text-sm">ไม่มีรายการสินค้า</td></tr>
+                                            <tr><td colSpan={5} className="p-6 text-center text-slate-400 text-sm">ไม่มีรายการอุปกรณ์</td></tr>
                                         )}
                                     </tbody>
                                 </table>

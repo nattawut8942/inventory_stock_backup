@@ -127,7 +127,7 @@ export const printReceipt = ({ invoice, rows, totalQty, totalValue, vendor, cont
     <thead>
       <tr><th class="c">#</th><th>รายการ</th><th class="r">จำนวน</th><th class="r">มูลค่า</th></tr>
     </thead>
-    <tbody>${lineRows || '<tr><td colspan="4" class="c">ไม่พบรายการสินค้า</td></tr>'}</tbody>
+    <tbody>${lineRows || '<tr><td colspan="4" class="c">ไม่พบรายการอุปกรณ์</td></tr>'}</tbody>
     <tfoot>
       <tr><td colspan="2" class="r">รวม</td><td class="r">${escHtml(totalQty)}</td><td class="r">${escHtml(money(totalValue))}</td></tr>
     </tfoot>

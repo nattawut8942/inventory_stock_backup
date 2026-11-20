@@ -204,7 +204,7 @@ const ReceivePage = () => {
         if (!selectedInvoice) return null;
         const txs = txByInvoice.get(selectedInvoice.InvoiceNo) || [];
         const po = poById.get(selectedInvoice.PO_ID);
-        // ราคาจริงของรายการคือราคาต่อหน่วยใน PO ณ ตอนสั่งซื้อ (ไม่ใช้ LastPrice ของสินค้า)
+        // ราคาจริงของรายการคือราคาต่อหน่วยใน PO ณ ตอนสั่งซื้อ (ไม่ใช้ LastPrice ของอุปกรณ์)
         const rows = txs.map(t => {
             const poItem = po?.Items?.find(it => it.ProductID === t.ProductID);
             const unit = poItem ? Number(poItem.UnitCost || 0) : null;

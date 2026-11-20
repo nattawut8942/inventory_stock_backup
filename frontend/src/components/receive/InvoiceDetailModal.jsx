@@ -95,7 +95,7 @@ const InvoiceDetailModal = ({ invoice, rows, totalQty, totalValue, vendor, conta
                             ))}
                             {rows.length === 0 && (
                                 <tr>
-                                    <td colSpan="3" className="p-8 text-center text-slate-400">ไม่พบรายการสินค้า</td>
+                                    <td colSpan="3" className="p-8 text-center text-slate-400">ไม่พบรายการอุปกรณ์</td>
                                 </tr>
                             )}
                         </tbody>

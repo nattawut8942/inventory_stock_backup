@@ -257,7 +257,7 @@ const ProductPickerPanel = ({ products = [], deviceTypes = [], orderingItems = [
                                                     </div>
                                                     <div>
                                                         <p className="text-slate-400 font-bold uppercase text-[10px]">ขั้นต่ำ / สูงสุด</p>
-                                                        <p className="font-bold text-slate-700">{p.MinStock ?? '-'} / {p.MaxStock ?? '-'}</p>
+                                                        <p className="font-bold text-slate-700">{p.MinStock ?? '-'} / {p.MaxStock ? p.MaxStock : 'ไม่จำกัด'}</p>
                                                     </div>
                                                     <div>
                                                         <p className="text-slate-400 font-bold uppercase text-[10px]">Location</p>

@@ -1198,7 +1198,7 @@ const handleFileSelect = (e) => {
 
                 {/* สถานที่ */}
                 {activeTab === 'locations' && (
-                    <MgmtSection title="สถานที่" count={locations.length} subtitle="สถานที่เก็บอุปกรณ์ · คอลัมน์ &quot;สินค้า&quot; คือจำนวนรายการในคลังที่ตั้งสถานที่นี้"
+                    <MgmtSection title="สถานที่" count={locations.length} subtitle="สถานที่เก็บอุปกรณ์ · คอลัมน์ &quot;อุปกรณ์&quot; คือจำนวนรายการในคลังที่ตั้งสถานที่นี้"
                         actions={pLocations.create && <PrimaryButton icon={Plus} onClick={() => { setEditingLocation(null); setLocationForm({ Name: '' }); setIsAddLocationOpen(true); }}>เพิ่มสถานที่</PrimaryButton>}>
                         <MgmtTable
                             {...searchProps} rows={locations} rowKey={l => l.LocationID} minWidth={480}
@@ -1206,7 +1206,7 @@ const handleFileSelect = (e) => {
                             defaultSort={{ key: 'name', dir: 'asc' }}
                             columns={[
                                 { key: 'name', label: 'ชื่อสถานที่', primary: true, sortValue: l => l.Name, render: l => <span className="font-bold text-slate-700 flex items-center gap-2"><Archive size={16} className="text-teal-600 shrink-0" />{l.Name}</span> },
-                                { key: 'products', label: 'สินค้า', align: 'right', sortValue: l => productCountByLocation[l.Name] || 0, render: l => {
+                                { key: 'products', label: 'อุปกรณ์', align: 'right', sortValue: l => productCountByLocation[l.Name] || 0, render: l => {
                                     const n = productCountByLocation[l.Name] || 0;
                                     return <span className={`tabular-nums font-bold ${n ? 'text-slate-700' : 'text-slate-300'}`}>{n} รายการ</span>;
                                 } },

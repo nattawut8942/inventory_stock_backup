@@ -1,7 +1,7 @@
 import { sql, getPool } from '../config/db.js';
 import * as XLSX from 'xlsx';
 import { sendDailyReport } from '../services/emailService.js';
-import { hasManagementColumns, managementTypeSelect, lowStockWhere, isLowStock } from '../lib/stockManagement.js';
+import { hasManagementColumns, managementTypeSelect, lowStockWhere, isLowStock, reorderTarget } from '../lib/stockManagement.js';
 
 const MGMT_LABEL_TH = { Rotating: 'สต็อกหมุนเวียน', Spare: 'อุปกรณ์สำรอง', Stored: 'ของเก็บในคลัง' };
 
@@ -42,7 +42,7 @@ export const exportReport = async (req, res) => {
             try {
                 switch (dataType) {
                     case 'products': {
-                        sheetName = '📦 สินค้าทั้งหมด';
+                        sheetName = '📦 อุปกรณ์ทั้งหมด';
                         const prodResult = await pool.request().query(`
                         SELECT 
                             p.ProductID, p.ProductName, p.DeviceType, 
@@ -53,13 +53,13 @@ export const exportReport = async (req, res) => {
                         ORDER BY p.DeviceType, p.ProductName
                     `);
                         data = prodResult.recordset.filter(keepCategory).map(row => ({
-                            'รหัสสินค้า': row.ProductID,
-                            'ชื่อสินค้า': row.ProductName,
+                            'รหัสอุปกรณ์': row.ProductID,
+                            'ชื่ออุปกรณ์': row.ProductName,
                             'ประเภท': row.DeviceType,
                             'การจัดการ': MGMT_LABEL_TH[row.ManagementType] || MGMT_LABEL_TH.Rotating,
                             'คงเหลือ': row.CurrentStock,
                             'ต่ำสุด (Min)': row.MinStock,
-                            'สูงสุด (Max)': row.MaxStock || '-',
+                            'สูงสุด (Max)': row.MaxStock || 'ไม่จำกัด',
                             'ราคา/หน่วย (฿)': row.LastPrice || 0,
                             'มูลค่ารวม (฿)': (row.CurrentStock || 0) * (row.LastPrice || 0),
                             'สถานะ': isLowStock(row) ? '⚠️ ต่ำ' : '✅ ปกติ'
@@ -67,7 +67,7 @@ export const exportReport = async (req, res) => {
                         break;
                     }
                     case 'lowstock': {
-                        sheetName = '⚠️ สินค้าต่ำกว่า Min';
+                        sheetName = '⚠️ อุปกรณ์ต่ำกว่า Min';
                         const lowStockResult = await pool.request().query(`
     SELECT p.ProductID, p.ProductName, p.DeviceType,
            p.MinStock, p.MaxStock, p.CurrentStock, p.LastPrice,
@@ -92,19 +92,19 @@ export const exportReport = async (req, res) => {
     ORDER BY p.business_priority ASC, p.CurrentStock ASC
 `);
                         data = lowStockResult.recordset.filter(keepCategory).map(row => {
-                            const orderQty = (row.MaxStock || row.MinStock) - row.CurrentStock;
+                            const orderQty = reorderTarget(row.MaxStock, row.MinStock) - row.CurrentStock;
                             const estimatedCost = orderQty * (row.LastPrice || 0);
                             return {
                                 
-                                'รหัสสินค้า': row.ProductID,
-                                'ชื่อสินค้า': row.ProductName,
+                                'รหัสอุปกรณ์': row.ProductID,
+                                'ชื่ออุปกรณ์': row.ProductName,
                                 'ประเภท': row.DeviceType,
                                 'การจัดการ': MGMT_LABEL_TH[row.ManagementType] || MGMT_LABEL_TH.Rotating,
                                 'ลำดับความสำคัญ': row.priority_label,        // ✅ เพิ่ม
                                 'คงเหลือ': row.CurrentStock,
                                 'ต่ำสุด (Min)': row.MinStock,
                                 'Usage 3 เดือน (ชิ้น)': row.Usage3Months || 0,
-                                'สูงสุด (Max)': row.MaxStock || '-',
+                                'สูงสุด (Max)': row.MaxStock || 'ไม่จำกัด',
                                 'ต้องสั่งเพิ่ม': orderQty > 0 ? orderQty : 0,
                                 'ราคา/หน่วย (฿)': row.LastPrice || 0,
                                 'มูลค่าที่ต้องสั่ง (฿)': estimatedCost > 0 ? estimatedCost : 0
@@ -136,7 +136,7 @@ export const exportReport = async (req, res) => {
                             'เลขที่': row.TransID,
                             'วันที่': row.TransDate ? new Date(row.TransDate).toLocaleDateString('th-TH') : '-',
                             'เวลา': row.TransDate ? new Date(row.TransDate).toLocaleTimeString('th-TH') : '-',
-                            'ชื่อสินค้า': row.ProductName || '-',
+                            'ชื่ออุปกรณ์': row.ProductName || '-',
                             'ประเภท': row.DeviceType || '-',
                             'ประเภทรายการ': row.TransType === 'IN' ? 'รับเข้า' : row.TransType === 'OUT' ? 'เบิกออก' : row.TransType,
                             'จำนวน': row.Qty,
@@ -214,7 +214,7 @@ export const exportReport = async (req, res) => {
                         break;
                     }
                     case 'slowmoving': {
-                        sheetName = '🐢 สินค้าค้างสต็อค';
+                        sheetName = '🐢 อุปกรณ์ค้างสต็อค';
                         const slowResult = await pool.request().query(`
                         SELECT p.ProductID, p.ProductName, p.DeviceType, p.CurrentStock, p.LastPrice,
                                p.CurrentStock * ISNULL(p.LastPrice, 0) as StockValue,
@@ -231,8 +231,8 @@ export const exportReport = async (req, res) => {
                         ORDER BY p.CurrentStock * ISNULL(p.LastPrice, 0) DESC
                     `);
                         data = slowResult.recordset.filter(keepCategory).map(row => ({
-                            'รหัสสินค้า': row.ProductID,
-                            'ชื่อสินค้า': row.ProductName,
+                            'รหัสอุปกรณ์': row.ProductID,
+                            'ชื่ออุปกรณ์': row.ProductName,
                             'ประเภท': row.DeviceType || '-',
                             'คงเหลือ': row.CurrentStock,
                             'ราคา/หน่วย (฿)': row.LastPrice || 0,
@@ -242,7 +242,7 @@ export const exportReport = async (req, res) => {
                         break;
                     }
                     case 'topwithdrawn': {
-                        sheetName = '🔥 สินค้าเบิกมากสุด';
+                        sheetName = '🔥 อุปกรณ์เบิกมากสุด';
                         const topRequest = pool.request();
                         if (startDate) topRequest.input('startDate', sql.DateTime, rangeStart);
                         if (endDate) topRequest.input('endDate', sql.DateTime, rangeEnd);
@@ -263,8 +263,8 @@ export const exportReport = async (req, res) => {
                         const topResult = await topRequest.query(topQuery);
                         data = topResult.recordset.filter(keepCategory).map((row, idx) => ({
                             'อันดับ': idx + 1,
-                            'รหัสสินค้า': row.ProductID,
-                            'ชื่อสินค้า': row.ProductName,
+                            'รหัสอุปกรณ์': row.ProductID,
+                            'ชื่ออุปกรณ์': row.ProductName,
                             'ประเภท': row.DeviceType || '-',
                             'จำนวนเบิก (รวม)': row.TotalQty,
                             'จำนวนครั้ง': row.TransactionCount,
@@ -297,7 +297,7 @@ export const exportReport = async (req, res) => {
                             'ผู้เบิก': row.UserID,
                             'จำนวนเบิก (รวม)': row.TotalQty,
                             'จำนวนครั้ง': row.TransactionCount,
-                            'สินค้าที่เบิก (ชนิด)': row.UniqueProducts
+                            'อุปกรณ์ที่เบิก (ชนิด)': row.UniqueProducts
                         }));
                         break;
                     }
@@ -327,7 +327,7 @@ export const exportReport = async (req, res) => {
                             'ประเภท': row.DeviceType || 'ไม่ระบุ',
                             'จำนวนเบิก (รวม)': row.TotalQty,
                             'จำนวนครั้ง': row.TransactionCount,
-                            'สินค้าที่เบิก (ชนิด)': row.UniqueProducts,
+                            'อุปกรณ์ที่เบิก (ชนิด)': row.UniqueProducts,
                             'มูลค่าเบิก (฿)': row.TotalValue || 0
                         }));
                         break;

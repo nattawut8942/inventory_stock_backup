@@ -7,7 +7,7 @@ import HelpPopover from '../HelpPopover';
 
 // คำอธิบายว่าเก็บอะไร หน้าไหน (ต้องตรงกับ backend/src/services/auditLogService.js → TRACKED / SKIP)
 const TRACKED_GROUPS = [
-    ['Stock', 'สินค้า, หมวดอุปกรณ์, ผู้จัดหา, สถานที่, เหตุผลการเบิก, หมวดงบประมาณ'],
+    ['Stock', 'อุปกรณ์, หมวดอุปกรณ์, ผู้จัดหา, สถานที่, เหตุผลการเบิก, หมวดงบประมาณ'],
     ['MA / License', 'รายการ MA (รวมสถานะ/การต่ออายุ), ประเภท MA'],
     ['IP / อุปกรณ์', 'IP Management, PC Inventory, Monitor'],
     ['CCTV', 'กล้อง (รวมสถานะ/ตำแหน่ง), Rack, Switch, บันทึกซ่อมบำรุง, Record Server'],
@@ -44,7 +44,7 @@ const AuditLogHelp = () => (
 
 // ชื่อหน้า/ส่วนของระบบ จากส่วนแรกของ path (ที่ไม่รู้จักจะแสดงตามเดิม)
 export const MODULE_LABELS = {
-    products: 'สินค้า', types: 'หมวดอุปกรณ์', vendors: 'ผู้จัดหา', locations: 'สถานที่', reasons: 'เหตุผลการเบิก',
+    products: 'อุปกรณ์', types: 'หมวดอุปกรณ์', vendors: 'ผู้จัดหา', locations: 'สถานที่', reasons: 'เหตุผลการเบิก',
     pos: 'ใบสั่งซื้อ (PO)', 'po-attachments': 'ไฟล์แนบ PO', receive: 'รับของ', invoice: 'ใบแจ้งหนี้', 'stock-count': 'ตรวจนับสต็อก',
     budgets: 'หมวดงบประมาณ', ma: 'MA / License', 'ma-types': 'ประเภท MA', 'ink-toner': 'หมึก/โทนเนอร์',
     'pc-inventory': 'PC Inventory', 'pc-inventory-bulk': 'PC Inventory', 'pc-location': 'ตำแหน่ง PC', 'mo-inventory': 'Monitor', 'mo-location': 'ตำแหน่ง Monitor',
@@ -87,7 +87,7 @@ const changesOf = (r) => {
 };
 // ชื่อช่องที่พบบ่อยเป็นภาษาไทย (ที่เหลือแสดงชื่อคอลัมน์ตามจริง)
 const FIELD_TH = {
-    ProductName: 'ชื่อสินค้า', MinStock: 'ขั้นต่ำ', MaxStock: 'สูงสุด', CurrentStock: 'คงเหลือ', LastPrice: 'ราคาล่าสุด', Location: 'สถานที่',
+    ProductName: 'ชื่ออุปกรณ์', MinStock: 'ขั้นต่ำ', MaxStock: 'สูงสุด', CurrentStock: 'คงเหลือ', LastPrice: 'ราคาล่าสุด', Location: 'สถานที่',
     DeviceType: 'หมวด', ManagementType: 'ประเภทการจัดการ', DefaultManagementType: 'ค่าเริ่มต้นการจัดการ', IsActive: 'ใช้งาน', IsAsset: 'Asset',
     UnitOfMeasure: 'หน่วย', BarcodeID: 'บาร์โค้ด', ImageURL: 'รูป', VendorName: 'ชื่อผู้จัดหา', ContactInfo: 'ข้อมูลติดต่อ', Name: 'ชื่อ', Label: 'ชื่อ',
     TypeName: 'ชื่อประเภท', Category: 'หมวด', CategoryLabel: 'ชื่อหมวด', CategoryCode: 'รหัส', BudgetFormat: 'รูปแบบเลขงบ', Role: 'บทบาท', TypeId: 'ประเภท',

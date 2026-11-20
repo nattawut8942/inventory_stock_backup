@@ -161,7 +161,7 @@ const PurchaseRequestForm = () => {
                             {showLowStock && (
                                 <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden">
                                     <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
-                                        <span className="font-bold text-slate-800 text-sm">สินค้าต่ำกว่าจุดสั่งซื้อ</span>
+                                        <span className="font-bold text-slate-800 text-sm">อุปกรณ์ต่ำกว่าจุดสั่งซื้อ</span>
                                         <button onClick={() => setShowLowStock(false)} className="text-slate-400 hover:text-slate-600">
                                             <X size={16} />
                                         </button>
@@ -208,7 +208,7 @@ const PurchaseRequestForm = () => {
                                             })
                                         ) : (
                                             <div className="text-center p-4 text-sm text-slate-500">
-                                                ไม่มีสินค้าที่ต้องสั่งซื้อด่วน
+                                                ไม่มีอุปกรณ์ที่ต้องสั่งซื้อด่วน
                                             </div>
                                         )}
                                     </div>
@@ -284,13 +284,13 @@ const PurchaseRequestForm = () => {
                     {/* Items */}
                     <div className="space-y-3">
                         <h3 className="font-bold text-slate-700 border-b pb-2 text-sm flex justify-between">
-                            <span>2. รายการสินค้า (สูงสุด 5)</span>
+                            <span>2. รายการอุปกรณ์ (สูงสุด 5)</span>
                         </h3>
                         {form.items.map((item, index) => (
                             <div key={index} className="p-3 bg-slate-50 border border-slate-200 rounded-xl relative space-y-2">
                                 <div className="absolute top-0 right-0 bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-bl-lg font-bold">#{index + 1}</div>
 
-                                <input type="text" value={item.name} onChange={e => updateItem(index, 'name', e.target.value)} placeholder="ชื่อสินค้า (Name) พิมพ์เพื่อเช็ค DeviceType" className="w-full border rounded-lg p-2 text-sm outline-none focus:border-indigo-500 bg-white" list={`pr-products-${index}`} />
+                                <input type="text" value={item.name} onChange={e => updateItem(index, 'name', e.target.value)} placeholder="ชื่ออุปกรณ์ (Name) พิมพ์เพื่อเช็ค DeviceType" className="w-full border rounded-lg p-2 text-sm outline-none focus:border-indigo-500 bg-white" list={`pr-products-${index}`} />
                                 <datalist id={`pr-products-${index}`}>
                                     {products.map(p => <option key={p.ProductID} value={p.ProductName} />)}
                                 </datalist>
@@ -488,7 +488,7 @@ const PurchaseRequestForm = () => {
                             {/* Certificates */}
                             <div className="border-b-2 border-black flex flex-col text-[11px] h-[55px] shrink-0">
                                 <div className="px-2 py-[2px] border-b border-black text-red-600 font-bold text-[12px]">
-                                    กรณีที่ซื้อสินค้าประเภทคอมพิวเตอร์ โน้ตบุ๊ค เครื่อง Printer อุปกรณ์เครือข่าย และ CCTV ต้องตรวจสอบว่ามี Certificated หรือไม่
+                                    กรณีที่ซื้ออุปกรณ์ประเภทคอมพิวเตอร์ โน้ตบุ๊ค เครื่อง Printer อุปกรณ์เครือข่าย และ CCTV ต้องตรวจสอบว่ามี Certificated หรือไม่
                                 </div>
                                 <div className="flex w-full flex-1 items-center">
                                     <div className="flex-1 flex items-center px-2 border-r border-black h-full">
@@ -541,9 +541,9 @@ const PurchaseRequestForm = () => {
                                             <span className="mr-1">Date:</span><span className="text-blue-700">{form.prDate}</span>
                                         </td>
                                         <td rowSpan="2" className="px-2 py-0 text-[8px] leading-tight w-[48%] align-middle">
-                                            <p>Y = ซื้อสินค้าเพื่องานโปรเจ็คประเภท Construction in progress</p>
-                                            <p>N = ซื้อสินค้าที่มีมูลค่ามากกว่า 4,000 บาท และสามารถใช้งานได้ทันทีเป็น Fixed Asset</p>
-                                            <p>*** ซื้อสินค้าโดยใช้เงินลงทุนต้องใส่ Progress Bit Y/N และ Asset Place เสมอ ***</p>
+                                            <p>Y = ซื้ออุปกรณ์เพื่องานโปรเจ็คประเภท Construction in progress</p>
+                                            <p>N = ซื้ออุปกรณ์ที่มีมูลค่ามากกว่า 4,000 บาท และสามารถใช้งานได้ทันทีเป็น Fixed Asset</p>
+                                            <p>*** ซื้ออุปกรณ์โดยใช้เงินลงทุนต้องใส่ Progress Bit Y/N และ Asset Place เสมอ ***</p>
                                         </td>
                                     </tr>
                                     <tr>

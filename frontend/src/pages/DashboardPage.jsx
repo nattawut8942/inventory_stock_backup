@@ -441,7 +441,7 @@ const DashboardPage = () => {
             <div className="flex gap-2 overflow-x-auto pb-1 -mt-2 scrollbar-none">
                 {[
                     { id: 'overview', label: 'ภาพรวม', icon: Activity, tone: 'from-indigo-500 to-blue-600' },
-                    { id: 'inventory', label: 'คลังสินค้า & จัดซื้อ', icon: Package, tone: 'from-blue-500 to-cyan-500' },
+                    { id: 'inventory', label: 'คลังอุปกรณ์ & จัดซื้อ', icon: Package, tone: 'from-blue-500 to-cyan-500' },
                     { id: 'asset', label: 'ทรัพย์สิน IT', icon: Monitor, tone: 'from-emerald-500 to-teal-500' },
                     { id: 'work', label: 'งาน & คำขอ', icon: ClipboardList, tone: 'from-purple-500 to-pink-500' },
                 ].map(t => {
@@ -707,7 +707,7 @@ const DashboardPage = () => {
                     <div className="relative flex justify-between items-center mb-6">
                         <div>
                             <h3 className="text-lg font-bold text-slate-800 mb-1">มูลค่าสต็อกตามหมวดหมู่</h3>
-                            <p className="text-xs text-slate-400">เปรียบเทียบมูลค่าสินค้าคงคลังในแต่ละหมวด</p>
+                            <p className="text-xs text-slate-400">เปรียบเทียบมูลค่าอุปกรณ์คงคลังในแต่ละหมวด</p>
                         </div>
                         <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 px-4 py-2.5 rounded-xl text-right">
                             <p className="text-[10px] uppercase font-semibold text-indigo-400 tracking-wider">มูลค่ารวม</p>
@@ -895,7 +895,7 @@ const DashboardPage = () => {
                                             style={{ width: `${100 - item.orderNeedPercent}%` }}
                                         />
                                     </div>
-                                    <p className="text-[11px] text-indigo-400 font-mono whitespace-nowrap">{item.CurrentStock}/{item.MaxStock}</p>
+                                    <p className="text-[11px] text-indigo-400 font-mono whitespace-nowrap">{item.CurrentStock}/{item.MaxStock || 'ไม่จำกัด'}</p>
                                 </div>
                             </motion.div>
                         )) : (

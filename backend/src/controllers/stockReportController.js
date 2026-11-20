@@ -2,6 +2,7 @@ import { getPool, sql } from '../config/db.js';
 import {
     hasManagementColumns, managementTypeSelect, normalizeManagementType, DEFAULT_MANAGEMENT_TYPE,
     isLowStock, isReorderable, isForecastable, countsAsDeadStock, checksOverstock,
+    reorderTarget,
 } from '../lib/stockManagement.js';
 
 // ตัวกรองประเภทการจัดการ (?mgmt=Rotating|Spare|Stored) — ใช้ร่วมกันทั้งรายงานภาพรวมและรายงานวิเคราะห์
@@ -114,7 +115,7 @@ export const getStockReport = async (req, res) => {
             byType: group(rows, (r) => r.TypeLabel),
             byLocation: group(rows, (r) => r.Location),
             items: rows.sort((a, b) => b.value - a.value),
-            note: 'มูลค่าคิดจากราคาซื้อล่าสุด (LastPrice) ของแต่ละสินค้า × จำนวนคงเหลือ',
+            note: 'มูลค่าคิดจากราคาซื้อล่าสุด (LastPrice) ของแต่ละอุปกรณ์ × จำนวนคงเหลือ',
         });
     } catch (err) {
         console.error('Stock Report Error:', err);
@@ -285,7 +286,7 @@ export const getStockMovementReport = async (req, res) => {
 };
 
 // ════════════════════════════════════════════════════════════════
-// Phase 3: วิเคราะห์สินค้าและสั่งซื้อ
+// Phase 3: วิเคราะห์อุปกรณ์และสั่งซื้อ
 // ABC (มูลค่าเบิก 12 เดือน), Aging / Dead stock, Days of cover (อัตราเบิก 90 วัน),
 // Turnover ตามประเภท, รายการที่ต้องสั่งซื้อ, Overstock
 // กรอบเวลาคงที่ ไม่ขึ้นกับช่วงวันที่ ใช้ตัวกรองประเภท/สถานที่ได้
@@ -318,7 +319,7 @@ export const getStockAnalysisReport = async (req, res) => {
             LEFT JOIN dbo.Stock_Vendors v ON v.VendorID = p.VendorID
             WHERE p.IsActive = 1`);
 
-        // รวมการเบิกต่อสินค้าใน SQL (ไม่นับ ยกเลิก Invoice / Stock Count Adjust)
+        // รวมการเบิกต่ออุปกรณ์ใน SQL (ไม่นับ ยกเลิก Invoice / Stock Count Adjust)
         const usageRes = await pool.request()
             .input('d365', sql.DateTime, new Date(now - 365 * DAY))
             .input('d90', sql.DateTime, new Date(now - 90 * DAY))
@@ -448,7 +449,7 @@ export const getStockAnalysisReport = async (req, res) => {
         // ── สั่งซื้อ (คงเหลือ ≤ Min และ Min > 0; สั่งเพิ่ม = Max − คงเหลือ, ไม่มี Max ใช้ Min) ──
         // Spare part อยู่ในรายการเดียวกันแต่มี ManagementType = 'Spare' ให้หน้าจอแยกหัวข้อ "เติมของสำรอง"
         const reorderItems = rows.filter((r) => r.min > 0 && r.cur <= r.min && isReorderable(r)).map((r) => {
-            const target = r.max > 0 ? r.max : r.min;
+            const target = reorderTarget(r.max, r.min);
             const qty = Math.max(0, target - Math.max(0, r.cur));
             const daily = r.out3 / 90;
             return {
@@ -698,7 +699,7 @@ export const getStockProcurementReport = async (req, res) => {
             recent: invs.slice(0, 100).map((i) => ({ InvoiceNo: i.InvoiceNo, PO_ID: i.PO_ID, VendorName: i.VendorName || '-', ReceiveDate: i.ReceiveDate, ReceivedBy: i.ReceivedBy || '', Status: i.Status })),
         };
 
-        // ราคาต่อหน่วยเปลี่ยน: เทียบบรรทัด PO ล่าสุดกับก่อนหน้า (ต่อสินค้า) จากประวัติทั้งหมด ไม่ขึ้นกับช่วงวันที่
+        // ราคาต่อหน่วยเปลี่ยน: เทียบบรรทัด PO ล่าสุดกับก่อนหน้า (ต่ออุปกรณ์) จากประวัติทั้งหมด ไม่ขึ้นกับช่วงวันที่
         const priceRes = await pool.request().query(`
             SELECT d.ProductID, p.ProductName, p.LastPrice, d.UnitCost, po.RequestDate, po.PO_ID, po.VendorName
             FROM dbo.Stock_PODetails d
@@ -741,7 +742,7 @@ export const getStockProcurementReport = async (req, res) => {
 
 // ════════════════════════════════════════════════════════════════
 // Phase 5: การนับสต็อกและคุณภาพข้อมูล
-// ผลนับ (ตามวันที่นับ): สถานะ session, รายการที่มีส่วนต่าง, มูลค่าที่ปรับ, สินค้าที่ปรับบ่อย
+// ผลนับ (ตามวันที่นับ): สถานะ session, รายการที่มีส่วนต่าง, มูลค่าที่ปรับ, อุปกรณ์ที่ปรับบ่อย
 // คุณภาพข้อมูล (ทั้งระบบ, ไม่ขึ้นกับช่วงวันที่): ไม่มีราคา, ไม่มี Location, สต็อกติดลบ, Min > Max
 // ════════════════════════════════════════════════════════════════
 
@@ -790,7 +791,7 @@ export const getStockCountQualityReport = async (req, res) => {
         const sessionStatus = {};
         for (const s of sessions) sessionStatus[s.Status] = (sessionStatus[s.Status] || 0) + 1;
 
-        // สินค้าที่ปรับบ่อย (จำนวนครั้งที่มี diff)
+        // อุปกรณ์ที่ปรับบ่อย (จำนวนครั้งที่มี diff)
         const freq = {};
         for (const d of diffs) {
             const k = d.ProductName || `ID: ${d.ProductID}`;
@@ -804,7 +805,7 @@ export const getStockCountQualityReport = async (req, res) => {
 
         const diffItems = diffs.slice().sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
 
-        // ── คุณภาพข้อมูล (สินค้า active ทั้งหมด) ──
+        // ── คุณภาพข้อมูล (อุปกรณ์ active ทั้งหมด) ──
         const prodRes = await pool.request().query(`
             SELECT p.ProductID, p.ProductName, td.Label AS TypeLabel, p.CurrentStock, p.MinStock, p.MaxStock, p.LastPrice, p.Location
             FROM dbo.Stock_Products p
@@ -843,7 +844,7 @@ export const getStockCountQualityReport = async (req, res) => {
             frequent,
             diffItems: diffItems.slice(0, 200).map((d) => ({ ProductName: d.ProductName, TypeLabel: d.TypeLabel || '-', SystemQty: d.SystemQty, ActualQty: d.ActualQty, DiffQty: d.DiffQty, price: d.price, value: d.value, SessionCode: d.SessionCode, CountDate: d.CountDate, Status: d.Status })),
             quality,
-            note: 'มูลค่าส่วนต่างคิดจากราคาซื้อล่าสุด (LastPrice) × ส่วนต่าง • ผลนับตามวันที่นับ • คุณภาพข้อมูลนับจากสินค้าที่ยัง Active ทั้งหมด',
+            note: 'มูลค่าส่วนต่างคิดจากราคาซื้อล่าสุด (LastPrice) × ส่วนต่าง • ผลนับตามวันที่นับ • คุณภาพข้อมูลนับจากอุปกรณ์ที่ยัง Active ทั้งหมด',
         });
     } catch (err) {
         console.error('Stock Count Quality Report Error:', err);

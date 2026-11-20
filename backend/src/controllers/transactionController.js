@@ -71,7 +71,7 @@ export const getTransactions = async (req, res) => {
             query += ' AND t.TransDate < DATEADD(day, 1, CAST(@endDate AS DATE))';
         }
 
-        // ประวัติของสินค้าชิ้นเดียว (ใช้ในหน้าเบิก)
+        // ประวัติของอุปกรณ์ชิ้นเดียว (ใช้ในหน้าเบิก)
         const productId = parseInt(req.query.productId, 10);
         if (Number.isInteger(productId) && productId > 0) {
             request.input('ProductIdFilter', sql.Int, productId);

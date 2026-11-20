@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import ExcelJS from 'exceljs';
 import { sql, getPool } from '../config/db.js';
-import { hasManagementColumns, managementTypeSelect, lowStockWhere, isLowStock } from '../lib/stockManagement.js';
+import { hasManagementColumns, managementTypeSelect, lowStockWhere, isLowStock, reorderTarget } from '../lib/stockManagement.js';
 
 // ==========================================================
 // 1. ฟังก์ชันเดิม (Daily) - ห้ามปรับตารางและข้อมูลเดิม
@@ -39,7 +39,7 @@ export const sendDailyReport = async () => {
         let lowStockHtml = '';
         if (lowStockResult.recordset.length > 0) {
             const items = lowStockResult.recordset.map(item => {
-                const reorderQty = Math.max((item.MaxStock || 0) - (item.CurrentStock || 0), 0);
+                const reorderQty = Math.max(reorderTarget(item.MaxStock, item.MinStock) - (item.CurrentStock || 0), 0);
                 const price = item.LastPrice || 0;
                 const total = reorderQty * price;
                 const fmtPrice = price ? price.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-';
@@ -58,7 +58,7 @@ export const sendDailyReport = async () => {
             }).join('');
 
             const grandTotal = lowStockResult.recordset.reduce((sum, item) => {
-                const reorderQty = Math.max((item.MaxStock || 0) - (item.CurrentStock || 0), 0);
+                const reorderQty = Math.max(reorderTarget(item.MaxStock, item.MinStock) - (item.CurrentStock || 0), 0);
                 return sum + (reorderQty * (item.LastPrice || 0));
             }, 0);
 
@@ -189,7 +189,7 @@ export const sendMonthlyInventoryReport = async () => {
                 ${managementTypeSelect('', hasMgmt)},
                 (CurrentStock * LastPrice) as TotalValue,
                 CASE
-                    WHEN ${hasMgmt ? "ManagementType = 'Stored' THEN 0 WHEN " : ''}CurrentStock <= MinStock THEN (MaxStock - CurrentStock)
+                    WHEN ${hasMgmt ? "ManagementType = 'Stored' THEN 0 WHEN " : ''}CurrentStock <= MinStock THEN (CASE WHEN MaxStock > 0 THEN MaxStock ELSE MinStock * 2 END - CurrentStock)
                     ELSE 0
                 END as ToOrderQty
             FROM [dbInfrastructure].[dbo].[Stock_Products]
@@ -415,9 +415,9 @@ export const sendMonthlyInventoryReport = async () => {
                     <div style="background-color: #ffffff; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
                         <h2 style="color: #0f172a; border-bottom: 3px solid #3b82f6; padding-bottom: 12px;">📦 IT Stock Monthly Summary</h2>
  
-                        <p style="font-size: 20px; margin-bottom: 18px; margin-top: 10px;">สรุปรายการสินค้าที่ต้องสั่งซื้อและสถานะสต็อกประจำเดือน <strong>${monthName}</strong> รายละเอียดตามตารางด้านล่างนี้:</p>
+                        <p style="font-size: 20px; margin-bottom: 18px; margin-top: 10px;">สรุปรายการอุปกรณ์ที่ต้องสั่งซื้อและสถานะสต็อกประจำเดือน <strong>${monthName}</strong> รายละเอียดตามตารางด้านล่างนี้:</p>
  
-                        <h3 style="color: #dc2626; font-size: 16px; margin-bottom: 10px;">⚠️ Low Stock Alert (สินค้าที่ต้องรีบสั่งซื้อ)</h3>
+                        <h3 style="color: #dc2626; font-size: 16px; margin-bottom: 10px;">⚠️ Low Stock Alert (อุปกรณ์ที่ต้องรีบสั่งซื้อ)</h3>
                         <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 4px;">
                             <thead>
                                 <tr>
@@ -462,7 +462,7 @@ export const sendMonthlyInventoryReport = async () => {
  
                         <div style="margin-top: 20px; background: #eff6ff; padding: 12px; border-radius: 4px; border-left: 4px solid #3b82f6;">
                             <p style="margin: 0; font-size: 18px; color: #1e40af;">
-                                <strong>หมายเหตุ:</strong> ข้อมูลสต็อกทั้งหมด (รวมสินค้าที่มีสถานะปกติ) ได้ถูกแนบมาในไฟล์ Excel พร้อมรายงานฉบับนี้แล้ว
+                                <strong>หมายเหตุ:</strong> ข้อมูลสต็อกทั้งหมด (รวมอุปกรณ์ที่มีสถานะปกติ) ได้ถูกแนบมาในไฟล์ Excel พร้อมรายงานฉบับนี้แล้ว
                             </p>
                         </div>
  

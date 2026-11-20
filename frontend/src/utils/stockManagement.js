@@ -15,6 +15,9 @@ export const managementTypeOf = (p) => (byId[p?.ManagementType] ? p.ManagementTy
 export const managementTypeInfo = (idOrProduct) =>
   byId[typeof idOrProduct === 'string' ? idOrProduct : managementTypeOf(idOrProduct)] || byId[DEFAULT_MANAGEMENT_TYPE];
 
+// เป้าหมายสต็อกสำหรับคำนวณจำนวนสั่ง: มี Max ใช้ Max · ไม่จำกัด (Max = 0) ใช้ Min × 2
+export const reorderTarget = (max, min) => (Number(max) > 0 ? Number(max) : (Number(min) || 0) * 2);
+
 export const isStored = (p) => managementTypeOf(p) === 'Stored';
 export const isSpare = (p) => managementTypeOf(p) === 'Spare';
 

@@ -150,10 +150,10 @@ export default function StockMovementView({ type, location }) {
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.monthly.map((m) => ({ 'เดือน': m.label, 'รับเข้า (ชิ้น)': m.inQty, 'เบิกออก (ชิ้น)': m.outQty, 'รับเข้า (฿)': m.inValue, 'เบิกออก (฿)': m.outValue }))), 'รายเดือน');
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.outByReason.map((r) => ({ 'เหตุผลการเบิก': r.key, 'ชิ้น': r.qty, 'ครั้ง': r.count, 'มูลค่า (฿)': r.value }))), 'เหตุผลการเบิก');
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.topItems.map((r) => ({ 'สินค้า': r.key, 'ประเภท': r.TypeLabel, 'ชิ้น': r.qty, 'ครั้ง': r.count, 'มูลค่า (฿)': r.value }))), 'Top สินค้าที่เบิก');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.topItems.map((r) => ({ 'อุปกรณ์': r.key, 'ประเภท': r.TypeLabel, 'ชิ้น': r.qty, 'ครั้ง': r.count, 'มูลค่า (฿)': r.value }))), 'Top อุปกรณ์ที่เบิก');
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.topRecipients.map((r) => ({ 'ผู้เบิก/ผู้ทำรายการ': r.key, 'ชิ้น': r.qty, 'ครั้ง': r.count, 'มูลค่า (฿)': r.value }))), 'Top ผู้เบิก');
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map((t) => ({
-            'วันที่': fmtDT(t.TransDate), 'ประเภท': t.type === 'IN' ? 'รับเข้า' : 'เบิกออก', 'สินค้า': t.ProductName, 'หมวด': t.TypeLabel, 'สถานที่': t.Location,
+            'วันที่': fmtDT(t.TransDate), 'ประเภท': t.type === 'IN' ? 'รับเข้า' : 'เบิกออก', 'อุปกรณ์': t.ProductName, 'หมวด': t.TypeLabel, 'สถานที่': t.Location,
             'จำนวน': t.qty, 'มูลค่า (฿)': t.value, 'เหตุผล/แหล่งที่มา': t.reason, 'ผู้เบิก/ผู้รับ': t.who, 'ผู้ทำรายการ': t.byUser, 'Cost Center': t.CostCenter, 'อ้างอิง': t.RefInfo,
         }))), 'รายการเคลื่อนไหว');
         XLSX.writeFile(wb, `Stock_Movement_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -238,7 +238,7 @@ export default function StockMovementView({ type, location }) {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                     <RankList title="เหตุผลการเบิก" hint="ตามจำนวนชิ้นที่เบิกออก" rows={data.outByReason} sub={(r) => `${r.count} ครั้ง`} />
                     <RankList title="แหล่งที่มาของการรับเข้า" hint="Invoice/PO, Manual Import, คืนของ" rows={data.inBySource} sub={(r) => `${r.count} ครั้ง`} />
-                    <RankList title="Top สินค้าที่เบิกบ่อย" hint="10 อันดับแรกตามจำนวนชิ้น" rows={data.topItems} sub={(r) => `${r.TypeLabel} • ${r.count} ครั้ง`} />
+                    <RankList title="Top อุปกรณ์ที่เบิกบ่อย" hint="10 อันดับแรกตามจำนวนชิ้น" rows={data.topItems} sub={(r) => `${r.TypeLabel} • ${r.count} ครั้ง`} />
                     <RankList title="Top ผู้เบิก" hint="ชื่อพนักงานที่รับของ (ถ้าไม่ระบุ ใช้ผู้ทำรายการแทน)" rows={data.topRecipients} sub={(r) => `${r.count} ครั้ง`} />
                 </div>
             )}
@@ -257,7 +257,7 @@ export default function StockMovementView({ type, location }) {
                         </div>
                         <div className="relative">
                             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหาสินค้า / ผู้เบิก / เหตุผล"
+                            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหาอุปกรณ์ / ผู้เบิก / เหตุผล"
                                 className="h-10 pl-9 pr-3 rounded-xl border border-slate-200 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                         </div>
                     </div>
@@ -265,7 +265,7 @@ export default function StockMovementView({ type, location }) {
                         <table className="w-full text-sm">
                             <thead className="bg-slate-50 text-slate-600 text-xs">
                                 <tr>
-                                    {['วันที่', 'ประเภท', 'สินค้า', 'จำนวน', 'มูลค่า', 'เหตุผล/แหล่งที่มา', 'ผู้เบิก/ผู้รับ', 'Cost Center'].map((h, i) => (
+                                    {['วันที่', 'ประเภท', 'อุปกรณ์', 'จำนวน', 'มูลค่า', 'เหตุผล/แหล่งที่มา', 'ผู้เบิก/ผู้รับ', 'Cost Center'].map((h, i) => (
                                         <th key={h} className={`px-3 py-2.5 font-bold ${i === 3 || i === 4 ? 'text-right' : 'text-left'}`}>{h}</th>
                                     ))}
                                 </tr>

@@ -41,7 +41,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
     });
     // ✅ เพิ่ม BG_No ใน default item
     const [poItems, setPoItems] = useState([{ ProductID: null, ItemName: '', QtyOrdered: 1, UnitCost: 0, BG_No: '' }]);
-    const itemsLocked = isEditMode && !!initialData && !["Open", "Pending"].includes(initialData.Status); // ใบที่รับของแล้วล็อกรายการสินค้า
+    const itemsLocked = isEditMode && !!initialData && !["Open", "Pending"].includes(initialData.Status); // ใบที่รับของแล้วล็อกรายการอุปกรณ์
     const [selectedVendor, setSelectedVendor] = useState({ VendorID: null, VendorName: '' });
 
     const sectionRef = useRef(null);
@@ -811,7 +811,7 @@ const POFormModal = ({ isOpen, onClose, initialData, isEditMode, products, devic
                                             <Plus size={14} /> เพิ่มรายการ
                                         </button>
                                     </div>
-                                    {itemsLocked && <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">PO นี้รับของไปแล้ว แก้ไขได้เฉพาะหัวใบ และ BG No. ของแต่ละรายการ (ชื่อสินค้า จำนวน ราคา ถูกล็อก)</div>}
+                                    {itemsLocked && <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">PO นี้รับของไปแล้ว แก้ไขได้เฉพาะหัวใบ และ BG No. ของแต่ละรายการ (ชื่ออุปกรณ์ จำนวน ราคา ถูกล็อก)</div>}
                                     <div className="contents">
                                     {/* ✅ Header row เพิ่ม BG No. */}
                                     <div className="hidden sm:flex gap-2 items-center px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">

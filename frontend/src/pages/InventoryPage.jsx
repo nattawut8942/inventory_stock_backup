@@ -791,7 +791,9 @@ const handleFileUpload = async (file) => {
     const payload = Object.fromEntries(fd);
     payload.ImageURL = imageUrl;
     payload.MinStock = parseInt(payload.MinStock, 10) || 0;
+    // 0 = ไม่จำกัด (ช่องถูกปิดเมื่อติ๊ก "ไม่จำกัด" จึงไม่ถูกส่งมา)
     payload.MaxStock = parseInt(payload.MaxStock, 10) || 0;
+    delete payload.UnlimitedMax;
     // 1: คงเหลือแก้จากหน้านี้ไม่ได้ (ปรับยอดผ่านการนับ/เบิก/รับเข้า) จึงส่งค่าเดิมกลับไป
     payload.CurrentStock = editItem.CurrentStock;
     payload.LastPrice = parseFloat(payload.LastPrice) || 0;
@@ -847,7 +849,7 @@ const handleFileUpload = async (file) => {
     }
   };
 
-  // ─── Fly-to-cart: รูปสินค้าบินจากจุดที่กดไปยังปุ่มตะกร้า แล้ว badge เด้ง ───
+  // ─── Fly-to-cart: รูปอุปกรณ์บินจากจุดที่กดไปยังปุ่มตะกร้า แล้ว badge เด้ง ───
   const cartBtnRef = useRef(null);
   const [cartBump, setCartBump] = useState(0);
   const flyToCart = (srcRect, product) => {
@@ -898,7 +900,7 @@ const handleFileUpload = async (file) => {
 
   const bulkAddToCart = () => {
     const picked = products.filter(p => selectedIds.includes(p.ProductID));
-    // Asset ต้องกรอก S/N ทีละชิ้น และสินค้าหมดสต็อกเพิ่มไม่ได้ จึงข้ามไป
+    // Asset ต้องกรอก S/N ทีละชิ้น และอุปกรณ์หมดสต็อกเพิ่มไม่ได้ จึงข้ามไป
     const addable = picked.filter(p => p.DeviceType !== 'Asset' && p.CurrentStock > 0 && !isInCart(p.ProductID));
     const skipped = picked.length - addable.length;
     const newItems = addable.map(p => {
@@ -964,7 +966,7 @@ const handleFileUpload = async (file) => {
       <div className="flex items-center justify-between gap-3">
         <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
           <button onClick={() => setActiveTab('inventory')} className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${activeTab === 'inventory' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'}`}>
-            <Package size={18} /> คลังสินค้า
+            <Package size={18} /> คลังอุปกรณ์
           </button>
           <button onClick={() => setActiveTab('stockcount')} className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${activeTab === 'stockcount' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50'}`}>
             <ClipboardList size={18} /> ตรวจนับสต็อก
@@ -1287,7 +1289,7 @@ const handleFileUpload = async (file) => {
                           </div>
                           <div className="w-full flex justify-between text-[9px] text-slate-400 mb-2 tabular-nums">
                             <span>ขั้นต่ำ {p.MinStock}</span>
-                            <span>สูงสุด {p.MaxStock || '—'}</span>
+                            <span>สูงสุด {p.MaxStock || 'ไม่จำกัด'}</span>
                           </div>
                           <div className="w-full flex items-center gap-1.5 text-[10px] text-slate-500 mb-2 min-w-0">
                             <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-px rounded shrink-0 text-white" style={{ backgroundColor: getChartColor(p.DeviceType) }}>{p.DeviceType}</span>
@@ -1413,7 +1415,7 @@ const handleFileUpload = async (file) => {
 
         {/* HISTORY MODAL */}
         {historyItem && (() => {
-          // ใช้ยอดล่าสุดจากรายการสินค้า (ไม่ใช้ค่าที่เก็บตอนเปิดหน้าต่าง)
+          // ใช้ยอดล่าสุดจากรายการอุปกรณ์ (ไม่ใช้ค่าที่เก็บตอนเปิดหน้าต่าง)
           const historyStock = products.find(p => p.ProductID === historyItem.ProductID)?.CurrentStock ?? historyItem.CurrentStock;
           return (
           <Portal>
@@ -1549,9 +1551,9 @@ const handleFileUpload = async (file) => {
                 </div>
                 <form onSubmit={handleUpdate}>
                   <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* ซ้าย: ข้อมูลสินค้า */}
+                    {/* ซ้าย: ข้อมูลอุปกรณ์ */}
                     <section className="space-y-3">
-                      <h4 className="text-[11px] font-bold uppercase tracking-widest text-indigo-500">ข้อมูลสินค้า</h4>
+                      <h4 className="text-[11px] font-bold uppercase tracking-widest text-indigo-500">ข้อมูลอุปกรณ์</h4>
                       <Field label="ชื่ออุปกรณ์"><input name="ProductName" defaultValue={editItem.ProductName} required className={inlineCls} /></Field>
                       <div className="grid grid-cols-2 gap-3">
                         <Field label="หมวดหมู่">
@@ -1612,8 +1614,13 @@ const handleFileUpload = async (file) => {
                         <div className="flex items-center gap-2">
                           <input name="MinStock" type="number" defaultValue={editItem.MinStock} className={`${inlineCls} font-mono flex-1`} />
                           <span className="text-slate-300 text-[13px] shrink-0">—</span>
-                          <input name="MaxStock" type="number" defaultValue={editItem.MaxStock || 0} className={`${inlineCls} font-mono flex-1`} />
+                          <input name="MaxStock" type="number" min={0} defaultValue={editItem.MaxStock || 0} disabled={!editItem.MaxStock} className={`${inlineCls} font-mono flex-1 disabled:bg-slate-100 disabled:text-slate-400`} placeholder="ไม่จำกัด" />
                         </div>
+                        <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer select-none">
+                          <input type="checkbox" name="UnlimitedMax" defaultChecked={!editItem.MaxStock} className="accent-indigo-600"
+                            onChange={(e) => { const inp = e.target.form?.elements.namedItem('MaxStock'); if (!inp) return; inp.disabled = e.target.checked; if (e.target.checked) inp.value = ''; else if (!inp.value) inp.value = '1'; }} />
+                          ไม่จำกัดสูงสุด (ไม่เตือนสต็อกเกิน และไม่กำหนดจำนวนสั่งสูงสุด)
+                        </label>
                       </Field>
                       <Field label="Vendor">
                         <select name="VendorID" defaultValue={editItem.VendorID || ''} className={inlineCls}>
@@ -1726,7 +1733,7 @@ const handleFileUpload = async (file) => {
                   {[
                     { label: 'คงเหลือ', value: detailItem.CurrentStock, color: isLowStock(detailItem) ? 'text-red-500' : 'text-emerald-600' },
                     { label: 'ขั้นต่ำ', value: detailItem.MinStock, color: 'text-slate-700' },
-                    { label: 'สูงสุด', value: detailItem.MaxStock || '—', color: 'text-slate-700' },
+                    { label: 'สูงสุด', value: detailItem.MaxStock || 'ไม่จำกัด', color: 'text-slate-700' },
                     { label: 'ราคา/หน่วย', value: `฿${detailItem.LastPrice?.toLocaleString() ?? '—'}`, color: 'text-slate-700', sm: true },
                   ].map(({ label, value, color, sm }) => (
                     <div key={label} className="bg-slate-50 rounded-xl p-2.5 text-center">
@@ -1738,12 +1745,12 @@ const handleFileUpload = async (file) => {
 
                 {/* ── Detail: 2 คอลัมน์ ── */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4">
-                  {/* ซ้าย: ข้อมูลสินค้า */}
+                  {/* ซ้าย: ข้อมูลอุปกรณ์ */}
                   <section className="rounded-2xl border border-slate-100 bg-white p-4">
-                    <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-indigo-500">ข้อมูลสินค้า</h3>
+                    <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-indigo-500">ข้อมูลอุปกรณ์</h3>
                     <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
                       {[
-                        { label: 'ชื่อสินค้า', value: detailItem.ProductName, span: true },
+                        { label: 'ชื่ออุปกรณ์', value: detailItem.ProductName, span: true },
                         { label: 'หมวดหมู่', value: detailItem.DeviceType },
                         { label: 'การจัดการ', value: managementTypeInfo(detailItem).label },
                         { label: 'หน่วยนับ', value: detailItem.UnitOfMeasure || '—' },
@@ -1904,7 +1911,7 @@ const handleFileUpload = async (file) => {
                               </div>
                               <div className="mt-1.5 flex justify-between text-[10px] text-slate-400">
                                 <span>ขั้นต่ำ {min}</span>
-                                <span>สูงสุด {Number(qtyModal.product.MaxStock) || '-'}</span>
+                                <span>สูงสุด {Number(qtyModal.product.MaxStock) || 'ไม่จำกัด'}</span>
                               </div>
                               <p className="mt-2 text-[11px] text-slate-500">หลังเบิก <b className="text-slate-800">{Math.max(0, cur - selectQty)}</b> ชิ้น</p>
                             </>
@@ -2174,7 +2181,7 @@ const handleFileUpload = async (file) => {
                       <div className="flex flex-col items-center justify-center h-full text-center px-6 text-slate-400">
                         <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-300 flex items-center justify-center mb-3"><ShoppingCart size={30} /></div>
                         <p className="font-bold text-slate-600">ยังไม่มีรายการในตะกร้า</p>
-                        <p className="text-xs mt-1">กดปุ่ม <span className="font-bold text-indigo-500">ใส่ตะกร้า</span> ที่สินค้าที่ต้องการ หรือเลือกหลายรายการในหน้ารายการ</p>
+                        <p className="text-xs mt-1">กดปุ่ม <span className="font-bold text-indigo-500">ใส่ตะกร้า</span> ที่อุปกรณ์ที่ต้องการ หรือเลือกหลายรายการในหน้ารายการ</p>
                       </div>
                     ) : cart.map(item => (
                       <div key={item.ProductID} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative group">
@@ -2263,7 +2270,7 @@ const handleFileUpload = async (file) => {
                               <span className="text-[10px] font-bold text-white px-2 py-0.5 rounded-full shadow-sm" style={{ backgroundColor: getChartColor(scanModal.foundProduct.DeviceType) }}>{scanModal.foundProduct.DeviceType}</span>
                               <p className="text-slate-500 font-mono text-xs">{scanModal.foundProduct.ProductID}</p>
                             </div>
-                            <p className="mt-2 text-sm font-bold text-emerald-600 flex items-center gap-1"><Check size={14} /> พบสินค้าแล้ว (คงเหลือ: {scanModal.foundProduct.CurrentStock})</p>
+                            <p className="mt-2 text-sm font-bold text-emerald-600 flex items-center gap-1"><Check size={14} /> พบอุปกรณ์แล้ว (คงเหลือ: {scanModal.foundProduct.CurrentStock})</p>
                           </div>
                         </div>
                       </div>

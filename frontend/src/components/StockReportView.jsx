@@ -154,11 +154,11 @@ export default function StockReportView() {
         if (!data) return;
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map((r) => ({
-            'สินค้า': r.ProductName, 'ประเภท': r.TypeLabel, 'สถานที่': r.Location,
+            'อุปกรณ์': r.ProductName, 'ประเภท': r.TypeLabel, 'สถานที่': r.Location,
             'คงเหลือ': r.CurrentStock, 'หน่วย': r.UnitOfMeasure, 'Min': r.MinStock, 'Max': r.MaxStock,
             'ราคาล่าสุด (฿)': r.LastPrice, 'มูลค่า (฿)': r.value,
             'สถานะ': STATUS[r.status].label, 'ไม่มีราคา': r.noPrice ? 'Y' : '',
-        }))), 'รายการสินค้า');
+        }))), 'รายการอุปกรณ์');
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.byType.map((g) => ({ 'ประเภท': g.key, 'รายการ': g.items, 'จำนวนชิ้น': g.qty, 'มูลค่า (฿)': g.value }))), 'มูลค่าตามประเภท');
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.byLocation.map((g) => ({ 'สถานที่': g.key, 'รายการ': g.items, 'จำนวนชิ้น': g.qty, 'มูลค่า (฿)': g.value }))), 'มูลค่าตามสถานที่');
         XLSX.writeFile(wb, `Stock_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -219,7 +219,7 @@ export default function StockReportView() {
             {/* ── KPI ── */}
             {k && (
                 <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                    <Kpi icon={Boxes} label="รายการสินค้า" value={k.items.toLocaleString()} tone="indigo" />
+                    <Kpi icon={Boxes} label="รายการอุปกรณ์" value={k.items.toLocaleString()} tone="indigo" />
                     <Kpi icon={Layers} label="จำนวนชิ้นรวม" value={k.totalQty.toLocaleString()} tone="slate" />
                     <Kpi icon={Wallet} label="มูลค่ารวม" value={baht(k.totalValue)} sub="ราคาล่าสุด × คงเหลือ" tone="emerald" />
                     <Kpi icon={AlertTriangle} label="ต่ำกว่า Min" value={k.low.toLocaleString()} sub={`หมดสต็อก ${k.out} • ติดลบ ${k.negative}`} tone="orange" />
@@ -235,17 +235,17 @@ export default function StockReportView() {
                 </div>
             )}
 
-            {/* ── ตารางสินค้า ── */}
+            {/* ── ตารางอุปกรณ์ ── */}
             {data && (
                 <Card>
                     <div className="flex flex-wrap items-center gap-3 mb-4">
                         <div className="mr-auto">
-                            <h3 className="font-bold text-slate-800">รายการสินค้าทั้งหมด</h3>
+                            <h3 className="font-bold text-slate-800">รายการอุปกรณ์ทั้งหมด</h3>
                             <p className="text-xs text-slate-500">แสดง {rows.length.toLocaleString()} จาก {data.items.length.toLocaleString()} รายการ</p>
                         </div>
                         <div className="relative">
                             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหาสินค้า / ประเภท / สถานที่"
+                            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหาอุปกรณ์ / ประเภท / สถานที่"
                                 className="h-10 pl-9 pr-3 rounded-xl border border-slate-200 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                         </div>
                     </div>
@@ -261,7 +261,7 @@ export default function StockReportView() {
                         <table className="w-full text-sm">
                             <thead className="bg-slate-50 text-slate-600 text-xs">
                                 <tr>
-                                    <Th k="ProductName">สินค้า</Th>
+                                    <Th k="ProductName">อุปกรณ์</Th>
                                     <Th k="TypeLabel">ประเภท</Th>
                                     <Th k="Location">สถานที่</Th>
                                     <Th k="CurrentStock" right>คงเหลือ</Th>
@@ -280,7 +280,7 @@ export default function StockReportView() {
                                         <td className="px-3 py-2 text-slate-600">{r.Location}</td>
                                         <td className="px-3 py-2 text-right tabular-nums font-bold">{r.CurrentStock.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">{r.UnitOfMeasure}</span></td>
                                         <td className="px-3 py-2 text-right tabular-nums text-slate-500">{r.MinStock || '-'}</td>
-                                        <td className="px-3 py-2 text-right tabular-nums text-slate-500">{r.MaxStock || '-'}</td>
+                                        <td className="px-3 py-2 text-right tabular-nums text-slate-500">{r.MaxStock || 'ไม่จำกัด'}</td>
                                         <td className="px-3 py-2 text-right tabular-nums">{r.noPrice ? <span className="text-red-500 text-xs font-bold">ไม่มีราคา</span> : baht(r.LastPrice)}</td>
                                         <td className="px-3 py-2 text-right tabular-nums font-bold">{baht(r.value)}</td>
                                         <td className="px-3 py-2">

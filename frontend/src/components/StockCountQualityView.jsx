@@ -113,9 +113,9 @@ export default function StockCountQualityView() {
         const wb = XLSX.utils.book_new();
         const add = (name, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'หมายเหตุ': 'ไม่มีข้อมูล' }]), name);
         add('Session', data.sessions.map((s) => ({ 'รหัส': s.SessionCode, 'วันที่นับ': fmtDT(s.CountDate), 'ผู้ยืนยัน': s.ConfirmedBy, 'รายการที่นับ': s.TotalItems, 'มีส่วนต่าง': s.DiffItems, 'สถานะ': SESSION_STATUS[s.Status]?.label || s.Status, 'หมายเหตุ': s.Note })));
-        add('ส่วนต่าง', data.diffItems.map((d) => ({ 'สินค้า': d.ProductName, 'ประเภท': d.TypeLabel, 'ระบบ': d.SystemQty, 'นับจริง': d.ActualQty, 'ส่วนต่าง': d.DiffQty, 'ราคา (฿)': d.price, 'มูลค่า (฿)': d.value, 'Session': d.SessionCode, 'วันที่นับ': fmtDT(d.CountDate), 'สถานะ': SESSION_STATUS[d.Status]?.label || d.Status })));
-        add('สินค้าที่ปรับบ่อย', data.frequent.map((f) => ({ 'สินค้า': f.key, 'ประเภท': f.TypeLabel, 'จำนวนครั้ง': f.count, 'ส่วนต่างสุทธิ (ชิ้น)': f.netQty, 'มูลค่าสุทธิ (฿)': f.netValue })));
-        QUALITY_TABS.forEach((t) => add(`คุณภาพ-${t.label}`, data.quality[t.id].items.map((p) => ({ 'สินค้า': p.ProductName, 'ประเภท': p.TypeLabel, 'คงเหลือ': p.CurrentStock, 'Min': p.MinStock, 'Max': p.MaxStock, 'ราคา (฿)': p.LastPrice, 'Location': p.Location }))));
+        add('ส่วนต่าง', data.diffItems.map((d) => ({ 'อุปกรณ์': d.ProductName, 'ประเภท': d.TypeLabel, 'ระบบ': d.SystemQty, 'นับจริง': d.ActualQty, 'ส่วนต่าง': d.DiffQty, 'ราคา (฿)': d.price, 'มูลค่า (฿)': d.value, 'Session': d.SessionCode, 'วันที่นับ': fmtDT(d.CountDate), 'สถานะ': SESSION_STATUS[d.Status]?.label || d.Status })));
+        add('อุปกรณ์ที่ปรับบ่อย', data.frequent.map((f) => ({ 'อุปกรณ์': f.key, 'ประเภท': f.TypeLabel, 'จำนวนครั้ง': f.count, 'ส่วนต่างสุทธิ (ชิ้น)': f.netQty, 'มูลค่าสุทธิ (฿)': f.netValue })));
+        QUALITY_TABS.forEach((t) => add(`คุณภาพ-${t.label}`, data.quality[t.id].items.map((p) => ({ 'อุปกรณ์': p.ProductName, 'ประเภท': p.TypeLabel, 'คงเหลือ': p.CurrentStock, 'Min': p.MinStock, 'Max': p.MaxStock, 'ราคา (฿)': p.LastPrice, 'Location': p.Location }))));
         XLSX.writeFile(wb, `Stock_Count_Quality_${new Date().toISOString().slice(0, 10)}.xlsx`);
     };
 
@@ -164,10 +164,10 @@ export default function StockCountQualityView() {
                     </Card>
 
                     <Card>
-                        <Title title="สินค้าที่ปรับบ่อย" hint="จำนวน session ที่มีส่วนต่าง (ตามช่วงวันที่)" />
+                        <Title title="อุปกรณ์ที่ปรับบ่อย" hint="จำนวน session ที่มีส่วนต่าง (ตามช่วงวันที่)" />
                         <Table limit={8} rows={data.frequent} rowKey={(f) => f.key} empty="ไม่มีส่วนต่างในช่วงนี้"
                             columns={[
-                                { h: 'สินค้า', cell: (f) => f.key, cls: 'font-medium text-slate-800 max-w-[220px] truncate' },
+                                { h: 'อุปกรณ์', cell: (f) => f.key, cls: 'font-medium text-slate-800 max-w-[220px] truncate' },
                                 { h: 'ครั้ง', right: true, cell: (f) => <b>{f.count}</b> },
                                 { h: 'ส่วนต่างสุทธิ', right: true, cell: (f) => <span className={f.netQty >= 0 ? 'text-emerald-600' : 'text-red-600'}>{f.netQty > 0 ? '+' : ''}{f.netQty}</span> },
                                 { h: 'มูลค่าสุทธิ', right: true, cell: (f) => baht(f.netValue), cls: 'text-slate-600' },
@@ -179,7 +179,7 @@ export default function StockCountQualityView() {
                     <Title title="รายการส่วนต่างจากการนับ" hint="เรียงตามมูลค่าส่วนต่างสูงสุด (รวม session ยืนยันแล้วที่ยังไม่ปรับ)" />
                     <Table limit={10} rows={data.diffItems} rowKey={(d) => `${d.SessionCode}-${d.ProductName}`} empty="ไม่มีส่วนต่าง"
                         columns={[
-                            { h: 'สินค้า', cell: (d) => d.ProductName, cls: 'font-medium text-slate-800 max-w-[240px] truncate' },
+                            { h: 'อุปกรณ์', cell: (d) => d.ProductName, cls: 'font-medium text-slate-800 max-w-[240px] truncate' },
                             { h: 'ระบบ', right: true, cell: (d) => d.SystemQty },
                             { h: 'นับจริง', right: true, cell: (d) => d.ActualQty },
                             { h: 'ส่วนต่าง', right: true, cell: (d) => <b className={d.DiffQty > 0 ? 'text-emerald-600' : 'text-red-600'}>{d.DiffQty > 0 ? '+' : ''}{d.DiffQty}</b> },
@@ -191,7 +191,7 @@ export default function StockCountQualityView() {
 
                 {q && (
                     <Card>
-                        <Title title="คุณภาพข้อมูลสินค้า" hint={`ทั้งระบบ ${q.total} รายการ (Active) • มีปัญหาอย่างน้อยหนึ่งข้อ ${q.issueItems} รายการ`} />
+                        <Title title="คุณภาพข้อมูลอุปกรณ์" hint={`ทั้งระบบ ${q.total} รายการ (Active) • มีปัญหาอย่างน้อยหนึ่งข้อ ${q.issueItems} รายการ`} />
                         <div className="flex flex-wrap gap-2 mb-4">
                             {QUALITY_TABS.map((t) => {
                                 const Icon = t.icon;
@@ -208,11 +208,11 @@ export default function StockCountQualityView() {
                         <p className="text-xs text-slate-500 mb-3">{activeQ.hint}</p>
                         <Table limit={10} rows={q[qTab].items} rowKey={(p) => p.ProductID} empty="ไม่พบปัญหาในหัวข้อนี้ ✓"
                             columns={[
-                                { h: 'สินค้า', cell: (p) => p.ProductName, cls: 'font-medium text-slate-800 max-w-[260px] truncate' },
+                                { h: 'อุปกรณ์', cell: (p) => p.ProductName, cls: 'font-medium text-slate-800 max-w-[260px] truncate' },
                                 { h: 'ประเภท', cell: (p) => p.TypeLabel, cls: 'text-slate-600' },
                                 { h: 'Location', cell: (p) => <span className={p.Location === 'ไม่ระบุ' ? 'text-red-500 font-bold' : 'text-slate-600'}>{p.Location}</span> },
                                 { h: 'คงเหลือ', right: true, cell: (p) => <span className={p.CurrentStock < 0 ? 'text-red-600 font-bold' : ''}>{p.CurrentStock}</span> },
-                                { h: 'Min/Max', right: true, cell: (p) => `${p.MinStock}/${p.MaxStock || '-'}`, cls: 'text-slate-500' },
+                                { h: 'Min/Max', right: true, cell: (p) => `${p.MinStock}/${p.MaxStock || 'ไม่จำกัด'}`, cls: 'text-slate-500' },
                                 { h: 'ราคา', right: true, cell: (p) => (p.LastPrice > 0 ? baht(p.LastPrice) : <span className="text-red-500 font-bold">ไม่มี</span>) },
                             ]} />
                     </Card>

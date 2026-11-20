@@ -1,6 +1,6 @@
 import { sql, getPool } from '../config/db.js';
 import { isDbAdmin } from '../middleware/permissionMiddleware.js';
-import { hasManagementColumns, managementTypeSelect, normalizeManagementType } from '../lib/stockManagement.js';
+import { hasManagementColumns, managementTypeSelect, normalizeManagementType, reorderTarget } from '../lib/stockManagement.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -197,7 +197,7 @@ export const manualImport = async (req, res) => {
     const userId = typeof UserID === 'string' && UserID.trim() ? UserID.trim().toUpperCase() : null;
     const now = getThaiDate();
 
-    // ประเภทการจัดการ (ไม่บังคับ): ไม่ส่ง = สินค้าใหม่ใช้ค่าเริ่มต้นของหมวด, สินค้าเดิมคงค่าเดิม
+    // ประเภทการจัดการ (ไม่บังคับ): ไม่ส่ง = อุปกรณ์ใหม่ใช้ค่าเริ่มต้นของหมวด, อุปกรณ์เดิมคงค่าเดิม
     const mgmtInput = isBlank(body.ManagementType) ? null : normalizeManagementType(body.ManagementType);
     if (!isBlank(body.ManagementType) && !mgmtInput) return res.status(400).json({ error: 'ประเภทการจัดการไม่ถูกต้อง' });
     const hasMgmt = await hasManagementColumns(getPool());
@@ -577,8 +577,8 @@ export const createDeviceType = async (req, res) => {
 };
 
 // UPDATE Device Type
-// DefaultManagementType: ค่าเริ่มต้นของสินค้าใหม่ในหมวด
-// ApplyToProducts = true: เปลี่ยนสินค้าที่มีอยู่ในหมวดนี้ทั้งหมดเป็นค่าเดียวกันด้วย (ใช้ตอนจัดประเภทครั้งแรก)
+// DefaultManagementType: ค่าเริ่มต้นของอุปกรณ์ใหม่ในหมวด
+// ApplyToProducts = true: เปลี่ยนอุปกรณ์ที่มีอยู่ในหมวดนี้ทั้งหมดเป็นค่าเดียวกันด้วย (ใช้ตอนจัดประเภทครั้งแรก)
 export const updateDeviceType = async (req, res) => {
     const { id } = req.params;
     const { Label, DefaultManagementType, ApplyToProducts } = req.body;
@@ -671,7 +671,7 @@ export const getForecast = async (req, res) => {
 
         const items = result.recordset.map(item => {
             const leadTime = item.lead_time_days || 7;
-            const orderQty = Math.max(0, (item.MaxStock || 0) - item.CurrentStock);
+            const orderQty = Math.max(0, reorderTarget(item.MaxStock, item.MinStock) - item.CurrentStock);
             const estimatedCost = orderQty * (item.LastPrice || 0);
             return { ...item, lead_time_days: leadTime, OrderQty: orderQty, EstimatedCost: estimatedCost };
         });
@@ -713,7 +713,7 @@ export const adjustProductStock = async (req, res) => {
     const reason = String(req.body?.Reason || '').trim();
     const note = String(req.body?.Note || '').trim();
     const userId = String(req.body?.UserID || '').trim().toUpperCase() || 'UNKNOWN';
-    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'รหัสสินค้าไม่ถูกต้อง' });
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'รหัสอุปกรณ์ไม่ถูกต้อง' });
     if (!Number.isInteger(newQty) || newQty < 0) return res.status(400).json({ error: 'จำนวนคงเหลือต้องเป็นจำนวนเต็ม 0 ขึ้นไป' });
     if (!reason) return res.status(400).json({ error: 'กรุณาเลือกเหตุผลการปรับยอด' });
     if (!note) return res.status(400).json({ error: 'กรุณาใส่รายละเอียดการปรับยอด' });
@@ -725,7 +725,7 @@ export const adjustProductStock = async (req, res) => {
         await tx.begin();
         const cur = await tx.request().input('id', sql.Int, id)
             .query(`SELECT CurrentStock FROM dbo.Stock_Products WITH (UPDLOCK, ROWLOCK) WHERE ProductID = @id`);
-        if (!cur.recordset.length) { await tx.rollback(); return res.status(404).json({ error: 'ไม่พบสินค้า' }); }
+        if (!cur.recordset.length) { await tx.rollback(); return res.status(404).json({ error: 'ไม่พบอุปกรณ์' }); }
         const before = Number(cur.recordset[0].CurrentStock) || 0;
         const diff = newQty - before;
         if (diff === 0) { await tx.rollback(); return res.status(400).json({ error: 'จำนวนเท่าเดิม ไม่มีการเปลี่ยนแปลง' }); }

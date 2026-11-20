@@ -56,7 +56,7 @@ export const getNavCounts = async (req, res) => {
               AND EndDate IS NOT NULL
               AND DATEDIFF(day, CAST(GETDATE() AS DATE), CAST(EndDate AS DATE)) BETWEEN 1 AND 60`)),
 
-        // สินค้าที่ของใกล้หมด (CurrentStock ≤ MinStock, ไม่รวมของเก็บในคลัง) — กฎกลางใน lib/stockManagement.js
+        // อุปกรณ์ที่ของใกล้หมด (CurrentStock ≤ MinStock, ไม่รวมของเก็บในคลัง) — กฎกลางใน lib/stockManagement.js
         countOrNull(async () => scalar(db(), `
             SELECT COUNT(*) AS cnt FROM dbo.Stock_Products
             WHERE IsActive = 1 AND ${lowStockWhere('', await hasManagementColumns(db()))}`)),

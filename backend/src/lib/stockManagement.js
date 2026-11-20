@@ -21,6 +21,8 @@ export const isLowStock = (p) => {
     return min > 0 && (Number(p?.CurrentStock) || 0) <= min && mgmtOf(p) !== 'Stored';
 };
 export const isReorderable = (p) => mgmtOf(p) !== 'Stored';          // รายการสั่งซื้อ (Rotating + Spare)
+// เป้าหมายสต็อกสำหรับคำนวณจำนวนสั่ง: มี Max ใช้ Max · ไม่จำกัด (Max = 0) ใช้ Min × 2
+export const reorderTarget = (max, min) => (Number(max) > 0 ? Number(max) : (Number(min) || 0) * 2);
 export const isForecastable = (p) => mgmtOf(p) === 'Rotating';      // คาดการณ์ / ROP / ประเมินการเติม / Days of cover
 export const countsAsDeadStock = (p) => mgmtOf(p) === 'Rotating';   // ของสำรอง/ของเก็บ ไม่เบิกเป็นเรื่องปกติ
 export const checksOverstock = (p) => mgmtOf(p) !== 'Stored';
@@ -51,7 +53,7 @@ const col = (alias, name) => (alias ? `${alias}.${name}` : name);
 export const managementTypeSelect = (alias, has) =>
     has ? `${col(alias, 'ManagementType')} AS ManagementType` : `'${DEFAULT_MANAGEMENT_TYPE}' AS ManagementType`;
 
-// ใช้หลัง INSERT สินค้าใหม่ที่ไม่ได้ระบุ ManagementType (เช่น สร้างอัตโนมัติจาก PO) ให้ได้ค่าเริ่มต้นของหมวด
+// ใช้หลัง INSERT อุปกรณ์ใหม่ที่ไม่ได้ระบุ ManagementType (เช่น สร้างอัตโนมัติจาก PO) ให้ได้ค่าเริ่มต้นของหมวด
 // idExpr: SQL expression ของ ProductID ใหม่ เช่น 'SCOPE_IDENTITY()' (ต้องอยู่ batch เดียวกับ INSERT)
 export const applyTypeDefaultSql = (idExpr, has) => (has ? `
     UPDATE p SET ManagementType = ISNULL(t.DefaultManagementType, '${DEFAULT_MANAGEMENT_TYPE}')

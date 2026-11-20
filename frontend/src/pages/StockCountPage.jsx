@@ -14,7 +14,7 @@ import { API_BASE, API_URL } from '../config/api';
 
 // ── ตรวจนับสต็อก ──────────────────────────────────────────────────────
 // 3 มุมมอง: รายการรอบนับ (list) → นับสต็อก (count, มีขั้นตอน) → รายงานรอบนับ (report)
-const STEPS = ['เริ่มรอบ', 'เพิ่มสินค้า', 'กรอกจำนวนนับ', 'ตรวจสอบ', 'ยืนยัน'];
+const STEPS = ['เริ่มรอบ', 'เพิ่มอุปกรณ์', 'กรอกจำนวนนับ', 'ตรวจสอบ', 'ยืนยัน'];
 
 const fmtDate = (d) => (d ? new Date(d).toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-');
 const diffOf = (item) => (item.ActualQty === null || item.ActualQty === undefined ? null : item.ActualQty - item.SystemQty);
@@ -342,7 +342,7 @@ const StockCountPage = () => {
         } catch { /* ไม่มีข้อมูลก็แสดงแบบไม่มีเวลา */ }
     };
 
-    // การเคลื่อนไหวของสินค้า ตั้งแต่รอบนับก่อน (หรือ 90 วันก่อนนับ) ถึงวันนี้
+    // การเคลื่อนไหวของอุปกรณ์ ตั้งแต่รอบนับก่อน (หรือ 90 วันก่อนนับ) ถึงวันนี้
     const openMoves = async (item) => {
         setMoveItem(item);
         setMoveData({ loading: true, rows: [], error: '' });
@@ -412,7 +412,7 @@ const StockCountPage = () => {
         });
     };
 
-    // ── เพิ่มสินค้า ──
+    // ── เพิ่มอุปกรณ์ ──
     const handleSearchInput = (value) => {
         setScanInput(value);
         if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
@@ -583,7 +583,7 @@ const StockCountPage = () => {
         };
     }, [countingList]);
 
-    // ขั้นปัจจุบันของการนับ (0 เริ่มรอบ, 1 เพิ่มสินค้า, 2 กรอกจำนวน, 3 ตรวจสอบ)
+    // ขั้นปัจจุบันของการนับ (0 เริ่มรอบ, 1 เพิ่มอุปกรณ์, 2 กรอกจำนวน, 3 ตรวจสอบ)
     const currentStep = !activeSession ? 0 : countingList.length === 0 ? 1 : counts.uncounted > 0 ? 2 : 3;
 
     // ── ยืนยันรอบนับ ──
@@ -595,7 +595,7 @@ const StockCountPage = () => {
         if (Object.values(saveState).includes('error')) {
             return showAlert('error', 'บันทึกไม่สำเร็จ', 'มีรายการที่บันทึกไม่สำเร็จ กรุณากรอกจำนวนนับใหม่ก่อนยืนยัน');
         }
-        if (countingList.length === 0) return showAlert('error', 'ไม่มีรายการ', 'กรุณาเพิ่มสินค้าก่อนยืนยัน');
+        if (countingList.length === 0) return showAlert('error', 'ไม่มีรายการ', 'กรุณาเพิ่มอุปกรณ์ก่อนยืนยัน');
         if (counts.uncounted > 0) return showAlert('error', 'กรอกไม่ครบ', `ยังไม่ได้กรอกจำนวนนับ ${counts.uncounted} รายการ`);
         setReviewChecked(false);
         setConfirmReview(true);
@@ -716,7 +716,7 @@ const StockCountPage = () => {
         const counted = countingList.filter(isCounted).length;
         return { total, counted, remaining: Math.max(0, total - counted) };
     }, [activeProducts, countingList]);
-    // สินค้าที่ยังไม่ได้เพิ่มเข้ารอบ (เรียงตามสถานที่)
+    // อุปกรณ์ที่ยังไม่ได้เพิ่มเข้ารอบ (เรียงตามสถานที่)
     const uncountedProducts = useMemo(() => {
         const inList = new Set(countingList.map(i => i.ProductID));
         return activeProducts.filter(p => !inList.has(p.ProductID));
@@ -726,7 +726,7 @@ const StockCountPage = () => {
         .reduce((s, i) => s + diffOf(i) * priceOf(i), 0), [countingList, productById]);
 
     // ── มือถือ: แท็บ "ต้องนับ" / "นับแล้ว" ──
-    // ต้องนับ = รายการในรอบที่ยังไม่กรอก + สินค้าที่ยังไม่ได้เพิ่มเข้ารอบ (เรียงตามสถานที่ → ชื่อ) — นับแล้วจะหายไป รายการจึงสั้นลงเรื่อยๆ
+    // ต้องนับ = รายการในรอบที่ยังไม่กรอก + อุปกรณ์ที่ยังไม่ได้เพิ่มเข้ารอบ (เรียงตามสถานที่ → ชื่อ) — นับแล้วจะหายไป รายการจึงสั้นลงเรื่อยๆ
     const byLocName = (a, b) => String(a.loc || '').localeCompare(String(b.loc || ''), 'th') || String(a.name).localeCompare(String(b.name), 'th');
     const mMatch = (name, loc) => {
         const q = mSearch.trim().toLowerCase();
@@ -801,7 +801,7 @@ const StockCountPage = () => {
         if (!report) return;
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(report.items.map(i => ({
-            'สินค้า': i.ProductName, 'ประเภท': i.DeviceType || '', 'สถานที่': i.Location || '', 'หน่วย': i.UnitOfMeasure || 'Pcs',
+            'อุปกรณ์': i.ProductName, 'ประเภท': i.DeviceType || '', 'สถานที่': i.Location || '', 'หน่วย': i.UnitOfMeasure || 'Pcs',
             'ในระบบ': i.SystemQty, 'นับได้': i.ActualQty ?? '', 'ส่วนต่าง': diffOf(i) ?? '',
         }))), 'รายการนับ');
         XLSX.writeFile(wb, `${report.session.SessionCode}.xlsx`);
@@ -929,7 +929,7 @@ const StockCountPage = () => {
                         {uncountedProducts.length > 0 && (
                             <div className="px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex gap-2">
                                 <AlertCircle size={16} className="shrink-0 mt-px" />
-                                <span>ยังมีสินค้า <b>{uncountedProducts.length}</b> รายการที่ไม่ได้อยู่ในรอบนี้ — จะไม่ถูกนับ/ไม่ถูกปรับยอด ถ้าตั้งใจนับทั้งคลังให้กลับไปนับให้ครบก่อน</span>
+                                <span>ยังมีอุปกรณ์ <b>{uncountedProducts.length}</b> รายการที่ไม่ได้อยู่ในรอบนี้ — จะไม่ถูกนับ/ไม่ถูกปรับยอด ถ้าตั้งใจนับทั้งคลังให้กลับไปนับให้ครบก่อน</span>
                             </div>
                         )}
                         {bigCount > 0 && (
@@ -1076,7 +1076,7 @@ const StockCountPage = () => {
         );
     };
 
-    // สินค้าที่ยังไม่ได้เพิ่มเข้ารอบ (กดเพื่อเพิ่ม)
+    // อุปกรณ์ที่ยังไม่ได้เพิ่มเข้ารอบ (กดเพื่อเพิ่ม)
     const renderUncounted = () => {
         const q = uncountedQ.trim().toLowerCase();
         const list = q ? uncountedProducts.filter(p => String(p.ProductName).toLowerCase().includes(q) || String(p.Location || '').toLowerCase().includes(q)) : uncountedProducts;
@@ -1150,10 +1150,10 @@ const StockCountPage = () => {
             <Card className="p-4 hidden sm:block"><Stepper current={currentStep} /></Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                {/* ซ้าย: เพิ่มสินค้า + ความคืบหน้า */}
+                {/* ซ้าย: เพิ่มอุปกรณ์ + ความคืบหน้า */}
                 <div className="space-y-4">
                     <Card className="p-4 space-y-3">
-                        <div className="flex items-center gap-2 text-sm font-bold text-slate-700"><ScanLine size={16} className="text-indigo-500" />ขั้นที่ 2: เพิ่มสินค้า</div>
+                        <div className="flex items-center gap-2 text-sm font-bold text-slate-700"><ScanLine size={16} className="text-indigo-500" />ขั้นที่ 2: เพิ่มอุปกรณ์</div>
                         <div ref={dropdownRef} className="relative">
                             <form onSubmit={handleScanSubmit}>
                                 <div className="relative">
@@ -1226,14 +1226,14 @@ const StockCountPage = () => {
                             <div className="py-16 text-center text-slate-400">
                                 <ScanLine className="mx-auto mb-3 text-slate-200" size={44} />
                                 <p className="font-medium">ยังไม่มีรายการนับ</p>
-                                <p className="text-xs mt-1">สแกนหรือค้นหาสินค้า<span className="hidden lg:inline">ด้านซ้าย</span><span className="lg:hidden">ด้านบน หรือเลือกจาก "ยังไม่ได้นับในระบบ"</span> เพื่อเริ่มนับ</p>
+                                <p className="text-xs mt-1">สแกนหรือค้นหาอุปกรณ์<span className="hidden lg:inline">ด้านซ้าย</span><span className="lg:hidden">ด้านบน หรือเลือกจาก "ยังไม่ได้นับในระบบ"</span> เพื่อเริ่มนับ</p>
                             </div>
                         ) : (<>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
                                     <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                                         <tr>
-                                            <th className="px-4 py-2.5 text-left">สินค้า</th>
+                                            <th className="px-4 py-2.5 text-left">อุปกรณ์</th>
                                             <th className="px-3 py-2.5 text-right">ในระบบ</th>
                                             <th className="px-3 py-2.5 text-center">นับได้</th>
                                             <th className="px-3 py-2.5 text-center">ส่วนต่าง</th>
@@ -1291,7 +1291,7 @@ const StockCountPage = () => {
                         <div className="flex-1 text-sm">
                             <div className="font-bold text-slate-700 flex items-center gap-2"><CheckCircle2 size={16} className="text-indigo-500" />ขั้นที่ 4–5: ตรวจสอบและยืนยัน</div>
                             <div className="text-xs text-slate-500 mt-0.5">
-                                {counts.total === 0 ? 'เพิ่มสินค้าก่อน' : counts.uncounted > 0 ? `ยังเหลืออีก ${counts.uncounted} รายการที่ต้องกรอกจำนวนนับ` : `พร้อมยืนยัน · มีส่วนต่าง ${counts.diff} รายการ`}
+                                {counts.total === 0 ? 'เพิ่มอุปกรณ์ก่อน' : counts.uncounted > 0 ? `ยังเหลืออีก ${counts.uncounted} รายการที่ต้องกรอกจำนวนนับ` : `พร้อมยืนยัน · มีส่วนต่าง ${counts.diff} รายการ`}
                             </div>
                         </div>
                         <button onClick={handleConfirm} disabled={!activeSession || isConfirming || !canCountSC || counts.total === 0}
@@ -1394,7 +1394,7 @@ const StockCountPage = () => {
             ];
             XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'สรุป');
             const rowOf = (i) => ({
-                'สินค้า': i.ProductName, 'ประเภท': typeOf(i), 'สถานที่': locOf(i), 'หน่วย': i.UnitOfMeasure || 'Pcs',
+                'อุปกรณ์': i.ProductName, 'ประเภท': typeOf(i), 'สถานที่': locOf(i), 'หน่วย': i.UnitOfMeasure || 'Pcs',
                 'ในระบบ': i.SystemQty, 'นับได้': i.ActualQty ?? '', 'ส่วนต่าง': diffOf(i) ?? '',
                 'ราคาล่าสุด': priceOf(i), 'มูลค่าส่วนต่าง (บาท)': Math.round(valOf(i)),
             });
@@ -1652,7 +1652,7 @@ const StockCountPage = () => {
                         <table className="w-full text-sm">
                             <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
                                 <tr>
-                                    <SortTh k="name" label="สินค้า" />
+                                    <SortTh k="name" label="อุปกรณ์" />
                                     <SortTh k="loc" label="สถานที่" />
                                     <SortTh k="sys" label="ในระบบ" right />
                                     <SortTh k="act" label="นับได้" right />
@@ -1724,7 +1724,7 @@ const StockCountPage = () => {
                     )}
                     <table>
                         <thead>
-                            <tr><th>#</th><th>สินค้า</th><th>สถานที่</th><th style={{ textAlign: 'right' }}>ในระบบ</th><th style={{ textAlign: 'right' }}>นับได้</th><th style={{ textAlign: 'right' }}>ส่วนต่าง</th><th style={{ textAlign: 'right' }}>มูลค่า ฿</th></tr>
+                            <tr><th>#</th><th>อุปกรณ์</th><th>สถานที่</th><th style={{ textAlign: 'right' }}>ในระบบ</th><th style={{ textAlign: 'right' }}>นับได้</th><th style={{ textAlign: 'right' }}>ส่วนต่าง</th><th style={{ textAlign: 'right' }}>มูลค่า ฿</th></tr>
                         </thead>
                         <tbody>
                             {sorted.map((i, idx) => {
@@ -1750,7 +1750,7 @@ const StockCountPage = () => {
                     </div>
                 </div></Portal>
 
-                {/* การเคลื่อนไหวของสินค้า */}
+                {/* การเคลื่อนไหวของอุปกรณ์ */}
                 {moveItem && (() => {
                     const cd = new Date(s.CountDate);
                     const rows = [...moveData.rows].sort((a, b) => new Date(a.TransDate) - new Date(b.TransDate));
@@ -1773,7 +1773,7 @@ const StockCountPage = () => {
                     return (
                         <Portal>
                             <div className="no-print fixed inset-0 z-[9980] bg-slate-900/50 flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto" onMouseDown={e => { if (e.target === e.currentTarget) setMoveItem(null); }}>
-                                <div role="dialog" aria-label="การเคลื่อนไหวของสินค้า" className="bg-white rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl">
+                                <div role="dialog" aria-label="การเคลื่อนไหวของอุปกรณ์" className="bg-white rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl">
                                     <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-start gap-3">
                                         <Thumb src={moveItem.ImageURL || productById.get(moveItem.ProductID)?.ImageURL} size={44} />
                                         <div className="min-w-0 flex-1">
@@ -1843,7 +1843,7 @@ const StockCountPage = () => {
                                 {adjustRows.length === 0 ? <p className="text-sm text-slate-400 py-6 text-center">ไม่มีรายการที่ต้องปรับ</p> : (
                                     <table className="hidden sm:table w-full text-sm">
                                         <thead className="sticky top-0 bg-white text-[11px] uppercase text-slate-500">
-                                            <tr><th className="text-left py-2">สินค้า</th><th className="text-right">ยอดเดิม</th><th className="text-right">ยอดใหม่</th><th className="text-right">เปลี่ยน</th><th className="text-right">มูลค่า ฿</th></tr>
+                                            <tr><th className="text-left py-2">อุปกรณ์</th><th className="text-right">ยอดเดิม</th><th className="text-right">ยอดใหม่</th><th className="text-right">เปลี่ยน</th><th className="text-right">มูลค่า ฿</th></tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
                                             {adjustRows.map(i => (
@@ -1912,7 +1912,7 @@ const StockCountPage = () => {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                     <thead>
                         <tr>
-                            {['ลำดับ', 'สถานที่', 'สินค้า', 'ในระบบ', 'นับได้', 'หมายเหตุ'].map(h => (
+                            {['ลำดับ', 'สถานที่', 'อุปกรณ์', 'ในระบบ', 'นับได้', 'หมายเหตุ'].map(h => (
                                 <th key={h} style={{ border: '1px solid #999', padding: 4, background: '#eee', textAlign: 'left' }}>{h}</th>
                             ))}
                         </tr>

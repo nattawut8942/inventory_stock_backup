@@ -75,7 +75,7 @@ const QUICK_RANGES = [
 const HistoryPage = () => {
     const [filter, setFilter] = useState('ALL'); // ALL, IN, OUT
     const [usage, setUsage] = useState('ALL'); // ALL, INTERNAL (ใช้ในแผนกไอที), USER (ผู้ใช้ทั่วไป)
-    // รับคำค้นจากลิงก์ เช่น /history?q=ชื่อสินค้า (ใช้จากหน้าตรวจนับ)
+    // รับคำค้นจากลิงก์ เช่น /history?q=ชื่ออุปกรณ์ (ใช้จากหน้าตรวจนับ)
     const [urlParams] = useSearchParams();
     const [searchTerm, setSearchTerm] = useState(() => urlParams.get('q') || '');
     const [currentPage, setCurrentPage] = useState(1);
@@ -365,7 +365,7 @@ const HistoryPage = () => {
                 <SummaryCard icon={ClipboardList} label="จำนวนรายการ" value={summary.count.toLocaleString()} tone="slate" />
                 <SummaryCard icon={TrendingUp} label="รับเข้ารวม (ชิ้น)" value={`+${summary.inQty.toLocaleString()}`} tone="emerald" />
                 <SummaryCard icon={TrendingDown} label="เบิกออกรวม (ชิ้น)" value={`-${summary.outQty.toLocaleString()}`} tone="red" />
-                <SummaryCard icon={Package} label="จำนวนสินค้า" value={summary.products.toLocaleString()} tone="indigo" />
+                <SummaryCard icon={Package} label="จำนวนอุปกรณ์" value={summary.products.toLocaleString()} tone="indigo" />
             </div>
 
             {/* Date range: quick chips + custom */}

@@ -119,7 +119,7 @@ export default function StockProcurementView({ endpoint = '/stock/report/procure
         add('BG', data.byBudget.map((v) => ({ 'BG No.': v.key, 'PO': v.count, 'ยอดสั่งซื้อ (฿)': v.ordered, 'ยอดรับแล้ว (฿)': v.received })));
         add('PO ค้างรับ', data.openPOs.map((p) => ({ 'PO': p.PO_ID, 'PR': p.PR_No, 'Vendor': p.VendorName, 'สถานะ': STATUS[p.Status]?.label || p.Status, 'วันขอซื้อ': fmtDate(p.RequestDate), 'กำหนดส่ง': fmtDate(p.DueDate), 'อายุ (วัน)': p.ageDays, 'เลยกำหนด': p.overdue ? 'Y' : '', 'ค้างรับ (฿)': p.outstanding })));
         add('Invoice', data.invoices.recent.map((i) => ({ 'Invoice': i.InvoiceNo, 'PO': i.PO_ID, 'Vendor': i.VendorName, 'วันที่รับ': fmtDate(i.ReceiveDate), 'ผู้รับ': i.ReceivedBy, 'สถานะ': i.Status })));
-        add('ราคาเปลี่ยน', data.priceChanges.map((p) => ({ 'สินค้า': p.ProductName, 'Vendor': p.VendorName, 'ราคาก่อน (฿)': p.previous, 'ราคาล่าสุด (฿)': p.latest, 'ต่าง (฿)': p.diff, 'ต่าง (%)': p.pct, 'PO ก่อนหน้า': fmtDate(p.previousDate), 'PO ล่าสุด': fmtDate(p.latestDate) })));
+        add('ราคาเปลี่ยน', data.priceChanges.map((p) => ({ 'อุปกรณ์': p.ProductName, 'Vendor': p.VendorName, 'ราคาก่อน (฿)': p.previous, 'ราคาล่าสุด (฿)': p.latest, 'ต่าง (฿)': p.diff, 'ต่าง (%)': p.pct, 'PO ก่อนหน้า': fmtDate(p.previousDate), 'PO ล่าสุด': fmtDate(p.latestDate) })));
         XLSX.writeFile(wb, `Stock_Procurement_${new Date().toISOString().slice(0, 10)}.xlsx`);
     };
 
@@ -221,10 +221,10 @@ export default function StockProcurementView({ endpoint = '/stock/report/procure
                             ]} />
                     </Card>
                     <Card>
-                        <Title title="ราคาต่อหน่วยที่เปลี่ยน" hint={`เทียบ PO ล่าสุดกับ PO ก่อนหน้าที่ราคาต่างกัน • ${data.priceChangeTotal} สินค้า (ไม่ขึ้นกับช่วงวันที่)`} />
+                        <Title title="ราคาต่อหน่วยที่เปลี่ยน" hint={`เทียบ PO ล่าสุดกับ PO ก่อนหน้าที่ราคาต่างกัน • ${data.priceChangeTotal} อุปกรณ์ (ไม่ขึ้นกับช่วงวันที่)`} />
                         <Table limit={8} rows={data.priceChanges} rowKey={(r) => r.ProductID} empty="ไม่มีราคาที่เปลี่ยน"
                             columns={[
-                                { h: 'สินค้า', cell: (r) => r.ProductName, cls: 'font-medium text-slate-800 max-w-[200px] truncate' },
+                                { h: 'อุปกรณ์', cell: (r) => r.ProductName, cls: 'font-medium text-slate-800 max-w-[200px] truncate' },
                                 { h: 'ก่อน', right: true, cell: (r) => baht(r.previous), cls: 'text-slate-500' },
                                 { h: 'ล่าสุด', right: true, cell: (r) => baht(r.latest), cls: 'font-bold' },
                                 { h: 'เปลี่ยน', right: true, cell: (r) => (

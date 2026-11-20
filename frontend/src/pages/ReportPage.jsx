@@ -272,7 +272,7 @@ const ReportPage = () => {
     const openDrill = (d) => { setDrill(d); window.scrollTo({ top: 0, behavior: 'smooth' }); };
     const [listQuery, setListQuery] = useState({});
     const [listSort, setListSort] = useState({});
-    // ค้นหาสินค้าจาก ProductID แบบ O(1) แทนการ .find() ซ้ำในทุกรอบ render
+    // ค้นหาอุปกรณ์จาก ProductID แบบ O(1) แทนการ .find() ซ้ำในทุกรอบ render
     const productById = useMemo(
         () => Object.fromEntries((products || []).map(p => [p.ProductID, p])),
         [products]
@@ -895,7 +895,7 @@ const ReportPage = () => {
                 : value(b) - value(a));
     }, [slowMovingItems, listQuery, listSort]);
 
-    // ─── Stock: สินค้าต้องสั่ง / สต็อกผิดปกติ / ราคาไม่มี / มูลค่าตามสถานที่ / Turnover / แนวโน้ม ───
+    // ─── Stock: อุปกรณ์ต้องสั่ง / สต็อกผิดปกติ / ราคาไม่มี / มูลค่าตามสถานที่ / Turnover / แนวโน้ม ───
     const reorderList = useMemo(() => (products || [])
         .filter(p => p.IsActive !== false && isLowStock(p))
         .map(p => {
@@ -1015,14 +1015,14 @@ const ReportPage = () => {
         const orphanTx = (transactions || []).filter(t => t.ProductID != null && !productById[t.ProductID]).length;
 
         return [
-            { key: 'dup', label: 'สินค้าชื่อซ้ำ (ไม่สนตัวพิมพ์)', count: dupGroups.length, hint: `${dupGroups.reduce((s, g) => s + g.length, 0)} รายการที่เกี่ยวข้อง`, tab: 'stock' },
+            { key: 'dup', label: 'อุปกรณ์ชื่อซ้ำ (ไม่สนตัวพิมพ์)', count: dupGroups.length, hint: `${dupGroups.reduce((s, g) => s + g.length, 0)} รายการที่เกี่ยวข้อง`, tab: 'stock' },
             { key: 'user', label: 'ชื่อผู้ใช้ตัวพิมพ์ไม่ตรงกัน', count: mixedUsers, hint: 'ควรเก็บเป็นรูปแบบเดียว', tab: 'usage' },
             { key: 'budget', label: 'PO ไม่มีเลขงบประมาณ', count: noBudgetPO, hint: `จาก ${(purchaseOrders || []).length} PO`, tab: 'procurement' },
             { key: 'ma', label: 'สัญญา MA ไม่มีวันหมดอายุ', count: noEndMA, hint: 'ไม่นับในการแจ้งเตือนและพยากรณ์', tab: 'procurement' },
-            { key: 'type', label: 'สินค้าไม่มีประเภท', count: noDeviceType, hint: 'กระทบการกรองตามหมวดหมู่', tab: 'stock' },
-            { key: 'noprice', label: 'สินค้าที่ไม่มีราคา (LastPrice)', count: noPriceCount, hint: 'มูลค่าสต็อกและการเบิกถูกนับเป็น 0', tab: 'stock' },
+            { key: 'type', label: 'อุปกรณ์ไม่มีประเภท', count: noDeviceType, hint: 'กระทบการกรองตามหมวดหมู่', tab: 'stock' },
+            { key: 'noprice', label: 'อุปกรณ์ที่ไม่มีราคา (LastPrice)', count: noPriceCount, hint: 'มูลค่าสต็อกและการเบิกถูกนับเป็น 0', tab: 'stock' },
             { key: 'anomaly', label: 'สต็อกติดลบหรือเกิน MaxStock', count: stockAnomalies.length, hint: 'ตรวจสอบการปรับยอดสต็อก', tab: 'stock' },
-            { key: 'orphan', label: 'Transaction ที่หาสินค้าไม่พบ', count: orphanTx, hint: 'ProductID ไม่มีในตารางสินค้า', tab: 'overview' },
+            { key: 'orphan', label: 'Transaction ที่หาอุปกรณ์ไม่พบ', count: orphanTx, hint: 'ProductID ไม่มีในตารางอุปกรณ์', tab: 'overview' },
         ].filter(i => i.count > 0);
     }, [products, transactions, purchaseOrders, maItems, productById]);
 
@@ -1363,7 +1363,7 @@ const ReportPage = () => {
                     <div className="flex items-start justify-between gap-3 mb-3">
                         <div className="min-w-0">
                             <h3 className="font-bold text-slate-800 text-sm truncate">
-                                {drill.type === 'product' ? '📦 ประวัติสินค้า' : '👤 ประวัติผู้ใช้'}: {drill.label}
+                                {drill.type === 'product' ? '📦 ประวัติอุปกรณ์' : '👤 ประวัติผู้ใช้'}: {drill.label}
                             </h3>
                             <p className="text-[10px] text-slate-400">แสดง 50 รายการล่าสุด ไม่ขึ้นกับตัวกรองด้านบน</p>
                         </div>
@@ -2005,7 +2005,7 @@ const ReportPage = () => {
                                 <tr>
                                     <th className="py-2 px-3 w-8"></th>
                                     <th className="text-left py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">Priority</th>
-                                    <th className="text-left py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">ชื่อสินค้า</th>
+                                    <th className="text-left py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">ชื่ออุปกรณ์</th>
                                     <th className="text-center py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">ประเภท</th>
                                     <th className="text-center py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">คงเหลือ</th>
                                     <th className="text-center py-2 px-3 text-slate-500 font-bold text-[10px] uppercase">Min</th>
@@ -2570,11 +2570,11 @@ const ReportPage = () => {
                 </div>
             )}
             {activeTab === 'stock' && (<>
-            {/* ═══ สินค้าที่ต้องสั่งซื้อ ═══ */}
+            {/* ═══ อุปกรณ์ที่ต้องสั่งซื้อ ═══ */}
             <div className="bg-white rounded-2xl p-6 shadow-lg border border-slate-200">
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <div>
-                        <h3 className="font-bold text-slate-800">🛒 สินค้าที่ต้องสั่งซื้อ (ต่ำกว่า Min Stock)</h3>
+                        <h3 className="font-bold text-slate-800">🛒 อุปกรณ์ที่ต้องสั่งซื้อ (ต่ำกว่า Min Stock)</h3>
                         <p className="text-xs text-slate-500">{reorderList.length} รายการ • มูลค่าประมาณการ ฿{Math.round(reorderList.reduce((s, r) => s + r.estCost, 0)).toLocaleString()} • สั่งเพิ่ม = MaxStock − คงเหลือ (ไม่มี MaxStock ใช้ MinStock)</p>
                     </div>
                     <CsvBtn onClick={() => downloadCsv('reorder-list.csv', reorderList.map(r => ({ อุปกรณ์: r.ProductName, ประเภท: r.DeviceType, คงเหลือ: r.CurrentStock, Min: r.MinStock, สั่งเพิ่ม: r.suggestQty, มูลค่าประมาณการ: Math.round(r.estCost) })))} />
@@ -2605,7 +2605,7 @@ const ReportPage = () => {
                         </table>
                     </div>
                 ) : (
-                    <p className="text-sm text-slate-400 text-center py-6">ไม่มีสินค้าต่ำกว่า Min Stock 👍</p>
+                    <p className="text-sm text-slate-400 text-center py-6">ไม่มีอุปกรณ์ต่ำกว่า Min Stock 👍</p>
                 )}
                 <ToggleAllButton total={reorderList.length} limit={10} expanded={!!expandedLists.reorder} onToggle={() => toggleList('reorder')} />
             </div>
@@ -2615,7 +2615,7 @@ const ReportPage = () => {
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <div>
                         <h3 className="font-bold text-slate-800">⚠️ สต็อกผิดปกติ</h3>
-                        <p className="text-xs text-slate-500">ติดลบหรือเกิน MaxStock {stockAnomalies.length} รายการ • สินค้าไม่มีราคา {noPriceCount} รายการ (มูลค่าจะนับเป็น 0)</p>
+                        <p className="text-xs text-slate-500">ติดลบหรือเกิน MaxStock {stockAnomalies.length} รายการ • อุปกรณ์ไม่มีราคา {noPriceCount} รายการ (มูลค่าจะนับเป็น 0)</p>
                     </div>
                     <CsvBtn onClick={() => downloadCsv('stock-anomalies.csv', stockAnomalies.map(a => ({ อุปกรณ์: a.ProductName, คงเหลือ: a.CurrentStock, MaxStock: a.MaxStock, ปัญหา: a.issue })))} />
                 </div>
@@ -2655,7 +2655,7 @@ const ReportPage = () => {
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                         <div>
                             <h3 className="font-bold text-slate-800">📍 มูลค่าสต็อกตามสถานที่</h3>
-                            <p className="text-xs text-slate-500">คงเหลือ × LastPrice ของสินค้าที่ยัง active</p>
+                            <p className="text-xs text-slate-500">คงเหลือ × LastPrice ของอุปกรณ์ที่ยัง active</p>
                         </div>
                         <CsvBtn onClick={() => downloadCsv('stock-value-by-location.csv', locationValue.map(r => ({ สถานที่: r.location, รายการ: r.items, จำนวนชิ้น: r.qty, มูลค่า: Math.round(r.value) })))} />
                     </div>
