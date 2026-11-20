@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { X, Download, Bell, Loader2, Printer, PackageOpen, ArrowLeftRight, Clock, AlertTriangle, Timer, CalendarClock, CheckCircle2 } from 'lucide-react';
 import { API_BASE } from '../../config/api';
+import Portal from '../Portal';
 
 // ── รายงานยืม-คืน ─────────────────────────────────────────────────────
 // ข้อมูลคำนวณฝั่ง backend (GET /borrowings/report?from&to)
@@ -173,7 +174,7 @@ export default function BorrowReportPanel({ onClose, headers, inline = false }) 
   const statusCounts = k ? { open: k.open - k.repairing, returned: k.returned, repairing: k.repairing, damaged: k.damaged, lost: k.lost } : null;
   const statusTotal = statusCounts ? Object.values(statusCounts).reduce((a, b) => a + b, 0) : 0;
 
-  return (
+  const body = (
     <div className={inline ? '' : 'fixed inset-0 z-[60] bg-slate-100 overflow-y-auto'}>
       <style>{`
         @media print {
@@ -360,4 +361,6 @@ export default function BorrowReportPanel({ onClose, headers, inline = false }) 
       </div>
     </div>
   );
+  // แบบเต็มจอ: วางที่ body เพื่อให้คลุมทั้งหน้าจอ (ไม่ถูกกล่องเนื้อหา/แถบหัวบัง)
+  return inline ? body : <Portal>{body}</Portal>;
 }

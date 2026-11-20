@@ -6,6 +6,7 @@ import { useCan, useCanAct } from '../context/PermissionContext';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config/api';
 import BorrowReportPanel from '../components/borrow/BorrowReportPanel';
+import Portal from '../components/Portal';
 
 // ✅ JWT จาก AuthContext — backend ของ Borrowing ใช้ verifyToken ทุก endpoint จึงต้องแนบทุกครั้ง
 const authHeaders = (extra = {}) => {
@@ -1056,7 +1057,7 @@ const ITBorrowSystem = () => {
       )}
 
       {showModal && (
-        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+        <Portal><div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
               <h3 className="text-lg font-black text-slate-800">บันทึกการยืมอุปกรณ์</h3>
@@ -1429,11 +1430,11 @@ const ITBorrowSystem = () => {
               </div>
             </form>
           </div>
-        </div>
+        </div></Portal>
       )}
 
       {detailItem && (
-        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+        <Portal><div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden rounded-t-2xl">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
@@ -1594,11 +1595,11 @@ const ITBorrowSystem = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div></Portal>
       )}
 
       {confirmReturnItem && (
-        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+        <Portal><div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
             <div className="w-12 h-12 mx-auto rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4">
               <ArrowLeftRight size={22} />
@@ -1642,11 +1643,11 @@ const ITBorrowSystem = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div></Portal>
       )}
 
       {editItem && editForm && (
-        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+        <Portal><div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
               <h3 className="text-lg font-black text-slate-800">แก้ไขข้อมูลการยืม</h3>
@@ -1852,11 +1853,11 @@ const ITBorrowSystem = () => {
               </div>
             </form>
           </div>
-        </div>
+        </div></Portal>
       )}
 
       {extendItem && (
-        <div
+        <Portal><div
           className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50"
           onClick={closeExtend}
         >
@@ -1915,7 +1916,7 @@ const ITBorrowSystem = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div></Portal>
       )}
 
       {toast && (

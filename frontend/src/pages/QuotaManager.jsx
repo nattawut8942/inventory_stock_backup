@@ -1013,7 +1013,7 @@ const QuotaManager = () => {
             <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
 
             {showSyncLog && (
-                <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+                <Portal><div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
                     <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
                         className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-200 overflow-hidden">
                         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -1069,7 +1069,7 @@ const QuotaManager = () => {
                             </button>
                         </div>
                     </motion.div>
-                </div>
+                </div></Portal>
             )}
             <Toast toasts={toasts} />
             <DeleteConfirmModal
