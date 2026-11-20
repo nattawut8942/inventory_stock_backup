@@ -64,7 +64,7 @@ const ACTION_META = {
 const ActionChip = ({ a }) => {
     const m = ACTION_META[a] || { label: a, cls: 'bg-slate-100 text-slate-600', icon: Zap };
     const Icon = m.icon;
-    return <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold whitespace-nowrap ${m.cls}`}><Icon size={12} />{m.label}</span>;
+    return <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-bold whitespace-nowrap ${m.cls}`}><Icon size={11} />{m.label}</span>;
 };
 
 // แสดงเป็นเวลาท้องถิ่น (driver ส่งมาเป็น ISO แบบ UTC — เหมือน formatDbDate ในหน้า Management)
@@ -187,7 +187,7 @@ export default function AuditLogTab({ UserAvatar, authHeaders }) {
         >
             {state.error && <div className="px-4 py-3 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700">{state.error}</div>}
             <MgmtTable
-                search={search} onSearch={setSearch} loading={state.loading} rows={state.rows} rowKey={(r) => r.AuditID} pageSize={25} minWidth={980}
+                search={search} onSearch={setSearch} loading={state.loading} rows={state.rows} rowKey={(r) => r.AuditID} pageSize={25} minWidth={900} dense
                 searchText={(r) => [r.Name, r.Username, r.EmpCode, moduleLabel(r.Module), r.Summary, r.Path, r.RecordId, r.Body, r.Changes].join(' ')}
                 searchPlaceholder="ค้นหาชื่อคน, รายการ, ข้อมูลที่แก้…" emptyText="ยังไม่มีประวัติในช่วงนี้"
                 rowClassName={(r) => (r.Success ? 'cursor-pointer' : 'cursor-pointer bg-amber-50/40')}
@@ -214,28 +214,25 @@ export default function AuditLogTab({ UserAvatar, authHeaders }) {
                 columns={[
                     { key: 'time', label: 'เวลา', sortValue: (r) => r.CreatedAt, render: (r) => <span className="font-mono text-slate-600 whitespace-nowrap">{fmt(r.CreatedAt)}</span> },
                     { key: 'user', label: 'ผู้ใช้', sortValue: (r) => r.Name || r.Username, render: (r) => (
-                        <div className="flex items-center gap-2">
-                            {UserAvatar && r.EmpCode ? <UserAvatar pic={r.EmpPic} empCode={r.EmpCode} name={r.Name || r.Username} size={28} /> : null}
-                            <div className="min-w-0">
-                                <div className="font-bold text-slate-700 truncate">{r.Name || r.Username || '-'}</div>
-                                <div className="text-[11px] text-slate-400 font-mono">{r.EmpCode || ''}</div>
-                            </div>
-                        </div>
+                        <span className="whitespace-nowrap">
+                            <b className="text-slate-700">{r.Name || r.Username || '-'}</b>
+                            {r.EmpCode ? <span className="ml-1.5 text-[11px] text-slate-400 font-mono">{r.EmpCode}</span> : null}
+                        </span>
                     ) },
                     { key: 'action', label: 'การทำงาน', sortValue: (r) => r.Action, render: (r) => <ActionChip a={r.Action} /> },
                     { key: 'what', label: 'รายการ', primary: true, sortValue: (r) => `${moduleLabel(r.Module)} ${r.Summary || ''}`, render: (r) => (
                         <div className="min-w-0">
-                            <div className="font-bold text-slate-700 truncate max-w-[320px]" title={r.Summary || ''}>
+                            <div className="font-bold text-slate-700 truncate max-w-[360px] leading-tight" title={r.Summary || ''}>
                                 {moduleLabel(r.Module)}{r.Summary ? <span className="font-semibold text-slate-500"> · {r.Summary}</span> : null}
                             </div>
                             {changePreview(changesOf(r))
-                                ? <div className="text-[11px] text-indigo-600 font-semibold truncate max-w-[320px]" title={changePreview(changesOf(r))}>{changePreview(changesOf(r))}</div>
-                                : <div className="text-[11px] text-slate-400 font-mono truncate max-w-[320px]" title={`${r.Method} ${r.Path}`}>{r.RecordId ? `#${r.RecordId} · ` : ''}{r.Method} {r.Path}</div>}
+                                ? <div className="text-[10.5px] text-indigo-600 font-semibold truncate max-w-[360px] leading-tight" title={changePreview(changesOf(r))}>{changePreview(changesOf(r))}</div>
+                                : <div className="text-[10.5px] text-slate-400 font-mono truncate max-w-[360px] leading-tight" title={`${r.Method} ${r.Path}`}>{r.RecordId ? `#${r.RecordId} · ` : ''}{r.Method} {r.Path}</div>}
                         </div>
                     ) },
                     { key: 'result', label: 'ผลลัพธ์', sortValue: (r) => (r.Success ? 0 : 1), render: (r) => (
-                        r.Success ? <span className="text-xs font-bold text-emerald-600">สำเร็จ</span>
-                            : <span className="text-xs font-bold text-amber-700" title={`HTTP ${r.StatusCode}`}>ไม่สำเร็จ ({r.StatusCode})</span>
+                        r.Success ? <span className="font-bold text-emerald-600">สำเร็จ</span>
+                            : <span className="font-bold text-amber-700 whitespace-nowrap" title={`HTTP ${r.StatusCode}`}>ไม่สำเร็จ ({r.StatusCode})</span>
                     ) },
                     { key: 'ip', label: 'IP', mobileHidden: true, sortValue: (r) => r.IpAddress, render: (r) => <span className="font-mono text-slate-500">{r.IpAddress || '-'}</span> },
                 ]}

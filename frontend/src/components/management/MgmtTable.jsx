@@ -82,8 +82,11 @@ const cmp = (a, b) => {
 export function MgmtTable({
     columns, rows, rowKey, searchText, searchPlaceholder = 'ค้นหา…', search, onSearch,
     emptyText = 'ไม่มีข้อมูล', loading = false, pageSize = 20, defaultSort = null, sortable = true,
-    groupBy, renderGroup, rowProps, rowClassName, toolbar, minWidth = 640,
+    groupBy, renderGroup, rowProps, rowClassName, toolbar, minWidth = 640, dense = false,
 }) {
+    // dense: แถวเตี้ย ตัวอักษรเล็ก (ใช้กับตารางประวัติที่มีหลายแถว)
+    const thPad = dense ? 'px-3 py-2' : 'px-4 py-3';
+    const tdPad = dense ? 'px-3 py-1.5 text-xs' : 'px-4 py-3 text-sm';
     const [internalQ, setInternalQ] = useState('');
     const q = search !== undefined ? search : internalQ;
     const setQ = onSearch || setInternalQ;
@@ -177,7 +180,7 @@ export function MgmtTable({
                                         const can = sortable && c.sortValue;
                                         const active = sort?.key === c.key;
                                         return (
-                                            <th key={c.key} className={`px-4 py-3 font-bold whitespace-nowrap ${c.align === 'right' || c.actions ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}
+                                            <th key={c.key} className={`${thPad} font-bold whitespace-nowrap ${c.align === 'right' || c.actions ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}
                                                 aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
                                                 {can ? (
                                                     <button type="button" onClick={() => toggleSort(c)} className={`inline-flex items-center gap-1 hover:text-indigo-600 ${active ? 'text-indigo-600' : ''}`}>
@@ -196,7 +199,7 @@ export function MgmtTable({
                                         <tr key={rowKey(r)} {...(rowProps ? rowProps(r, pageStart + i) : {})}
                                             className={`hover:bg-slate-50 transition-colors ${rowClassName ? rowClassName(r, pageStart + i) : ''}`}>
                                             {columns.map((c) => (
-                                                <td key={c.key} className={`px-4 py-3 text-sm ${c.align === 'right' || c.actions ? 'text-right' : c.align === 'center' ? 'text-center' : ''} ${c.className || ''}`}>
+                                                <td key={c.key} className={`${tdPad} ${c.align === 'right' || c.actions ? 'text-right' : c.align === 'center' ? 'text-center' : ''} ${c.className || ''}`}>
                                                     {c.render(r)}
                                                 </td>
                                             ))}
@@ -216,13 +219,13 @@ export function MgmtTable({
                     <div className="md:hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
                         {withGroups(
                             (r, i) => (
-                                <div key={rowKey(r)} {...(rowProps ? rowProps(r, pageStart + i) : {})} className={`p-3 ${rowClassName ? rowClassName(r, pageStart + i) : ''}`}>
+                                <div key={rowKey(r)} {...(rowProps ? rowProps(r, pageStart + i) : {})} className={`${dense ? 'px-3 py-2' : 'p-3'} ${rowClassName ? rowClassName(r, pageStart + i) : ''}`}>
                                     <div className="flex items-start gap-2">
-                                        <div className="min-w-0 flex-1 font-bold text-slate-800 text-sm">{primary.render(r)}</div>
+                                        <div className={`min-w-0 flex-1 font-bold text-slate-800 ${dense ? 'text-xs' : 'text-sm'}`}>{primary.render(r)}</div>
                                         {actionCol && <div className="shrink-0 -mr-1 -mt-1">{actionCol.render(r)}</div>}
                                     </div>
                                     {metaCols.length > 0 && (
-                                        <dl className="mt-2 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-xs">
+                                        <dl className={`${dense ? 'mt-1 gap-y-0.5 text-[11px]' : 'mt-2 gap-y-1 text-xs'} grid grid-cols-[auto,1fr] gap-x-3`}>
                                             {metaCols.map((c) => (
                                                 <React.Fragment key={c.key}>
                                                     <dt className="text-slate-400 whitespace-nowrap">{c.label}</dt>

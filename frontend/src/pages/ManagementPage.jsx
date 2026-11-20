@@ -1140,7 +1140,7 @@ const handleFileSelect = (e) => {
                         <MgmtSection title="ประวัติเข้าระบบ" count={loginLogs.length}
                             subtitle={<>สำเร็จ <b className="text-emerald-600">{count('SUCCESS')}</b> · ผิดรหัส <b className="text-amber-600">{count('FAILED')}</b> · ไม่มีสิทธิ์ <b className="text-rose-600">{count('DENIED')}</b> · ระบบขัดข้อง <b className="text-slate-700">{count('ERROR')}</b></>}>
                             <MgmtTable
-                                {...searchProps} loading={isLoadingLogs} rows={loginLogs} rowKey={l => l.ID} pageSize={25} minWidth={900}
+                                {...searchProps} loading={isLoadingLogs} rows={loginLogs} rowKey={l => l.ID} pageSize={25} minWidth={820} dense
                                 searchText={l => [l.Username, l.EmpCode, l.Name, l.IpAddress, l.Reason, l.Status].join(' ')}
                                 searchPlaceholder="ค้นหาผู้ใช้, IP, เหตุผล…" emptyText="ไม่พบประวัติการ login ในช่วงนี้"
                                 toolbar={<>
@@ -1157,15 +1157,12 @@ const handleFileSelect = (e) => {
                                 </>}
                                 columns={[
                                     { key: 'time', label: 'เวลา', sortValue: l => l.LoginAt, render: l => <span className="font-mono text-slate-600 whitespace-nowrap">{formatDbDate(l.LoginAt)}</span> },
-                                    { key: 'status', label: 'สถานะ', sortValue: l => l.Status, render: l => <span className={`px-2 py-1 rounded-lg text-xs font-bold ${statusStyle[l.Status] || 'bg-slate-100 text-slate-600'}`}>{statusTh[l.Status] || l.Status}</span> },
+                                    { key: 'status', label: 'สถานะ', sortValue: l => l.Status, render: l => <span className={`px-1.5 py-0.5 rounded-md text-[11px] font-bold whitespace-nowrap ${statusStyle[l.Status] || 'bg-slate-100 text-slate-600'}`}>{statusTh[l.Status] || l.Status}</span> },
                                     { key: 'user', label: 'ผู้ใช้', primary: true, sortValue: l => l.Name || l.Username, render: l => (
-                                        <div className="flex items-center gap-2">
-                                            {l.EmpCode ? <UserAvatar pic={l.EmpPic} empCode={l.EmpCode} name={l.Name || l.Username} size={28} /> : null}
-                                            <div className="min-w-0">
-                                                <div className="font-bold text-slate-700 truncate">{l.Name || l.Username || '-'}</div>
-                                                <div className="text-[11px] text-slate-400 font-mono">{l.Username || '-'}{l.EmpCode ? ` · ${l.EmpCode}` : ''}</div>
-                                            </div>
-                                        </div>
+                                        <span className="whitespace-nowrap">
+                                            <b className="text-slate-700">{l.Name || l.Username || '-'}</b>
+                                            {l.EmpCode ? <span className="ml-1.5 text-[11px] text-slate-400 font-mono">{l.EmpCode}</span> : null}
+                                        </span>
                                     ) },
                                     { key: 'role', label: 'บทบาท', sortValue: l => l.Role, render: l => <span className="text-slate-600">{l.Role || '-'}</span> },
                                     { key: 'reason', label: 'เหตุผล', render: l => <span className="text-slate-500 block max-w-[240px] truncate" title={l.Reason || ''}>{l.Reason || '-'}</span> },
