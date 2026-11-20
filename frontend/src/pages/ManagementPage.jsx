@@ -17,10 +17,17 @@ import AuditLogTab from '../components/management/AuditLogTab';
 // Employee photo: URL saved from AD at login, else the standard DCI picture path by EmpCode.
 // Falls back to initials if the image can't load (no photo / off network).
 const EMP_PIC_BASE = 'http://dcidmc.dci.daikin.co.jp/PICTURE';
-const UserAvatar = ({ pic, empCode, name, size = 36 }) => {
+const UserAvatar = ({ pic, empCode, name, size = 36, zoomable = false }) => {
     const src = pic || (empCode ? `${EMP_PIC_BASE}/${encodeURIComponent(empCode)}.jpg` : '');
     const [failed, setFailed] = useState(false);
+    const [zoom, setZoom] = useState(false);
     useEffect(() => setFailed(false), [src]);
+    useEffect(() => {
+        if (!zoom) return;
+        const onKey = (e) => { if (e.key === 'Escape') setZoom(false); };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [zoom]);
     const initials = String(name || empCode || '?').trim().slice(0, 2).toUpperCase();
     const style = { width: size, height: size };
     if (!src || failed) {
@@ -30,9 +37,32 @@ const UserAvatar = ({ pic, empCode, name, size = 36 }) => {
             </div>
         );
     }
-    return (
+    const img = (
         <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} style={style}
             className="shrink-0 rounded-lg object-cover bg-slate-100 ring-1 ring-slate-200" />
+    );
+    if (!zoomable) return img;
+    return (
+        <>
+            <button type="button" onClick={(e) => { e.stopPropagation(); setZoom(true); }} title="ดูรูปใหญ่" aria-label={`ดูรูปของ ${name || empCode}`}
+                className="shrink-0 rounded-lg transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+                {img}
+            </button>
+            {zoom && (
+                <Portal>
+                    <div className="fixed inset-0 z-[9980] bg-slate-900/60 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setZoom(false); }}>
+                        <div role="dialog" aria-label={`รูปของ ${name || empCode}`} className="bg-white rounded-2xl shadow-2xl p-4 flex flex-col items-center gap-3 max-w-[90vw]">
+                            <img src={src} alt={name || empCode || ''} className="w-56 h-56 sm:w-64 sm:h-64 object-cover rounded-xl bg-slate-100" />
+                            <div className="text-center">
+                                <div className="font-bold text-slate-800 text-sm">{name || '-'}</div>
+                                {empCode && <div className="font-mono text-xs text-slate-400">{empCode}</div>}
+                            </div>
+                            <button type="button" onClick={() => setZoom(false)} className="px-4 h-9 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">ปิด</button>
+                        </div>
+                    </div>
+                </Portal>
+            )}
+        </>
     );
 };
 
@@ -1051,7 +1081,7 @@ const handleFileSelect = (e) => {
                                             <div className="relative shrink-0" title={rc.label}>
                                                 <div className={`rounded-xl p-[2px] ${isAdm ? 'bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-400' : 'bg-slate-100'}`}>
                                                     <div className="rounded-[10px] bg-white p-[1px]">
-                                                        <UserAvatar pic={u.EmpPic} empCode={u.EmpCode} name={u.Name || u.Username} size={38} />
+                                                        <UserAvatar pic={u.EmpPic} empCode={u.EmpCode} name={u.Name || u.Username} size={38} zoomable />
                                                     </div>
                                                 </div>
                                                 <span className="absolute -bottom-0.5 -right-0.5 flex w-3 h-3">
