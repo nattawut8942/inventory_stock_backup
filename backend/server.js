@@ -53,6 +53,8 @@ import activityRoutes from './src/routes/activityRoutes.js';
 import fileUpload from 'express-fileupload';
 import printerRoutes from './src/routes/printerRoutes.js';
 import navCountRoutes from './src/routes/navCountRoutes.js';
+import auditLogRoutes from './src/routes/auditLogRoutes.js';
+import { auditLogMiddleware } from './src/services/auditLogService.js';
 import { startPrinterScanCron, runPrinterScan } from './src/services/printerScanService.js';
 import cctvCaptureRoutes from './src/cctv/cctvCaptureRoutes.js';
 import { startCaptureCron } from './src/cctv/cctvCaptureCron.js';
@@ -161,6 +163,8 @@ const startServer = async () => {
         // ✅ ROUTES (AFTER MIDDLEWARE!)
         // ════════════════════════════════════════════════════════════════
         
+        // ประวัติการทำงาน: บันทึกทุกการเพิ่ม/แก้/ลบ (ต้องอยู่ก่อน route อื่น)
+        app.use('/ITinventory/api', auditLogMiddleware);
         app.use('/ITinventory/api', authRoutes);
         app.use('/ITinventory/api', productRoutes);
         app.use('/ITinventory/api', vendorRoutes);
@@ -191,6 +195,7 @@ const startServer = async () => {
         app.use('/ITinventory/api', activityRoutes); 
         app.use('/ITinventory/api', printerRoutes);
         app.use('/ITinventory/api', navCountRoutes);
+        app.use('/ITinventory/api', auditLogRoutes);
 
         // ── Cron: Printer toner/error scan (08:00, 13:00, 18:00) ─────────
         startPrinterScanCron();

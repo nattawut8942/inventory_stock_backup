@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks , ShieldCheck } from 'lucide-react';
+import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks , ShieldCheck, ClipboardList } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../context/PermissionContext';
@@ -12,6 +12,7 @@ import { API_BASE, API_URL } from '../config/api';
 import { getBadgeStyle, getDeviceTypeColor, getChartColor } from '../utils/styleHelpers';
 import DeviceTypeManagementTab from '../components/DeviceTypeManagementTab';
 import { MgmtSection, MgmtTable, RowActions, PrimaryButton, SecondaryButton } from '../components/management/MgmtTable';
+import AuditLogTab from '../components/management/AuditLogTab';
 
 // Employee photo: URL saved from AD at login, else the standard DCI picture path by EmpCode.
 // Falls back to initials if the image can't load (no photo / off network).
@@ -37,7 +38,7 @@ const UserAvatar = ({ pic, empCode, name, size = 36 }) => {
 
 // กลุ่มของเมนูซ้าย (ลำดับในกลุ่ม = ลำดับที่แสดง)
 const TAB_GROUPS = [
-    { label: 'ผู้ใช้และความปลอดภัย', ids: ['admin', 'login-logs'] },
+    { label: 'ผู้ใช้และความปลอดภัย', ids: ['admin', 'audit-log', 'login-logs'] },
     { label: 'ข้อมูลหลักสต็อก', ids: ['vendors', 'locations', 'reasons', 'device-types', 'budgets'] },
     { label: 'สัญญาและบริการ', ids: ['ma-types'] },
     { label: 'สถานที่และอุปกรณ์', ids: ['factory-layouts', 'record-servers'] },
@@ -102,6 +103,7 @@ const ManagementPage = () => {
         pRecordServers.view && { id: 'record-servers', label: 'Record Server', icon: Server },
         pActivityCategories.view && { id: 'activity-categories', label: 'หมวดกิจกรรม', icon: Camera },
         isAdminUser && { id: 'login-logs', label: 'ประวัติเข้าระบบ', icon: History },
+        isAdminUser && { id: 'audit-log', label: 'ประวัติการทำงาน', icon: ClipboardList },
     ].filter(Boolean);
     const visibleTabKey = visibleTabs.map((t) => t.id).join(',');
     // land on the first tab this person may see
@@ -1033,6 +1035,9 @@ const handleFileSelect = (e) => {
                         </MgmtSection>
                     );
                 })()}
+
+                {/* ประวัติการทำงาน (ทุกการเพิ่ม/แก้/ลบ) */}
+                {activeTab === 'audit-log' && isAdminUser && <AuditLogTab UserAvatar={UserAvatar} authHeaders={authHeaders} />}
 
                 {/* ผู้จัดหา */}
                 {activeTab === 'vendors' && (

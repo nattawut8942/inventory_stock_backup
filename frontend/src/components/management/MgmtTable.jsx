@@ -216,7 +216,7 @@ export function MgmtTable({
                     <div className="md:hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
                         {withGroups(
                             (r, i) => (
-                                <div key={rowKey(r)} className={`p-3 ${rowClassName ? rowClassName(r, pageStart + i) : ''}`}>
+                                <div key={rowKey(r)} {...(rowProps ? rowProps(r, pageStart + i) : {})} className={`p-3 ${rowClassName ? rowClassName(r, pageStart + i) : ''}`}>
                                     <div className="flex items-start gap-2">
                                         <div className="min-w-0 flex-1 font-bold text-slate-800 text-sm">{primary.render(r)}</div>
                                         {actionCol && <div className="shrink-0 -mr-1 -mt-1">{actionCol.render(r)}</div>}
