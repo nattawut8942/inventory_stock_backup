@@ -38,6 +38,39 @@ const fmt = (d) => {
 };
 const parseBody = (b) => { if (!b) return null; try { return JSON.parse(b); } catch { return b; } };
 
+// ระดับ 2: การเปลี่ยนแปลง (คอลัมน์ Changes หรือ Body.__changes ถ้ายังไม่มีคอลัมน์)
+const changesOf = (r) => {
+    if (r.__ch !== undefined) return r.__ch;
+    let c = null;
+    if (r.Changes) { try { c = JSON.parse(r.Changes); } catch { c = null; } }
+    if (!c && r.Body) { const b = parseBody(r.Body); if (b && typeof b === 'object' && b.__changes) c = b.__changes; }
+    r.__ch = c; // cache บนแถว
+    return c;
+};
+// ชื่อช่องที่พบบ่อยเป็นภาษาไทย (ที่เหลือแสดงชื่อคอลัมน์ตามจริง)
+const FIELD_TH = {
+    ProductName: 'ชื่อสินค้า', MinStock: 'ขั้นต่ำ', MaxStock: 'สูงสุด', CurrentStock: 'คงเหลือ', LastPrice: 'ราคาล่าสุด', Location: 'สถานที่',
+    DeviceType: 'หมวด', ManagementType: 'ประเภทการจัดการ', DefaultManagementType: 'ค่าเริ่มต้นการจัดการ', IsActive: 'ใช้งาน', IsAsset: 'Asset',
+    UnitOfMeasure: 'หน่วย', BarcodeID: 'บาร์โค้ด', ImageURL: 'รูป', VendorName: 'ชื่อผู้จัดหา', ContactInfo: 'ข้อมูลติดต่อ', Name: 'ชื่อ', Label: 'ชื่อ',
+    TypeName: 'ชื่อประเภท', Category: 'หมวด', CategoryLabel: 'ชื่อหมวด', CategoryCode: 'รหัส', BudgetFormat: 'รูปแบบเลขงบ', Role: 'บทบาท', TypeId: 'ประเภท',
+    name: 'ชื่อ', status: 'สถานะ', location: 'ตำแหน่ง', ip_address: 'IP', hostname: 'ชื่อเครื่อง', remark: 'หมายเหตุ', note: 'หมายเหตุ', Remark: 'หมายเหตุ',
+};
+const fieldLabel = (f) => (FIELD_TH[f] ? `${FIELD_TH[f]} (${f})` : f);
+const showVal = (v) => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (typeof v === 'boolean') return v ? 'ใช่' : 'ไม่';
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) return fmt(v);
+    return String(v);
+};
+const changePreview = (c) => {
+    if (!c) return null;
+    if (c.deleted) return 'เก็บข้อมูลก่อนลบไว้';
+    const f = c.fields || [];
+    if (f.length === 0) return 'ไม่มีช่องที่เปลี่ยน';
+    const first = f.slice(0, 2).map((x) => `${FIELD_TH[x.field] || x.field}: ${showVal(x.from)} → ${showVal(x.to)}`).join(' · ');
+    return f.length > 2 ? `${first} · +${f.length - 2} ช่อง` : first;
+};
+
 export default function AuditLogTab({ UserAvatar, authHeaders }) {
     const [state, setState] = useState({ loading: false, ready: true, rows: [], limit: 2000, retentionDays: 365, error: '' });
     const [days, setDays] = useState(7);
@@ -75,11 +108,13 @@ export default function AuditLogTab({ UserAvatar, authHeaders }) {
     const exportCsv = () => {
         const q = search.trim().toLowerCase();
         const rows = state.rows.filter((r) => !q || [r.Name, r.Username, r.EmpCode, moduleLabel(r.Module), r.Summary, r.Path, r.RecordId].join(' ').toLowerCase().includes(q));
-        const head = ['เวลา', 'รหัสพนักงาน', 'ชื่อ', 'การทำงาน', 'ส่วนของระบบ', 'รายการ', 'รหัสรายการ', 'ผลลัพธ์', 'HTTP', 'Path', 'IP', 'ข้อมูลที่ส่ง'];
+        const head = ['เวลา', 'รหัสพนักงาน', 'ชื่อ', 'การทำงาน', 'ส่วนของระบบ', 'รายการ', 'รหัสรายการ', 'ผลลัพธ์', 'HTTP', 'Path', 'IP', 'การเปลี่ยนแปลง', 'ข้อมูลที่ส่ง'];
         const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
         const lines = [head.map(esc).join(',')].concat(rows.map((r) => [
             fmt(r.CreatedAt), r.EmpCode, r.Name || r.Username, ACTION_META[r.Action]?.label || r.Action, moduleLabel(r.Module), r.Summary, r.RecordId,
-            r.Success ? 'สำเร็จ' : 'ไม่สำเร็จ', r.StatusCode, `${r.Method} ${r.Path}`, r.IpAddress, r.Body,
+            r.Success ? 'สำเร็จ' : 'ไม่สำเร็จ', r.StatusCode, `${r.Method} ${r.Path}`, r.IpAddress,
+            (() => { const c = changesOf(r); if (!c) return ''; if (c.deleted) return `ลบ: ${JSON.stringify(c.deleted)}`; return (c.fields || []).map((x) => `${x.field}: ${showVal(x.from)} → ${showVal(x.to)}`).join(' | '); })(),
+            r.Body,
         ].map(esc).join(',')));
         const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
         const a = document.createElement('a');
@@ -113,7 +148,7 @@ export default function AuditLogTab({ UserAvatar, authHeaders }) {
             {state.error && <div className="px-4 py-3 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700">{state.error}</div>}
             <MgmtTable
                 search={search} onSearch={setSearch} loading={state.loading} rows={state.rows} rowKey={(r) => r.AuditID} pageSize={25} minWidth={980}
-                searchText={(r) => [r.Name, r.Username, r.EmpCode, moduleLabel(r.Module), r.Summary, r.Path, r.RecordId, r.Body].join(' ')}
+                searchText={(r) => [r.Name, r.Username, r.EmpCode, moduleLabel(r.Module), r.Summary, r.Path, r.RecordId, r.Body, r.Changes].join(' ')}
                 searchPlaceholder="ค้นหาชื่อคน, รายการ, ข้อมูลที่แก้…" emptyText="ยังไม่มีประวัติในช่วงนี้"
                 rowClassName={(r) => (r.Success ? 'cursor-pointer' : 'cursor-pointer bg-amber-50/40')}
                 rowProps={(r) => ({ onClick: () => setDetail(r), title: 'ดูรายละเอียด' })}
@@ -153,7 +188,9 @@ export default function AuditLogTab({ UserAvatar, authHeaders }) {
                             <div className="font-bold text-slate-700 truncate max-w-[320px]" title={r.Summary || ''}>
                                 {moduleLabel(r.Module)}{r.Summary ? <span className="font-semibold text-slate-500"> · {r.Summary}</span> : null}
                             </div>
-                            <div className="text-[11px] text-slate-400 font-mono truncate max-w-[320px]" title={`${r.Method} ${r.Path}`}>{r.RecordId ? `#${r.RecordId} · ` : ''}{r.Method} {r.Path}</div>
+                            {changePreview(changesOf(r))
+                                ? <div className="text-[11px] text-indigo-600 font-semibold truncate max-w-[320px]" title={changePreview(changesOf(r))}>{changePreview(changesOf(r))}</div>
+                                : <div className="text-[11px] text-slate-400 font-mono truncate max-w-[320px]" title={`${r.Method} ${r.Path}`}>{r.RecordId ? `#${r.RecordId} · ` : ''}{r.Method} {r.Path}</div>}
                         </div>
                     ) },
                     { key: 'result', label: 'ผลลัพธ์', sortValue: (r) => (r.Success ? 0 : 1), render: (r) => (
@@ -183,12 +220,48 @@ export default function AuditLogTab({ UserAvatar, authHeaders }) {
                                     <dt className="text-slate-400">IP</dt><dd className="font-mono">{detail.IpAddress || '-'}</dd>
                                     <dt className="text-slate-400">ใช้เวลา</dt><dd>{detail.DurationMs ?? '-'} ms</dd>
                                 </dl>
+                                {(() => {
+                                    const c = changesOf(detail);
+                                    if (!c) return null;
+                                    if (c.deleted) {
+                                        return (
+                                            <div>
+                                                <div className="text-xs font-bold text-rose-600 mb-1">ข้อมูลก่อนลบ</div>
+                                                <div className="rounded-xl border border-rose-100 divide-y divide-rose-50 text-xs">
+                                                    {Object.entries(c.deleted).map(([k, v]) => (
+                                                        <div key={k} className="grid grid-cols-[minmax(0,2fr),minmax(0,3fr)] gap-3 px-3 py-1.5">
+                                                            <span className="text-slate-500 break-words">{fieldLabel(k)}</span><span className="text-slate-800 break-words">{showVal(v)}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    const f = c.fields || [];
+                                    return (
+                                        <div>
+                                            <div className="text-xs font-bold text-indigo-600 mb-1">การเปลี่ยนแปลง ({f.length} ช่อง)</div>
+                                            {f.length === 0 ? <p className="text-xs text-slate-400">บันทึกแล้วแต่ไม่มีช่องไหนเปลี่ยน (ค่าเท่าเดิม)</p> : (
+                                                <div className="rounded-xl border border-slate-200 overflow-hidden text-xs">
+                                                    <div className="grid grid-cols-[minmax(0,2fr),minmax(0,2fr),minmax(0,2fr)] gap-3 px-3 py-1.5 bg-slate-50 font-bold text-slate-500"><span>ช่อง</span><span>ค่าเดิม</span><span>ค่าใหม่</span></div>
+                                                    {f.map((x) => (
+                                                        <div key={x.field} className="grid grid-cols-[minmax(0,2fr),minmax(0,2fr),minmax(0,2fr)] gap-3 px-3 py-1.5 border-t border-slate-100">
+                                                            <span className="text-slate-600 break-words">{fieldLabel(x.field)}</span>
+                                                            <span className="text-rose-600 line-through decoration-rose-300 break-words">{showVal(x.from)}</span>
+                                                            <span className="text-emerald-700 font-bold break-words">{showVal(x.to)}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
                                 <div>
                                     <div className="text-xs font-bold text-slate-500 mb-1">ข้อมูลที่ส่งมา</div>
                                     {detail.Body ? (
-                                        <pre className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 overflow-x-auto whitespace-pre-wrap break-words">{(() => { const b = parseBody(detail.Body); return typeof b === 'string' ? b : JSON.stringify(b, null, 2); })()}</pre>
+                                        <pre className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 overflow-x-auto whitespace-pre-wrap break-words">{(() => { const b = parseBody(detail.Body); if (typeof b === 'string') return b; const { __changes, ...rest } = b || {}; return JSON.stringify(rest, null, 2); })()}</pre>
                                     ) : <p className="text-xs text-slate-400">ไม่มีข้อมูล (เช่น การลบที่ส่งแค่รหัสรายการ)</p>}
-                                    <p className="text-[11px] text-slate-400 mt-1">ระดับ 1 เก็บเฉพาะค่าที่ส่งมา ไม่มีค่าเดิมก่อนแก้</p>
+                                    {!changesOf(detail) && <p className="text-[11px] text-slate-400 mt-1">ส่วนนี้ยังไม่ได้ติดตามค่าเดิม → ค่าใหม่ จึงเห็นเฉพาะค่าที่ส่งมา</p>}
                                 </div>
                             </div>
                         </div>

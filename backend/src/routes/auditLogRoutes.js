@@ -25,9 +25,11 @@ router.get('/audit-log', verifyToken, requireDbAdmin, async (req, res) => {
         if (empcode) { r.input('empcode', sql.NVarChar(20), empcode); where += ' AND a.EmpCode = @empcode'; }
         if (result === 'ok') where += ' AND a.Success = 1';
         if (result === 'fail') where += ' AND a.Success = 0';
+        const hasChanges = (await getPool().request().query(`SELECT CASE WHEN COL_LENGTH('dbo.Stock_AuditLog','Changes') IS NULL THEN 0 ELSE 1 END AS ok`)).recordset[0].ok === 1;
         const q = await r.query(`
             SELECT TOP (@limit) a.AuditID, a.CreatedAt, a.EmpCode, a.Username, COALESCE(u.Name, a.DisplayName) AS Name, u.EmpPic,
-                   a.Method, a.Action, a.Module, a.Path, a.RecordId, a.Summary, a.StatusCode, a.Success, a.DurationMs, a.IpAddress, a.Body
+                   a.Method, a.Action, a.Module, a.Path, a.RecordId, a.Summary, a.StatusCode, a.Success, a.DurationMs, a.IpAddress, a.Body,
+                   ${hasChanges ? 'a.Changes' : 'NULL AS Changes'}
             FROM dbo.Stock_AuditLog a
             LEFT JOIN dbo.Stock_Users u ON u.EmpCode = a.EmpCode
             WHERE ${where}
