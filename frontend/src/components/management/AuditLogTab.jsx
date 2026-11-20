@@ -3,6 +3,44 @@ import { RefreshCw, Download, X, Plus, Edit2, Trash2, Zap, AlertTriangle } from 
 import Portal from '../Portal';
 import { API_BASE } from '../../config/api';
 import { MgmtSection, MgmtTable, SecondaryButton } from './MgmtTable';
+import HelpPopover from '../HelpPopover';
+
+// คำอธิบายว่าเก็บอะไร หน้าไหน (ต้องตรงกับ backend/src/services/auditLogService.js → TRACKED / SKIP)
+const TRACKED_GROUPS = [
+    ['Stock', 'สินค้า, หมวดอุปกรณ์, ผู้จัดหา, สถานที่, เหตุผลการเบิก, หมวดงบประมาณ'],
+    ['MA / License', 'รายการ MA (รวมสถานะ/การต่ออายุ), ประเภท MA'],
+    ['IP / อุปกรณ์', 'IP Management, PC Inventory, Monitor'],
+    ['CCTV', 'กล้อง (รวมสถานะ/ตำแหน่ง), Rack, Switch, บันทึกซ่อมบำรุง, Record Server'],
+    ['อื่นๆ', 'แผนผังโรงงาน, หมวดกิจกรรม, บทบาทผู้ใช้'],
+];
+const AuditLogHelp = () => (
+    <HelpPopover title="ประวัติการทำงานเก็บอะไรบ้าง" label="อธิบายประวัติการทำงาน" width={440}>
+        <div className="space-y-3 text-xs text-slate-600">
+            <div>
+                <div className="font-bold text-slate-800 mb-1 flex items-center gap-1.5"><span className="px-1.5 py-px rounded bg-emerald-50 text-emerald-700 text-[10px]">ทุกหน้า</span>บันทึกทุกการเพิ่ม / แก้ไข / ลบ</div>
+                <p>ทุกหน้าในระบบ (Stock, PO, รับของ, ตรวจนับ, MA, IP, PC, CCTV, Printer, Ink/Toner, Sound, ยืม-คืน, IT Request, ปฏิทิน, Activity, KB, Quota, Management ฯลฯ) — เก็บ ใคร · เมื่อไหร่ · ทำอะไร · รายการไหน · ข้อมูลที่ส่ง · สำเร็จไหม · IP</p>
+            </div>
+            <div>
+                <div className="font-bold text-slate-800 mb-1 flex items-center gap-1.5"><span className="px-1.5 py-px rounded bg-indigo-50 text-indigo-700 text-[10px]">เพิ่มเติม</span>เห็น "ค่าเดิม → ค่าใหม่" และข้อมูลก่อนลบ</div>
+                <ul className="space-y-0.5">
+                    {TRACKED_GROUPS.map(([g, list]) => <li key={g}><b className="text-slate-700">{g}:</b> {list}</li>)}
+                </ul>
+                <p className="mt-1 text-slate-400">หน้าอื่นเห็นเฉพาะข้อมูลที่ส่งมา (เช่น ตรวจนับ, รับของ, PO — ดูยอดที่เปลี่ยนได้จากประวัติรับ/เบิกอยู่แล้ว)</p>
+            </div>
+            <div>
+                <div className="font-bold text-slate-800 mb-1 flex items-center gap-1.5"><span className="px-1.5 py-px rounded bg-slate-100 text-slate-600 text-[10px]">ไม่เก็บ</span>สิ่งที่ไม่อยู่ในประวัตินี้</div>
+                <ul className="list-disc list-inside space-y-0.5">
+                    <li>การเปิด/ดูข้อมูล (เก็บเฉพาะการเปลี่ยนข้อมูล)</li>
+                    <li>การ login/logout — ดูที่ "ประวัติเข้าระบบ"</li>
+                    <li>งานที่ระบบทำเองตามเวลา (ping CCTV, สแกนปริ้นเตอร์/IP ตามรอบ, ส่งอีเมล) — แต่ถ้ามีคนกดสั่งเองจะถูกเก็บ</li>
+                    <li>ข้อมูลที่ agent ในเครื่อง PC ส่งเข้ามาเอง</li>
+                    <li>การแก้ฐานข้อมูลโดยตรง (ไม่ผ่านเว็บ)</li>
+                </ul>
+            </div>
+            <p className="pt-2 border-t border-slate-100 text-[11px] text-slate-400">ไม่เก็บรหัสผ่าน/token · ไฟล์เก็บแค่ชื่อ · เก็บย้อนหลัง 365 วัน · ดูได้เฉพาะ Admin</p>
+        </div>
+    </HelpPopover>
+);
 
 // ชื่อหน้า/ส่วนของระบบ จากส่วนแรกของ path (ที่ไม่รู้จักจะแสดงตามเดิม)
 export const MODULE_LABELS = {
@@ -138,7 +176,7 @@ export default function AuditLogTab({ UserAvatar, authHeaders }) {
     const sel = 'h-10 px-3 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 bg-white';
     return (
         <MgmtSection
-            title="ประวัติการทำงาน" count={state.rows.length}
+            title="ประวัติการทำงาน" count={state.rows.length} titleExtra={<AuditLogHelp />}
             subtitle={<>
                 ทุกการเพิ่ม/แก้ไข/ลบ ที่ผู้ใช้ทำในระบบ · เพิ่ม <b className="text-emerald-600">{counts.create}</b> · แก้ไข <b className="text-sky-600">{counts.update}</b> · ลบ <b className="text-rose-600">{counts.delete}</b> · ดำเนินการ <b className="text-violet-600">{counts.action}</b> · ไม่สำเร็จ <b className="text-amber-600">{counts.fail}</b> · ผู้ใช้ {counts.users.size} คน
                 <span className="block text-slate-400">เก็บย้อนหลัง {state.retentionDays} วัน · ไม่เก็บรหัสผ่าน/token และไฟล์ (เก็บแค่ชื่อไฟล์){state.rows.length >= state.limit ? ` · แสดง ${state.limit.toLocaleString()} รายการล่าสุด — ใช้ตัวกรองเพื่อดูเพิ่ม` : ''}</span>

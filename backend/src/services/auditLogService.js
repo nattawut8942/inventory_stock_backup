@@ -267,7 +267,7 @@ export const auditLogMiddleware = async (req, res, next) => {
                     Action: action,
                     Module: module,
                     Path: apiPath.slice(0, 400),
-                    RecordId: recordId,
+                    RecordId: recordId || (tracked ? String(tracked.id).slice(0, 100) : null),
                     Summary: summary,
                     StatusCode: res.statusCode,
                     Success: res.statusCode < 400,
