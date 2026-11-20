@@ -1,15 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { Edit2, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { motion } from 'motion/react';
 import Portal from './Portal';
 import { API_BASE } from '../config/api';
 import { getChartColor } from '../utils/styleHelpers';
 import { MANAGEMENT_TYPES, managementTypeInfo, managementTypeOf } from '../utils/stockManagement';
+import { MgmtSection, MgmtTable, RowActions } from './management/MgmtTable';
+import ManagementTypeHelp from './ManagementTypeHelp';
 
 // แท็บ Management > Device Types: ตั้งค่าเริ่มต้น "ประเภทการจัดการ" ของแต่ละหมวด
 // - ค่าเริ่มต้นใช้กับสินค้าใหม่ที่สร้างในหมวดนี้
 // - ติ๊ก "เปลี่ยนสินค้าที่มีอยู่" เพื่อจัดประเภทสินค้าเดิมทั้งหมวดในครั้งเดียว (ปรับรายชิ้นต่อได้ในหน้าคลัง)
-export default function DeviceTypeManagementTab({ deviceTypes, products, canEdit, searchTerm, onSaved, onAlert }) {
+export default function DeviceTypeManagementTab({ deviceTypes, products, canEdit, searchTerm, onSearch, onSaved, onAlert }) {
     const [editing, setEditing] = useState(null);
     const [mgmt, setMgmt] = useState('Rotating');
     const [applyAll, setApplyAll] = useState(false);
@@ -26,8 +28,6 @@ export default function DeviceTypeManagementTab({ deviceTypes, products, canEdit
         return m;
     }, [products]);
 
-    const q = (searchTerm || '').toLowerCase();
-    const rows = (deviceTypes || []).filter((t) => !q || `${t.TypeId} ${t.Label}`.toLowerCase().includes(q));
 
     const openEdit = (t) => { setEditing(t); setMgmt(t.DefaultManagementType || 'Rotating'); setApplyAll(false); };
 
@@ -59,50 +59,37 @@ export default function DeviceTypeManagementTab({ deviceTypes, products, canEdit
     const willChange = editing && editCount ? editCount.total - (editCount[mgmt] || 0) : 0;
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <h3 className="text-lg font-bold text-slate-800 mb-2">DEVICE TYPES</h3>
-                <p className="text-slate-500 text-xs">ตั้งค่าเริ่มต้นการจัดการสต็อกของแต่ละหมวด — หมุนเวียน: เตือน + คาดการณ์การสั่ง · อุปกรณ์สำรอง: เตือนเมื่อต่ำกว่าขั้นต่ำ · เก็บในคลัง: ไม่เตือน ไม่สั่ง</p>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-                <table className="w-full text-left border-collapse whitespace-nowrap min-w-[640px]">
-                    <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                            <th className="p-4 font-bold">หมวด</th>
-                            <th className="p-4 font-bold">ค่าเริ่มต้นการจัดการ</th>
-                            <th className="p-4 font-bold">สินค้าในหมวด</th>
-                            <th className="p-4 font-bold text-right">จัดการ</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {rows.length > 0 ? rows.map((t) => {
-                            const c = counts[t.TypeId] || { total: 0, Rotating: 0, Spare: 0, Stored: 0 };
-                            const info = managementTypeInfo(t.DefaultManagementType || 'Rotating');
-                            return (
-                                <tr key={t.TypeId} className="hover:bg-slate-50 transition-colors group">
-                                    <td className="p-4">
-                                        <span className="px-2 py-0.5 rounded text-[11px] font-bold text-white" style={{ backgroundColor: getChartColor(t.TypeId) }}>{t.TypeId}</span>
-                                        <span className="ml-2 font-bold text-slate-700">{t.Label}</span>
-                                    </td>
-                                    <td className="p-4"><span className={`px-2.5 py-1 rounded-full border text-xs font-bold ${info.cls}`}>{info.label}</span></td>
-                                    <td className="p-4 text-xs text-slate-500">
-                                        <b className="text-slate-700">{c.total}</b> รายการ
-                                        {c.total > 0 && <span className="ml-2">(หมุนเวียน {c.Rotating} · สำรอง {c.Spare} · เก็บ {c.Stored})</span>}
-                                    </td>
-                                    <td className="p-4 text-right">
-                                        {canEdit && (
-                                            <button onClick={() => openEdit(t)} aria-label={`แก้ไข ${t.Label}`} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"><Edit2 size={16} /></button>
-                                        )}
-                                    </td>
-                                </tr>
-                            );
-                        }) : (
-                            <tr><td colSpan="4" className="p-12 text-center text-slate-400">ไม่พบหมวด</td></tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
+        <MgmtSection
+            title="หมวดอุปกรณ์" count={(deviceTypes || []).length} titleExtra={<ManagementTypeHelp />}
+            subtitle="ค่าเริ่มต้นการจัดการสต็อกของแต่ละหมวด ใช้กับสินค้าใหม่ในหมวด · กด ? เพื่อดูความหมายของแต่ละประเภท"
+        >
+            <MgmtTable
+                search={searchTerm || ''} onSearch={onSearch}
+                rows={deviceTypes || []} rowKey={(t) => t.TypeId} minWidth={640}
+                searchText={(t) => `${t.TypeId} ${t.Label}`} searchPlaceholder="ค้นหาหมวดอุปกรณ์…" emptyText="ยังไม่มีหมวดอุปกรณ์"
+                columns={[
+                    { key: 'type', label: 'หมวด', primary: true, sortValue: (t) => t.Label, render: (t) => (
+                        <span className="inline-flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded text-[11px] font-bold text-white" style={{ backgroundColor: getChartColor(t.TypeId) }}>{t.TypeId}</span>
+                            <span className="font-bold text-slate-700">{t.Label}</span>
+                        </span>
+                    ) },
+                    { key: 'mgmt', label: 'ค่าเริ่มต้นการจัดการ', sortValue: (t) => managementTypeInfo(t.DefaultManagementType || 'Rotating').label, render: (t) => {
+                        const info = managementTypeInfo(t.DefaultManagementType || 'Rotating');
+                        return <span className={`px-2.5 py-1 rounded-full border text-xs font-bold whitespace-nowrap ${info.cls}`}>{info.label}</span>;
+                    } },
+                    { key: 'count', label: 'สินค้าในหมวด', sortValue: (t) => (counts[t.TypeId] || {}).total || 0, render: (t) => {
+                        const c = counts[t.TypeId] || { total: 0, Rotating: 0, Spare: 0, Stored: 0 };
+                        return (
+                            <span className="text-xs text-slate-500">
+                                <b className="text-slate-700">{c.total}</b> รายการ
+                                {c.total > 0 && <span className="ml-1">(หมุนเวียน {c.Rotating} · สำรอง {c.Spare} · เก็บ {c.Stored})</span>}
+                            </span>
+                        );
+                    } },
+                    { key: 'act', label: 'จัดการ', actions: true, render: (t) => <RowActions onEdit={canEdit ? () => openEdit(t) : undefined} editLabel={`แก้ไข ${t.Label}`} /> },
+                ]}
+            />
 
             {editing && (
                 <Portal>
@@ -143,6 +130,6 @@ export default function DeviceTypeManagementTab({ deviceTypes, products, canEdit
                     </motion.div>
                 </Portal>
             )}
-        </div>
+        </MgmtSection>
     );
 }

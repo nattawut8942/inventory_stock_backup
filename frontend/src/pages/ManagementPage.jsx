@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks , ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +11,7 @@ import PermissionEditorModal, { PermissionLogModal, PermissionHoldersModal } fro
 import { API_BASE, API_URL } from '../config/api';
 import { getBadgeStyle, getDeviceTypeColor, getChartColor } from '../utils/styleHelpers';
 import DeviceTypeManagementTab from '../components/DeviceTypeManagementTab';
+import { MgmtSection, MgmtTable, RowActions, PrimaryButton, SecondaryButton } from '../components/management/MgmtTable';
 
 // Employee photo: URL saved from AD at login, else the standard DCI picture path by EmpCode.
 // Falls back to initials if the image can't load (no photo / off network).
@@ -33,10 +35,31 @@ const UserAvatar = ({ pic, empCode, name, size = 36 }) => {
     );
 };
 
+// กลุ่มของเมนูซ้าย (ลำดับในกลุ่ม = ลำดับที่แสดง)
+const TAB_GROUPS = [
+    { label: 'ผู้ใช้และความปลอดภัย', ids: ['admin', 'login-logs'] },
+    { label: 'ข้อมูลหลักสต็อก', ids: ['vendors', 'locations', 'reasons', 'device-types', 'budgets'] },
+    { label: 'สัญญาและบริการ', ids: ['ma-types'] },
+    { label: 'สถานที่และอุปกรณ์', ids: ['factory-layouts', 'record-servers'] },
+    { label: 'อื่นๆ', ids: ['activity-categories'] },
+];
+const LAST_TAB_KEY = 'mgmt.lastTab';
+
 const ManagementPage = () => {
     const { user, token } = useAuth();
     const { deviceTypes, vendors, products, refreshData } = useData();
-    const [activeTab, setActiveTab] = useState('admin');
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [activeTab, setActiveTab] = useState(() => {
+        const fromUrl = searchParams.get('tab');
+        if (fromUrl) return fromUrl;
+        try { return localStorage.getItem(LAST_TAB_KEY) || 'admin'; } catch { return 'admin'; }
+    });
+    // เปลี่ยนหัวข้อ: จำไว้ใน URL (แชร์ลิงก์ได้) และในเบราว์เซอร์
+    const changeTab = (id) => {
+        setActiveTab(id);
+        setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set('tab', id); return n; }, { replace: true });
+        try { localStorage.setItem(LAST_TAB_KEY, id); } catch { /* ignore */ }
+    };
     const [searchTerm, setSearchTerm] = useState('');
 
     // Users State (Stock_Users — recorded automatically on login)
@@ -68,17 +91,17 @@ const ManagementPage = () => {
     const pDeviceTypes = mgmtFlags('mgmt-device-types');
     // Users and Login Log can never be granted to anyone but Admin
     const visibleTabs = [
-        isAdminUser && { id: 'admin', label: 'Users', icon: Users },
-        pVendors.view && { id: 'vendors', label: 'Vendors', icon: Truck },
-        pLocations.view && { id: 'locations', label: 'Locations', icon: Archive },
-        pReasons.view && { id: 'reasons', label: 'Reasons', icon: MessageSquare },
-        pDeviceTypes.view && { id: 'device-types', label: 'Device Types', icon: ListChecks },
-        pMATypes.view && { id: 'ma-types', label: 'MA Types', icon: FileKey },
-        pBudgets.view && { id: 'budgets', label: 'Budgets', icon: DollarSign },
-        pFactoryLayouts.view && { id: 'factory-layouts', label: 'Maps', icon: Map },
-        pRecordServers.view && { id: 'record-servers', label: 'Record Servers', icon: Server },
-        pActivityCategories.view && { id: 'activity-categories', label: 'Activity Categories', icon: Camera },
-        isAdminUser && { id: 'login-logs', label: 'Login Log', icon: History },
+        isAdminUser && { id: 'admin', label: 'ผู้ใช้', icon: Users },
+        pVendors.view && { id: 'vendors', label: 'ผู้จัดหา (Vendor)', icon: Truck },
+        pLocations.view && { id: 'locations', label: 'สถานที่', icon: Archive },
+        pReasons.view && { id: 'reasons', label: 'เหตุผลการเบิก', icon: MessageSquare },
+        pDeviceTypes.view && { id: 'device-types', label: 'หมวดอุปกรณ์', icon: ListChecks },
+        pMATypes.view && { id: 'ma-types', label: 'ประเภท MA', icon: FileKey },
+        pBudgets.view && { id: 'budgets', label: 'หมวดงบประมาณ', icon: DollarSign },
+        pFactoryLayouts.view && { id: 'factory-layouts', label: 'แผนผังโรงงาน', icon: Map },
+        pRecordServers.view && { id: 'record-servers', label: 'Record Server', icon: Server },
+        pActivityCategories.view && { id: 'activity-categories', label: 'หมวดกิจกรรม', icon: Camera },
+        isAdminUser && { id: 'login-logs', label: 'ประวัติเข้าระบบ', icon: History },
     ].filter(Boolean);
     const visibleTabKey = visibleTabs.map((t) => t.id).join(',');
     // land on the first tab this person may see
@@ -315,6 +338,20 @@ const ManagementPage = () => {
             onCancel: () => setAlertModal(prev => ({ ...prev, isOpen: false }))
         });
     };
+
+    // โหลดรายการเล็กๆ ล่วงหน้า เพื่อแสดงจำนวนในเมนู (แท็บที่เปิดอยู่โหลดอีกครั้งด้านล่าง)
+    useEffect(() => {
+        const ids = new Set(visibleTabs.map((t) => t.id));
+        if (ids.has('admin') && activeTab !== 'admin') fetchStockUsers();
+        if (ids.has('locations') && activeTab !== 'locations') fetchLocations();
+        if (ids.has('reasons') && activeTab !== 'reasons') fetchReasons();
+        if (ids.has('ma-types') && activeTab !== 'ma-types') fetchMATypes();
+        if (ids.has('budgets') && activeTab !== 'budgets') fetchBudgetCategories();
+        if (ids.has('factory-layouts') && activeTab !== 'factory-layouts') fetchFactoryLayouts();
+        if (ids.has('record-servers') && activeTab !== 'record-servers') fetchRecordServers();
+        if (ids.has('activity-categories') && activeTab !== 'activity-categories') fetchActivityCategories();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visibleTabKey]);
 
     useEffect(() => {
         if (!visibleTabs.some((t) => t.id === activeTab)) return;
@@ -820,736 +857,388 @@ const handleFileSelect = (e) => {
         });
     };
 
+    // ── เมนูแบ่งกลุ่ม (จอคอม: เมนูซ้าย · มือถือ/แท็บเล็ต: ตัวเลือก) ──
+    const tabCount = {
+        admin: stockUsers.length || null,
+        vendors: vendors?.length ?? null,
+        locations: locations.length || null,
+        reasons: reasons.length || null,
+        'device-types': deviceTypes?.length ?? null,
+        'ma-types': maTypes.length || null,
+        budgets: budgetCategories.length || null,
+        'factory-layouts': factoryLayouts.length || null,
+        'record-servers': recordServers.length || null,
+        'activity-categories': activityCategories.length || null,
+    };
+    const navGroups = TAB_GROUPS
+        .map((g) => ({ ...g, items: g.ids.map((id) => visibleTabs.find((t) => t.id === id)).filter(Boolean) }))
+        .filter((g) => g.items.length > 0);
+    const activeInfo = visibleTabs.find((t) => t.id === activeTab);
+    const productCountByLocation = (() => {
+        const m = {};
+        for (const p of products || []) { const k = p.Location || ''; m[k] = (m[k] || 0) + 1; }
+        return m;
+    })();
+    const searchProps = { search: searchTerm, onSearch: setSearchTerm };
+
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
-            {/* Header & Tabs */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                <div>
-                    <h2 className="text-3xl font-black text-slate-800 mb-2">MANAGEMENT</h2>
-                    <p className="text-slate-500 font-medium">จัดการระบบ อุปกรณ์ และข้อมูลต่างๆ</p>
-                </div>
+            {/* Header */}
+            <div>
+                <h2 className="text-2xl sm:text-3xl font-black text-slate-800">การจัดการระบบ</h2>
+                <p className="text-slate-500 text-sm font-medium mt-1">ผู้ใช้ สิทธิ์ และข้อมูลหลักที่ใช้ร่วมกันทั้งระบบ</p>
+            </div>
 
-                {/* Tabs */}
-                <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto custom-scrollbar w-full md:w-auto">
-                    {visibleTabs.map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap shrink-0 ${activeTab === tab.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
-                        >
-                            <tab.icon size={16} />
-                            {tab.label}
-                        </button>
+            {/* มือถือ/แท็บเล็ต: เลือกหัวข้อ */}
+            <div className="lg:hidden">
+                <label htmlFor="mgmt-section" className="block text-xs font-bold text-slate-500 mb-1">หัวข้อ</label>
+                <div className="relative">
+                    {activeInfo && <activeInfo.icon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" />}
+                    <select id="mgmt-section" value={activeTab} onChange={(e) => changeTab(e.target.value)}
+                        className="w-full h-11 pl-9 pr-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none">
+                        {navGroups.map((g) => (
+                            <optgroup key={g.label} label={g.label}>
+                                {g.items.map((t) => <option key={t.id} value={t.id}>{t.label}{tabCount[t.id] ? ` (${tabCount[t.id]})` : ''}</option>)}
+                            </optgroup>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[232px,minmax(0,1fr)] gap-6 items-start">
+                {/* จอคอม: เมนูซ้ายแบ่งกลุ่ม */}
+                <nav aria-label="หัวข้อการจัดการ" className="hidden lg:block bg-white rounded-2xl border border-slate-200 shadow-sm p-3 lg:sticky lg:top-4">
+                    {navGroups.map((g) => (
+                        <div key={g.label} className="mb-3 last:mb-0">
+                            <div className="px-2 pb-1 text-[11px] font-bold text-slate-400">{g.label}</div>
+                            {g.items.map((t) => {
+                                const on = t.id === activeTab;
+                                return (
+                                    <button key={t.id} type="button" onClick={() => changeTab(t.id)} aria-current={on ? 'page' : undefined}
+                                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-bold transition-colors ${on ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'}`}>
+                                        <t.icon size={16} className={on ? 'text-indigo-600' : 'text-slate-400'} />
+                                        <span className="flex-1 text-left truncate">{t.label}</span>
+                                        {tabCount[t.id] ? <span className={`text-[11px] tabular-nums ${on ? 'text-indigo-500' : 'text-slate-400'}`}>{tabCount[t.id]}</span> : null}
+                                    </button>
+                                );
+                            })}
+                        </div>
                     ))}
-                </div>
-            </div>
-
-            {/* Search Bar */}
-            <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                <input
-                    type="text"
-                    placeholder="ค้นหา..."
-                    className="w-full bg-white border border-slate-200 pl-12 pr-4 py-3 rounded-xl shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                />
-            </div>
+                </nav>
 
             {/* Content Area */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 min-h-[400px]">
-                {/* ADMIN TAB */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 min-h-[400px] min-w-0">
+                {/* ผู้ใช้ */}
                 {activeTab === 'admin' && isAdminUser && (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-800 mb-2">USERS</h3>
-                                <p className="text-slate-500 text-xs">
-                                    ผู้ใช้ถูกบันทึกอัตโนมัติเมื่อ login ครั้งแรก (ได้สิทธิ์ Staff) · {isAdminUser ? 'คุณเปลี่ยนสิทธิ์ได้ในคอลัมน์ Role' : 'เฉพาะ Admin เท่านั้นที่เปลี่ยนสิทธิ์ได้'}
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-3 shrink-0">
-                                {isAdminUser && (
-                                    <div className="flex items-center gap-2">
-                                        <button onClick={() => setPermTarget(null)} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50" title="สิทธิ์ที่ผู้ใช้ใหม่จะได้ตอน login ครั้งแรก">
-                                            <KeyRound size={14} /> สิทธิ์ตั้งต้นผู้ใช้ใหม่
-                                        </button>
-                                        <button onClick={() => setShowPermLog(true)} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50" title="ดูว่าถ้าเปิดบังคับสิทธิ์จริง จะมีอะไรถูกบล็อก">
-                                            <ListChecks size={14} /> รายงานตรวจสิทธิ์
-                                        </button>
-                                        <button onClick={() => setShowHolders(true)} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50" title="เลือกหน้าและสิทธิ์ เพื่อดูว่าใครมีสิทธิ์นั้นบ้าง">
-                                            <ShieldCheck size={14} /> ใครมีสิทธิ์นี้
-                                        </button>
-                                    </div>
-                                )}
-                                <div className="text-right text-xs text-slate-500">
-                                    <div><span className="font-bold text-slate-700">{stockUsers.length}</span> users</div>
-                                    <div><span className="font-bold text-violet-600">{stockUsers.filter(u => u.Role === 'Admin').length}</span> admins</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {isLoadingUsers ? (
-                            <div className="text-center py-10 text-slate-400">Loading...</div>
-                        ) : (() => {
-                            const q = searchTerm.toLowerCase();
-                            const rows = stockUsers.filter(u =>
-                                [u.EmpCode, u.Username, u.Name, u.Sect, u.Role].some(v => String(v || '').toLowerCase().includes(q))
-                            );
-                            return (
-                                <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-                                    <table className="w-full text-left border-collapse whitespace-nowrap min-w-[860px]">
-                                        <thead>
-                                            <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                                                <th className="p-4 font-bold">EmpCode</th>
-                                                <th className="p-4 font-bold">Name</th>
-                                                <th className="p-4 font-bold">Username</th>
-                                                <th className="p-4 font-bold">Sect</th>
-                                                <th className="p-4 font-bold">Role</th>
-                                                <th className="p-4 font-bold">Permissions</th>
-                                                <th className="p-4 font-bold">Last Login</th>
-                                                <th className="p-4 font-bold">First Login</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {rows.length > 0 ? rows.map(u => {
-                                                const isSelf = String(u.EmpCode) === String(user?.empcode);
-                                                const canEdit = isAdminUser && !isSelf;
-                                                return (
-                                                    <tr key={u.ID} className="hover:bg-slate-50 transition-colors">
-                                                        <td className="p-4 text-slate-600 font-mono text-sm">{u.EmpCode}</td>
-                                                        <td className="p-4 font-bold text-slate-700">
-                                                            <div className="flex items-center gap-3">
-                                                                <UserAvatar pic={u.EmpPic} empCode={u.EmpCode} name={u.Name || u.Username} size={40} />
-                                                                <span>{u.Name || '-'}</span>
-                                                                {isSelf && <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">คุณ</span>}
-                                                            </div>
-                                                        </td>
-                                                        <td className="p-4 text-slate-600 text-sm">{u.Username || '-'}</td>
-                                                        <td className="p-4 text-slate-600 text-sm">{u.Sect || '-'}</td>
-                                                        <td className="p-4">
-                                                            {canEdit ? (
-                                                                <select
-                                                                    value={u.Role}
-                                                                    disabled={savingRoleId === u.ID}
-                                                                    onChange={(e) => handleChangeRole(u, e.target.value)}
-                                                                    className="px-2 py-1 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
-                                                                >
-                                                                    <option value="Staff">Staff</option>
-                                                                    <option value="Admin">Admin</option>
-                                                                </select>
-                                                            ) : (
-                                                                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold ${u.Role === 'Admin' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
-                                                                    {u.Role === 'Admin' && <Shield size={12} />}
-                                                                    {u.Role}
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="p-4">
-                                                            {u.Role === 'Admin' ? (
-                                                                <span className="text-xs font-bold text-violet-600">ทุกสิทธิ์</span>
-                                                            ) : isAdminUser ? (
-                                                                <button onClick={() => setPermTarget(u)} className="flex items-center gap-1.5 px-2.5 py-1 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
-                                                                    <KeyRound size={12} /> ตั้งสิทธิ์ <span className="text-slate-400 font-medium">({u.PermCount ?? 0})</span>
-                                                                </button>
-                                                            ) : (
-                                                                <span className="text-xs text-slate-500">{u.PermCount ?? 0} สิทธิ์</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="p-4 text-slate-600 text-sm font-mono">{formatDbDate(u.LastLoginAt)}</td>
-                                                        <td className="p-4 text-slate-400 text-sm font-mono">{formatDbDate(u.FirstLoginAt)}</td>
-                                                    </tr>
-                                                );
-                                            }) : (
-                                                <tr>
-                                                    <td colSpan="8" className="p-12 text-center text-slate-400">ไม่พบผู้ใช้</td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            );
-                        })()}
-                    </div>
+                    <MgmtSection
+                        title="ผู้ใช้" count={stockUsers.length}
+                        subtitle={`บันทึกอัตโนมัติเมื่อ login ครั้งแรก (ได้สิทธิ์ Staff) · Admin ${stockUsers.filter(u => u.Role === 'Admin').length} คน · เปลี่ยนบทบาทได้ในคอลัมน์ "บทบาท"`}
+                        actions={<>
+                            <SecondaryButton icon={KeyRound} onClick={() => setPermTarget(null)} title="สิทธิ์ที่ผู้ใช้ใหม่จะได้ตอน login ครั้งแรก">สิทธิ์ตั้งต้นผู้ใช้ใหม่</SecondaryButton>
+                            <SecondaryButton icon={ListChecks} onClick={() => setShowPermLog(true)} title="ดูว่าถ้าเปิดบังคับสิทธิ์จริง จะมีอะไรถูกบล็อก">รายงานตรวจสิทธิ์</SecondaryButton>
+                            <SecondaryButton icon={ShieldCheck} onClick={() => setShowHolders(true)} title="เลือกหน้าและสิทธิ์ เพื่อดูว่าใครมีสิทธิ์นั้นบ้าง">ใครมีสิทธิ์นี้</SecondaryButton>
+                        </>}
+                    >
+                        <MgmtTable
+                            {...searchProps} loading={isLoadingUsers} rows={stockUsers} rowKey={u => u.ID} minWidth={860}
+                            searchText={u => [u.EmpCode, u.Username, u.Name, u.Sect, u.Role].join(' ')}
+                            searchPlaceholder="ค้นหาชื่อ, รหัสพนักงาน, username, แผนก…" emptyText="ยังไม่มีผู้ใช้"
+                            columns={[
+                                { key: 'name', label: 'ผู้ใช้', primary: true, sortValue: u => u.Name || u.Username, render: u => {
+                                    const isSelf = String(u.EmpCode) === String(user?.empcode);
+                                    return (
+                                        <div className="flex items-center gap-3">
+                                            <UserAvatar pic={u.EmpPic} empCode={u.EmpCode} name={u.Name || u.Username} size={36} />
+                                            <div className="min-w-0">
+                                                <div className="font-bold text-slate-700 truncate">{u.Name || '-'} {isSelf && <span className="ml-1 text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">คุณ</span>}</div>
+                                                <div className="text-[11px] text-slate-400 font-medium">{u.Username || '-'}</div>
+                                            </div>
+                                        </div>
+                                    );
+                                } },
+                                { key: 'emp', label: 'รหัสพนักงาน', sortValue: u => u.EmpCode, render: u => <span className="font-mono text-slate-600">{u.EmpCode}</span> },
+                                { key: 'sect', label: 'แผนก', sortValue: u => u.Sect, render: u => <span className="text-slate-600">{u.Sect || '-'}</span> },
+                                { key: 'role', label: 'บทบาท', sortValue: u => u.Role, render: u => {
+                                    const canEdit = isAdminUser && String(u.EmpCode) !== String(user?.empcode);
+                                    return canEdit ? (
+                                        <select value={u.Role} disabled={savingRoleId === u.ID} onChange={(e) => handleChangeRole(u, e.target.value)} aria-label={`บทบาทของ ${u.Name || u.Username}`}
+                                            className="px-2 py-1 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-500 disabled:opacity-50">
+                                            <option value="Staff">Staff</option>
+                                            <option value="Admin">Admin</option>
+                                        </select>
+                                    ) : (
+                                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold ${u.Role === 'Admin' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
+                                            {u.Role === 'Admin' && <Shield size={12} />}{u.Role}
+                                        </span>
+                                    );
+                                } },
+                                { key: 'perm', label: 'สิทธิ์', sortValue: u => (u.Role === 'Admin' ? 1e9 : u.PermCount ?? 0), render: u => (
+                                    u.Role === 'Admin' ? <span className="text-xs font-bold text-violet-600">ทุกสิทธิ์</span>
+                                        : isAdminUser ? (
+                                            <button type="button" onClick={() => setPermTarget(u)} className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                                                <KeyRound size={12} /> ตั้งสิทธิ์ <span className="text-slate-400 font-medium">({u.PermCount ?? 0})</span>
+                                            </button>
+                                        ) : <span className="text-xs text-slate-500">{u.PermCount ?? 0} สิทธิ์</span>
+                                ) },
+                                { key: 'last', label: 'เข้าระบบล่าสุด', sortValue: u => u.LastLoginAt || '', render: u => <span className="font-mono text-slate-600 whitespace-nowrap">{formatDbDate(u.LastLoginAt)}</span> },
+                                { key: 'first', label: 'เข้าครั้งแรก', mobileHidden: true, sortValue: u => u.FirstLoginAt || '', render: u => <span className="font-mono text-slate-400 whitespace-nowrap">{formatDbDate(u.FirstLoginAt)}</span> },
+                            ]}
+                        />
+                    </MgmtSection>
                 )}
 
-                {/* LOGIN LOG TAB (Admin only) */}
+                {/* ประวัติเข้าระบบ */}
                 {activeTab === 'login-logs' && isAdminUser && (() => {
-                    const q = searchTerm.toLowerCase();
-                    const rows = loginLogs.filter(l =>
-                        [l.Username, l.EmpCode, l.Name, l.IpAddress, l.Reason, l.Status].some(v => String(v || '').toLowerCase().includes(q))
-                    );
                     const count = (s) => loginLogs.filter(l => l.Status === s).length;
-                    const statusStyle = {
-                        SUCCESS: 'bg-emerald-50 text-emerald-700',
-                        FAILED: 'bg-amber-50 text-amber-700',
-                        DENIED: 'bg-rose-50 text-rose-700',
-                        ERROR: 'bg-slate-200 text-slate-700'
-                    };
-                    const browserOf = (ua = '') =>
-                        /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : (ua ? 'Other' : '-');
+                    const statusStyle = { SUCCESS: 'bg-emerald-50 text-emerald-700', FAILED: 'bg-amber-50 text-amber-700', DENIED: 'bg-rose-50 text-rose-700', ERROR: 'bg-slate-200 text-slate-700' };
+                    const statusTh = { SUCCESS: 'สำเร็จ', FAILED: 'ผิดรหัส', DENIED: 'ไม่มีสิทธิ์', ERROR: 'ขัดข้อง' };
+                    const browserOf = (ua = '') => /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : (ua ? 'Other' : '-');
                     return (
-                        <div className="space-y-6 animate-in fade-in duration-300">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                <div>
-                                    <h3 className="text-lg font-bold text-slate-800 mb-2">LOGIN LOG</h3>
-                                    <p className="text-slate-500 text-xs">
-                                        ประวัติการ login ทุกครั้ง · สำเร็จ <b className="text-emerald-600">{count('SUCCESS')}</b> · ผิดรหัส <b className="text-amber-600">{count('FAILED')}</b> · ไม่มีสิทธิ์ <b className="text-rose-600">{count('DENIED')}</b> · ระบบขัดข้อง <b className="text-slate-700">{count('ERROR')}</b>
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <select value={logStatus} onChange={(e) => setLogStatus(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 bg-white">
+                        <MgmtSection title="ประวัติเข้าระบบ" count={loginLogs.length}
+                            subtitle={<>สำเร็จ <b className="text-emerald-600">{count('SUCCESS')}</b> · ผิดรหัส <b className="text-amber-600">{count('FAILED')}</b> · ไม่มีสิทธิ์ <b className="text-rose-600">{count('DENIED')}</b> · ระบบขัดข้อง <b className="text-slate-700">{count('ERROR')}</b></>}>
+                            <MgmtTable
+                                {...searchProps} loading={isLoadingLogs} rows={loginLogs} rowKey={l => l.ID} pageSize={25} minWidth={900}
+                                searchText={l => [l.Username, l.EmpCode, l.Name, l.IpAddress, l.Reason, l.Status].join(' ')}
+                                searchPlaceholder="ค้นหาผู้ใช้, IP, เหตุผล…" emptyText="ไม่พบประวัติการ login ในช่วงนี้"
+                                toolbar={<>
+                                    <select value={logStatus} onChange={(e) => setLogStatus(e.target.value)} aria-label="สถานะ" className="h-10 px-3 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 bg-white">
                                         <option value="">ทุกสถานะ</option>
-                                        <option value="SUCCESS">SUCCESS</option>
-                                        <option value="FAILED">FAILED</option>
-                                        <option value="DENIED">DENIED</option>
-                                        <option value="ERROR">ERROR</option>
+                                        {Object.keys(statusTh).map(s => <option key={s} value={s}>{statusTh[s]}</option>)}
                                     </select>
-                                    <select value={logDays} onChange={(e) => setLogDays(Number(e.target.value))} className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 bg-white">
-                                        <option value={1}>24 ชม.</option>
-                                        <option value={7}>7 วัน</option>
-                                        <option value={30}>30 วัน</option>
-                                        <option value={90}>90 วัน</option>
-                                        <option value={365}>1 ปี</option>
+                                    <select value={logDays} onChange={(e) => setLogDays(Number(e.target.value))} aria-label="ช่วงเวลา" className="h-10 px-3 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 bg-white">
+                                        <option value={1}>24 ชม.</option><option value={7}>7 วัน</option><option value={30}>30 วัน</option><option value={90}>90 วัน</option><option value={365}>1 ปี</option>
                                     </select>
-                                    <button onClick={fetchLoginLogs} title="รีเฟรช" className="p-2 border border-slate-200 rounded-lg bg-white text-slate-500 hover:text-indigo-600">
+                                    <button type="button" onClick={fetchLoginLogs} title="รีเฟรช" aria-label="รีเฟรช" className="h-10 w-10 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-500 hover:text-indigo-600">
                                         <RefreshCw size={16} className={isLoadingLogs ? 'animate-spin' : ''} />
                                     </button>
-                                </div>
-                            </div>
-
-                            {isLoadingLogs && loginLogs.length === 0 ? (
-                                <div className="text-center py-10 text-slate-400">Loading...</div>
-                            ) : (
-                                <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-                                    <table className="w-full text-left border-collapse whitespace-nowrap min-w-[860px]">
-                                        <thead>
-                                            <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                                                <th className="p-4 font-bold">Time</th>
-                                                <th className="p-4 font-bold">Status</th>
-                                                <th className="p-4 font-bold">Username</th>
-                                                <th className="p-4 font-bold">EmpCode</th>
-                                                <th className="p-4 font-bold">Name</th>
-                                                <th className="p-4 font-bold">Role</th>
-                                                <th className="p-4 font-bold">Reason</th>
-                                                <th className="p-4 font-bold">IP</th>
-                                                <th className="p-4 font-bold">Browser</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {rows.length > 0 ? rows.map(l => (
-                                                <tr key={l.ID} className="hover:bg-slate-50 transition-colors">
-                                                    <td className="p-4 text-slate-600 text-sm font-mono">{formatDbDate(l.LoginAt)}</td>
-                                                    <td className="p-4"><span className={`px-2 py-1 rounded-lg text-xs font-bold ${statusStyle[l.Status] || 'bg-slate-100 text-slate-600'}`}>{l.Status}</span></td>
-                                                    <td className="p-4 font-bold text-slate-700 text-sm">{l.Username || '-'}</td>
-                                                    <td className="p-4 text-slate-600 text-sm font-mono">{l.EmpCode || '-'}</td>
-                                                    <td className="p-4 text-slate-600 text-sm">
-                                                        <div className="flex items-center gap-2">
-                                                            {l.EmpCode ? <UserAvatar pic={l.EmpPic} empCode={l.EmpCode} name={l.Name || l.Username} size={28} /> : null}
-                                                            <span>{l.Name || '-'}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="p-4 text-slate-600 text-sm">{l.Role || '-'}</td>
-                                                    <td className="p-4 text-slate-500 text-sm max-w-[240px] truncate" title={l.Reason || ''}>{l.Reason || '-'}</td>
-                                                    <td className="p-4 text-slate-600 text-sm font-mono">{l.IpAddress || '-'}</td>
-                                                    <td className="p-4 text-slate-500 text-sm" title={l.UserAgent || ''}>{browserOf(l.UserAgent || '')}</td>
-                                                </tr>
-                                            )) : (
-                                                <tr>
-                                                    <td colSpan="9" className="p-12 text-center text-slate-400">ไม่พบประวัติการ login</td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
-                        </div>
+                                </>}
+                                columns={[
+                                    { key: 'time', label: 'เวลา', sortValue: l => l.LoginAt, render: l => <span className="font-mono text-slate-600 whitespace-nowrap">{formatDbDate(l.LoginAt)}</span> },
+                                    { key: 'status', label: 'สถานะ', sortValue: l => l.Status, render: l => <span className={`px-2 py-1 rounded-lg text-xs font-bold ${statusStyle[l.Status] || 'bg-slate-100 text-slate-600'}`}>{statusTh[l.Status] || l.Status}</span> },
+                                    { key: 'user', label: 'ผู้ใช้', primary: true, sortValue: l => l.Name || l.Username, render: l => (
+                                        <div className="flex items-center gap-2">
+                                            {l.EmpCode ? <UserAvatar pic={l.EmpPic} empCode={l.EmpCode} name={l.Name || l.Username} size={28} /> : null}
+                                            <div className="min-w-0">
+                                                <div className="font-bold text-slate-700 truncate">{l.Name || l.Username || '-'}</div>
+                                                <div className="text-[11px] text-slate-400 font-mono">{l.Username || '-'}{l.EmpCode ? ` · ${l.EmpCode}` : ''}</div>
+                                            </div>
+                                        </div>
+                                    ) },
+                                    { key: 'role', label: 'บทบาท', sortValue: l => l.Role, render: l => <span className="text-slate-600">{l.Role || '-'}</span> },
+                                    { key: 'reason', label: 'เหตุผล', render: l => <span className="text-slate-500 block max-w-[240px] truncate" title={l.Reason || ''}>{l.Reason || '-'}</span> },
+                                    { key: 'ip', label: 'IP', sortValue: l => l.IpAddress, render: l => <span className="font-mono text-slate-600">{l.IpAddress || '-'}</span> },
+                                    { key: 'browser', label: 'เบราว์เซอร์', mobileHidden: true, render: l => <span className="text-slate-500" title={l.UserAgent || ''}>{browserOf(l.UserAgent || '')}</span> },
+                                ]}
+                            />
+                        </MgmtSection>
                     );
                 })()}
 
-                {/* VENDORS TAB */}
+                {/* ผู้จัดหา */}
                 {activeTab === 'vendors' && (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-800 mb-2">VENDORS</h3>
-                                <p className="text-slate-500 text-xs">จัดการข้อมูลผู้จัดหา</p>
-                            </div>
-                            {pVendors.create && <button
-                                onClick={() => { setEditingVendor(null); setVendorForm({ VendorName: '', ContactInfo: '' }); setIsAddVendorOpen(true); }}
-                                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"
-                            >
-                                <Plus size={18} />
-                                เพิ่ม Vendor
-                            </button>}
-                        </div>
-
-                        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-                            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[600px]">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                                        <th className="p-4 font-bold">ID</th>
-                                        <th className="p-4 font-bold">Vendor Name</th>
-                                        <th className="p-4 font-bold">Contact Info</th>
-                                        <th className="p-4 font-bold text-right">จัดการ</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {vendors.filter(v => v.VendorName.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                                        vendors.filter(v => v.VendorName.toLowerCase().includes(searchTerm.toLowerCase())).map(vendor => (
-                                            <tr key={vendor.VendorID} className="hover:bg-slate-50 transition-colors group">
-                                                <td className="p-4 text-slate-400 font-mono text-sm">#{vendor.VendorID}</td>
-                                                <td className="p-4 font-bold text-slate-700 flex items-center gap-2"><Truck size={16} className="text-orange-500" />{vendor.VendorName}</td>
-                                                <td className="p-4 text-slate-600 text-sm max-w-xs truncate">{vendor.ContactInfo || '-'}</td>
-                                                <td className="p-4 text-right">
-                                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {pVendors.edit && <button
-                                                            onClick={() => { setEditingVendor(vendor); setVendorForm(vendor); setIsAddVendorOpen(true); }}
-                                                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                                                        >
-                                                            <Edit2 size={16} />
-                                                        </button>}
-                                                        {pVendors.del && <button
-                                                            onClick={() => handleDeleteVendor(vendor.VendorID)}
-                                                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </button>}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan="4" className="p-12 text-center text-slate-400">No vendors found</td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <MgmtSection title="ผู้จัดหา (Vendor)" count={vendors.length} subtitle="รายชื่อผู้ขาย/ผู้จัดหาที่ใช้ในใบสั่งซื้อและการรับของ"
+                        actions={pVendors.create && <PrimaryButton icon={Plus} onClick={() => { setEditingVendor(null); setVendorForm({ VendorName: '', ContactInfo: '' }); setIsAddVendorOpen(true); }}>เพิ่มผู้จัดหา</PrimaryButton>}>
+                        <MgmtTable
+                            {...searchProps} rows={vendors} rowKey={v => v.VendorID} minWidth={560}
+                            searchText={v => `${v.VendorName} ${v.ContactInfo || ''}`} searchPlaceholder="ค้นหาชื่อผู้จัดหา หรือข้อมูลติดต่อ…" emptyText="ยังไม่มีผู้จัดหา"
+                            defaultSort={{ key: 'name', dir: 'asc' }}
+                            columns={[
+                                { key: 'name', label: 'ชื่อผู้จัดหา', primary: true, sortValue: v => v.VendorName, render: v => <span className="font-bold text-slate-700 flex items-center gap-2"><Truck size={16} className="text-orange-500 shrink-0" />{v.VendorName}</span> },
+                                { key: 'contact', label: 'ข้อมูลติดต่อ', sortValue: v => v.ContactInfo, render: v => <span className="text-slate-600 block max-w-md truncate" title={v.ContactInfo || ''}>{v.ContactInfo || '-'}</span> },
+                                { key: 'act', label: 'จัดการ', actions: true, render: v => <RowActions
+                                    onEdit={pVendors.edit ? () => { setEditingVendor(v); setVendorForm(v); setIsAddVendorOpen(true); } : undefined}
+                                    onDelete={pVendors.del ? () => handleDeleteVendor(v.VendorID) : undefined} /> },
+                            ]}
+                        />
+                    </MgmtSection>
                 )}
 
-                {/* LOCATIONS TAB */}
+                {/* สถานที่ */}
                 {activeTab === 'locations' && (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-800 mb-2">LOCATIONS</h3>
-                                <p className="text-slate-500 text-xs">จัดการสถานที่เก็บอุปกรณ์</p>
-                            </div>
-                            {pLocations.create && <button
-                                onClick={() => { setEditingLocation(null); setLocationForm({ Name: '' }); setIsAddLocationOpen(true); }}
-                                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"
-                            >
-                                <Plus size={18} />
-                                เพิ่มสถานที่
-                            </button>}
-                        </div>
-
-                        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-                            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[500px]">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                                        <th className="p-4 font-bold">ID</th>
-                                        <th className="p-4 font-bold">Location Name</th>
-                                        <th className="p-4 font-bold text-right">จัดการ</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {locations.filter(l => l.Name.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                                        locations.filter(l => l.Name.toLowerCase().includes(searchTerm.toLowerCase())).map(loc => (
-                                            <tr key={loc.LocationID} className="hover:bg-slate-50 transition-colors group">
-                                                <td className="p-4 text-slate-400 font-mono text-sm">#{loc.LocationID}</td>
-                                                <td className="p-4 font-bold text-slate-700 flex items-center gap-2"><Archive size={16} className="text-teal-600" />{loc.Name}</td>
-                                                <td className="p-4 text-right">
-                                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {pLocations.edit && <button onClick={() => { setEditingLocation(loc); setLocationForm({ Name: loc.Name }); setIsAddLocationOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
-                                                        {pLocations.del && <button onClick={() => handleDeleteLocation(loc.LocationID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan="3" className="p-12 text-center text-slate-400">No locations found</td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <MgmtSection title="สถานที่" count={locations.length} subtitle="สถานที่เก็บอุปกรณ์ · คอลัมน์ &quot;สินค้า&quot; คือจำนวนรายการในคลังที่ตั้งสถานที่นี้"
+                        actions={pLocations.create && <PrimaryButton icon={Plus} onClick={() => { setEditingLocation(null); setLocationForm({ Name: '' }); setIsAddLocationOpen(true); }}>เพิ่มสถานที่</PrimaryButton>}>
+                        <MgmtTable
+                            {...searchProps} rows={locations} rowKey={l => l.LocationID} minWidth={480}
+                            searchText={l => l.Name} searchPlaceholder="ค้นหาชื่อสถานที่…" emptyText="ยังไม่มีสถานที่"
+                            defaultSort={{ key: 'name', dir: 'asc' }}
+                            columns={[
+                                { key: 'name', label: 'ชื่อสถานที่', primary: true, sortValue: l => l.Name, render: l => <span className="font-bold text-slate-700 flex items-center gap-2"><Archive size={16} className="text-teal-600 shrink-0" />{l.Name}</span> },
+                                { key: 'products', label: 'สินค้า', align: 'right', sortValue: l => productCountByLocation[l.Name] || 0, render: l => {
+                                    const n = productCountByLocation[l.Name] || 0;
+                                    return <span className={`tabular-nums font-bold ${n ? 'text-slate-700' : 'text-slate-300'}`}>{n} รายการ</span>;
+                                } },
+                                { key: 'act', label: 'จัดการ', actions: true, render: l => <RowActions
+                                    onEdit={pLocations.edit ? () => { setEditingLocation(l); setLocationForm({ Name: l.Name }); setIsAddLocationOpen(true); } : undefined}
+                                    onDelete={pLocations.del ? () => handleDeleteLocation(l.LocationID) : undefined} /> },
+                            ]}
+                        />
+                    </MgmtSection>
                 )}
 
-                {/* REASONS TAB */}
+                {/* เหตุผลการเบิก */}
                 {activeTab === 'reasons' && (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-800 mb-2">WITHDRAWAL REASONS</h3>
-                                <p className="text-slate-500 text-xs">จัดการเหตุผลการเบิก · ทั้งหมด {reasons.length} รายการ · จัดกลุ่มตามประเภท</p>
-                            </div>
-                            {pReasons.create && <button onClick={() => setIsAddReasonOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่มเหตุผล</button>}
-                        </div>
-
-                        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-                            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[500px]">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                                        <th className="p-4 font-bold">ID</th>
-                                        <th className="p-4 font-bold">Reason</th>
-                                        <th className="p-4 font-bold">Type</th>
-                                        <th className="p-4 font-bold text-right">จัดการ</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {reasons.filter(r => r.Label.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                                        reasons.filter(r => r.Label.toLowerCase().includes(searchTerm.toLowerCase())).map((reason, i, arr) => (
-                                          <React.Fragment key={reason.ReasonID}>
-                                            {(i === 0 || arr[i - 1].TypeId !== reason.TypeId) && (
-                                                <tr className="bg-indigo-50/60">
-                                                    <td colSpan="4" className="px-4 py-2">
-                                                        <div className="flex items-center justify-between gap-3">
-                                                            <span className="text-[11px] font-black uppercase tracking-wider text-indigo-700">
-                                                                {reason.TypeId || 'ไม่ระบุประเภท'} <span className="font-semibold text-indigo-400">· {arr.filter(x => x.TypeId === reason.TypeId).length} เหตุผล</span>
-                                                            </span>
-                                                            {pReasons.create && reason.TypeId && (
-                                                                <button type="button" onClick={() => { setEditingReason(null); setReasonForm({ Label: '', TypeId: reason.TypeId }); setIsAddReasonOpen(true); }}
-                                                                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-100 transition-all">
-                                                                    <Plus size={12} /> เพิ่มในประเภทนี้
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )}
-                                            <tr className={`hover:bg-slate-50 transition-colors group ${isInactive(reason) ? 'opacity-50' : ''}`}>
-                                                <td className="p-4 text-slate-400 font-mono text-sm">#{reason.ReasonID}</td>
-                                                <td className="p-4 font-bold text-slate-700">{reason.Label} {isInactive(reason) && <span className="ml-2 px-2 py-0.5 rounded bg-slate-200 text-slate-600 text-[10px] font-bold">ปิดใช้งาน</span>}</td>
-                                                <td className="p-4"><span className="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-600">{reason.TypeId || '-'}</span></td>
-                                                <td className="p-4 text-right">
-                                                    <div className="flex justify-end gap-2">
-                                                        {pReasons.edit &&<button onClick={() => { setEditingReason(reason); setReasonForm({ Label: reason.Label, TypeId: reason.TypeId || '' }); setIsAddReasonOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
-                                                        {pReasons.edit && isInactive(reason) && <button onClick={() => handleRestoreReason(reason)} className="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all">เปิดใช้งาน</button>}
-                                                        {pReasons.del && !isInactive(reason) && <button onClick={() => handleDeleteReason(reason.ReasonID)} title="ปิดการใช้งาน" className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                          </React.Fragment>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan="4" className="p-12 text-center text-slate-400">No reasons found</td>
-                                        </tr>
+                    <MgmtSection title="เหตุผลการเบิก" count={reasons.length} subtitle="จัดกลุ่มตามประเภทอุปกรณ์ · ลบ = ปิดการใช้งาน (กู้คืนได้)"
+                        actions={pReasons.create && <PrimaryButton icon={Plus} onClick={() => { setEditingReason(null); setReasonForm({ Label: '', TypeId: '' }); setIsAddReasonOpen(true); }}>เพิ่มเหตุผล</PrimaryButton>}>
+                        <MgmtTable
+                            {...searchProps} rows={reasons} rowKey={r => r.ReasonID} pageSize={50} minWidth={480}
+                            searchText={r => `${r.Label} ${r.TypeId || ''}`} searchPlaceholder="ค้นหาเหตุผล…" emptyText="ยังไม่มีเหตุผลการเบิก"
+                            groupBy={r => r.TypeId || ''}
+                            renderGroup={(g, rs) => (
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-xs font-black text-indigo-700">{g || 'ไม่ระบุประเภท'} <span className="font-semibold text-indigo-400">· {rs.length} เหตุผล</span></span>
+                                    {pReasons.create && g && (
+                                        <button type="button" onClick={() => { setEditingReason(null); setReasonForm({ Label: '', TypeId: g }); setIsAddReasonOpen(true); }}
+                                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-100">
+                                            <Plus size={12} /> เพิ่มในประเภทนี้
+                                        </button>
                                     )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                                </div>
+                            )}
+                            rowClassName={r => (isInactive(r) ? 'opacity-50' : '')}
+                            columns={[
+                                { key: 'label', label: 'เหตุผล', primary: true, sortValue: r => r.Label, render: r => <span className="font-bold text-slate-700">{r.Label} {isInactive(r) && <span className="ml-1 px-2 py-0.5 rounded bg-slate-200 text-slate-600 text-[10px] font-bold">ปิดใช้งาน</span>}</span> },
+                                { key: 'type', label: 'ประเภท', render: r => <span className="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-600">{r.TypeId || '-'}</span> },
+                                { key: 'act', label: 'จัดการ', actions: true, render: r => (
+                                    <RowActions
+                                        onEdit={pReasons.edit ? () => { setEditingReason(r); setReasonForm({ Label: r.Label, TypeId: r.TypeId || '' }); setIsAddReasonOpen(true); } : undefined}
+                                        onDelete={pReasons.del && !isInactive(r) ? () => handleDeleteReason(r.ReasonID) : undefined} deleteLabel="ปิดการใช้งาน">
+                                        {pReasons.edit && isInactive(r) && <button type="button" onClick={() => handleRestoreReason(r)} className="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg">เปิดใช้งาน</button>}
+                                    </RowActions>
+                                ) },
+                            ]}
+                        />
+                    </MgmtSection>
                 )}
 
-                {/* DEVICE TYPES TAB — ค่าเริ่มต้นการจัดการสต็อกต่อหมวด */}
+                {/* หมวดอุปกรณ์ — ค่าเริ่มต้นการจัดการสต็อกต่อหมวด */}
                 {activeTab === 'device-types' && (
                     <DeviceTypeManagementTab
                         deviceTypes={deviceTypes}
                         products={products}
                         canEdit={pDeviceTypes.edit}
                         searchTerm={searchTerm}
+                        onSearch={setSearchTerm}
                         onSaved={refreshData}
                         onAlert={(a) => setAlertModal({ isOpen: true, ...a })}
                     />
                 )}
 
-                {/* MA TYPES TAB */}
+                {/* ประเภท MA */}
                 {activeTab === 'ma-types' && (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-800 mb-2">MA TYPES</h3>
-                                <p className="text-slate-500 text-xs">จัดการประเภท MA</p>
-                            </div>
-                            {pMATypes.create && <button onClick={() => { setEditingMAType(null); setMaTypeForm({ Category: 'HARDWARE', TypeName: '' }); setIsAddMATypeOpen(true); }} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่มประเภท</button>}
-                        </div>
-
-                        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-                            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[500px]">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                                        <th className="p-4 font-bold">ID</th>
-                                        <th className="p-4 font-bold">Type Name</th>
-                                        <th className="p-4 font-bold">Category</th>
-                                        <th className="p-4 font-bold text-right">จัดการ</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {maTypes.filter(t => t.TypeName.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                                        maTypes.filter(t => t.TypeName.toLowerCase().includes(searchTerm.toLowerCase())).map(t => (
-                                            <tr key={t.TypeID} className="hover:bg-slate-50 transition-colors group">
-                                                <td className="p-4 text-slate-400 font-mono text-sm">#{t.TypeID}</td>
-                                                <td className="p-4 font-bold text-slate-700">{t.TypeName}</td>
-                                                <td className="p-4"><span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">{t.Category}</span></td>
-                                                <td className="p-4 text-right">
-                                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {pMATypes.edit && <button onClick={() => { setEditingMAType(t); setMaTypeForm({ Category: t.Category, TypeName: t.TypeName }); setIsAddMATypeOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
-                                                        {pMATypes.del && <button onClick={() => handleDeleteMAType(t.TypeID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan="4" className="p-12 text-center text-slate-400">No MA types found</td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <MgmtSection title="ประเภท MA" count={maTypes.length} subtitle="ประเภทสัญญา MA / License ที่ใช้ในหน้า MA / License"
+                        actions={pMATypes.create && <PrimaryButton icon={Plus} onClick={() => { setEditingMAType(null); setMaTypeForm({ Category: 'HARDWARE', TypeName: '' }); setIsAddMATypeOpen(true); }}>เพิ่มประเภท</PrimaryButton>}>
+                        <MgmtTable
+                            {...searchProps} rows={maTypes} rowKey={t => t.TypeID} minWidth={480}
+                            searchText={t => `${t.TypeName} ${t.Category}`} searchPlaceholder="ค้นหาประเภท MA…" emptyText="ยังไม่มีประเภท MA"
+                            columns={[
+                                { key: 'name', label: 'ชื่อประเภท', primary: true, sortValue: t => t.TypeName, render: t => <span className="font-bold text-slate-700">{t.TypeName}</span> },
+                                { key: 'cat', label: 'หมวด', sortValue: t => t.Category, render: t => <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">{t.Category}</span> },
+                                { key: 'act', label: 'จัดการ', actions: true, render: t => <RowActions
+                                    onEdit={pMATypes.edit ? () => { setEditingMAType(t); setMaTypeForm({ Category: t.Category, TypeName: t.TypeName }); setIsAddMATypeOpen(true); } : undefined}
+                                    onDelete={pMATypes.del ? () => handleDeleteMAType(t.TypeID) : undefined} /> },
+                            ]}
+                        />
+                    </MgmtSection>
                 )}
 
-                {/* BUDGETS TAB */}
+                {/* งบประมาณ */}
                 {activeTab === 'budgets' && (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-800 mb-2">BUDGETS</h3>
-                                <p className="text-slate-500 text-xs">จัดการหมวดหมู่งบประมาณ</p>
-                            </div>
-                            {pBudgets.create && <button onClick={() => { setEditingBudget(null); setBudgetForm({ CategoryCode: '', CategoryLabel: '', BudgetFormat: '', IsActive: true, AllowedDeviceTypes: [] }); setIsAddBudgetOpen(true); }} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่มหมวดหมู่</button>}
-                        </div>
-
-                        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-                            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[800px]">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                                        <th className="p-4 font-bold">Code</th>
-                                        <th className="p-4 font-bold">Name</th>
-                                        <th className="p-4 font-bold">Format</th>
-                                        <th className="p-4 font-bold">Status</th>
-                                        <th className="p-4 font-bold text-right">จัดการ</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {budgetCategories.filter(b => b.CategoryLabel.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                                        budgetCategories.filter(b => b.CategoryLabel.toLowerCase().includes(searchTerm.toLowerCase())).map(b => (
-                                            <tr key={b.CategoryID} className="hover:bg-slate-50 transition-colors group">
-                                                <td className="p-4 text-slate-400 font-mono text-sm font-bold">{b.CategoryCode}</td>
-                                                <td className="p-4 font-bold text-slate-700">{b.CategoryLabel}</td>
-                                                <td className="p-4 text-slate-600 text-sm font-mono">{b.BudgetFormat || '-'}</td>
-                                                <td className="p-4"><span className={`px-2 py-1 rounded-full text-xs font-bold ${b.IsActive === false ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>{b.IsActive === false ? 'Inactive' : 'Active'}</span></td>
-                                                <td className="p-4 text-right">
-                                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {pBudgets.edit && <button onClick={() => { setEditingBudget(b); setBudgetForm({ CategoryCode: b.CategoryCode, CategoryLabel: b.CategoryLabel, BudgetFormat: b.BudgetFormat || '', IsActive: b.IsActive !== false, AllowedDeviceTypes: (b.AllowedDeviceTypes || []).map(t => t.TypeId) }); setIsAddBudgetOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
-                                                        {pBudgets.del && <button onClick={() => handleDeleteBudget(b.CategoryID)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan="5" className="p-12 text-center text-slate-400">No budgets found</td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <MgmtSection title="หมวดงบประมาณ" count={budgetCategories.length} subtitle="หมวดงบที่ใช้ในใบขอซื้อ และรูปแบบเลขงบ"
+                        actions={pBudgets.create && <PrimaryButton icon={Plus} onClick={() => { setEditingBudget(null); setBudgetForm({ CategoryCode: '', CategoryLabel: '', BudgetFormat: '', IsActive: true, AllowedDeviceTypes: [] }); setIsAddBudgetOpen(true); }}>เพิ่มหมวดงบ</PrimaryButton>}>
+                        <MgmtTable
+                            {...searchProps} rows={budgetCategories} rowKey={b => b.CategoryID} minWidth={640}
+                            searchText={b => `${b.CategoryLabel} ${b.CategoryCode} ${b.BudgetFormat || ''}`} searchPlaceholder="ค้นหาชื่อหรือรหัสหมวดงบ…" emptyText="ยังไม่มีหมวดงบประมาณ"
+                            columns={[
+                                { key: 'name', label: 'ชื่อหมวด', primary: true, sortValue: b => b.CategoryLabel, render: b => <span className="font-bold text-slate-700">{b.CategoryLabel}</span> },
+                                { key: 'code', label: 'รหัส', sortValue: b => b.CategoryCode, render: b => <span className="font-mono font-bold text-slate-500">{b.CategoryCode}</span> },
+                                { key: 'fmt', label: 'รูปแบบเลขงบ', render: b => <span className="font-mono text-slate-600">{b.BudgetFormat || '-'}</span> },
+                                { key: 'status', label: 'สถานะ', sortValue: b => (b.IsActive === false ? 1 : 0), render: b => <span className={`px-2 py-1 rounded-full text-xs font-bold ${b.IsActive === false ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>{b.IsActive === false ? 'ปิดใช้งาน' : 'ใช้งาน'}</span> },
+                                { key: 'act', label: 'จัดการ', actions: true, render: b => <RowActions
+                                    onEdit={pBudgets.edit ? () => { setEditingBudget(b); setBudgetForm({ CategoryCode: b.CategoryCode, CategoryLabel: b.CategoryLabel, BudgetFormat: b.BudgetFormat || '', IsActive: b.IsActive !== false, AllowedDeviceTypes: (b.AllowedDeviceTypes || []).map(t => t.TypeId) }); setIsAddBudgetOpen(true); } : undefined}
+                                    onDelete={pBudgets.del ? () => handleDeleteBudget(b.CategoryID) : undefined} /> },
+                            ]}
+                        />
+                    </MgmtSection>
                 )}
 
-{/* FACTORY LAYOUTS TAB */}
-{activeTab === 'factory-layouts' && (
-    <div className="space-y-6 animate-in fade-in duration-300">
-        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">FACTORY LAYOUTS</h3>
-                <p className="text-slate-500 text-xs">จัดการแผนที่โรงงาน</p>
-            </div>
-            {pFactoryLayouts.create && <button onClick={() => { setEditingFactoryLayout(null); setFactoryLayoutForm({ name: '', image_url: '', width: 1920, height: 1080 }); setSelectedFile(null); setIsAddFactoryLayoutOpen(true); }} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"><Plus size={18} />เพิ่ม Layout</button>}
-        </div>
- 
-        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[700px]">
-                <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                        <th className="p-4 font-bold w-16">ลำดับ</th>
-                        <th className="p-4 font-bold">ID</th>
-                        <th className="p-4 font-bold">Name</th>
-                        <th className="p-4 font-bold">Image</th>
-                        <th className="p-4 font-bold">Size</th>
-                        <th className="p-4 font-bold text-right">จัดการ</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                    {factoryLayouts.filter(l => l.name.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                        factoryLayouts.filter(l => l.name.toLowerCase().includes(searchTerm.toLowerCase())).map((layout, index, arr) => (
-                            <tr key={layout.id}
-                                draggable={pFactoryLayouts.edit}
-                                onDragStart={() => handleDragStart(index)}
-                                onDragOver={(e) => handleDragOver(e, index)}
-                                onDragLeave={handleDragLeave}
-                                onDrop={() => handleDrop(index)}
-                                className={`transition-colors group cursor-grab active:cursor-grabbing
-                                    ${dragOverIndex === index ? 'bg-indigo-50 border-t-2 border-indigo-400' : 'hover:bg-slate-50'}`}>
-                                <td className="p-4">
-                                    <div className="flex items-center justify-center text-slate-300 hover:text-slate-500">
-                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                                            <circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/>
-                                            <circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/>
-                                            <circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="12" r="1.5"/>
-                                        </svg>
-                                    </div>
-                                </td>
-                                <td className="p-4 text-slate-400 font-mono text-sm">#{layout.id}</td>
-                                <td className="p-4 font-bold text-slate-700 flex items-center gap-2"><Map size={16} className="text-teal-600" />{layout.name}</td>
-                                <td className="p-4 text-slate-600 text-sm max-w-xs truncate font-mono text-[11px]">{layout.image_url}</td>
-                                <td className="p-4 text-slate-600 text-sm font-mono">{layout.width}x{layout.height}</td>
-                                <td className="p-4 text-right">
-                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        {pFactoryLayouts.edit && <button onClick={() => { setEditingFactoryLayout(layout); setFactoryLayoutForm({ name: layout.name, image_url: layout.image_url, width: layout.width || 1920, height: layout.height || 1080 }); setSelectedFile(null); setIsAddFactoryLayoutOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
-                                        {pFactoryLayouts.del && <button onClick={() => handleDeleteFactoryLayout(layout.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
-                                    </div>
-                                </td>
-                            </tr>
-                        ))
-                    ) : (
-                        <tr>
-                            <td colSpan="6" className="p-12 text-center text-slate-400">No layouts found</td>
-                        </tr>
-                    )}
-                </tbody>
-            </table>
-        </div>
-    </div>
-)}
-
-{/* CCTV RECORD SERVERS TAB */}
-{activeTab === 'record-servers' && (
-    <div className="space-y-6 animate-in fade-in duration-300">
-        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <div>
-                <h3 className="font-black text-lg text-slate-800">CCTV Record Servers</h3>
-                <p className="text-sm text-slate-500">รายชื่อ Server ที่ใช้บันทึกภาพกล้อง (สำหรับผูกกับกล้องแต่ละตัว)</p>
-            </div>
-            {pRecordServers.create && <button
-                onClick={() => { setEditingRecordServer(null); setRecordServerForm({ name: '', ip_address: '' }); setIsRecordServerFormOpen(true); }}
-                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 transition-all"
-            >
-                <Plus size={16} /> เพิ่ม Record Server
-            </button>}
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <table className="w-full text-sm">
-                <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                        <th className="p-4 font-bold">ID</th>
-                        <th className="p-4 font-bold">ชื่อ Server</th>
-                        <th className="p-4 font-bold">IP Address</th>
-                        <th className="p-4 font-bold text-center">จำนวนกล้อง</th>
-                        <th className="p-4 font-bold">สร้างโดย</th>
-                        <th className="p-4 font-bold">วันที่สร้าง</th>
-                        <th className="p-4 font-bold text-right">จัดการ</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                    {recordServers.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                        recordServers.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())).map(server => (
-                            <tr key={server.id} className="hover:bg-slate-50 transition-colors group">
-                                <td className="p-4 text-slate-400 font-mono text-sm">#{server.id}</td>
-                                <td className="p-4 font-bold text-slate-700 flex items-center gap-2"><Server size={16} className="text-indigo-600" />{server.name}</td>
-                                <td className="p-4 text-slate-600 text-sm font-mono">{server.ip_address || '—'}</td>
-                                <td className="p-4 text-center">
-                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${server.camera_count > 0 ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
-                                        {server.camera_count || 0} ตัว
+                {/* แผนผังโรงงาน — ลากเพื่อเรียงลำดับ (จึงไม่มีการเรียงคอลัมน์/แบ่งหน้า) */}
+                {activeTab === 'factory-layouts' && (
+                    <MgmtSection title="แผนผังโรงงาน" count={factoryLayouts.length} subtitle={pFactoryLayouts.edit ? 'ลากแถวเพื่อเรียงลำดับการแสดงผล (บนจอคอม)' : 'แผนผังที่ใช้ในหน้า Devices Layout และ CCTV'}
+                        actions={pFactoryLayouts.create && <PrimaryButton icon={Plus} onClick={() => { setEditingFactoryLayout(null); setFactoryLayoutForm({ name: '', image_url: '', width: 1920, height: 1080 }); setSelectedFile(null); setIsAddFactoryLayoutOpen(true); }}>เพิ่มแผนผัง</PrimaryButton>}>
+                        <MgmtTable
+                            {...searchProps} rows={factoryLayouts} rowKey={l => l.id} sortable={false} pageSize={Infinity} minWidth={640}
+                            searchText={l => l.name} searchPlaceholder="ค้นหาชื่อแผนผัง…" emptyText="ยังไม่มีแผนผัง"
+                            rowProps={(layout, index) => ({
+                                draggable: pFactoryLayouts.edit,
+                                onDragStart: () => handleDragStart(index),
+                                onDragOver: (e) => handleDragOver(e, index),
+                                onDragLeave: handleDragLeave,
+                                onDrop: () => handleDrop(index),
+                            })}
+                            rowClassName={(l, index) => `${pFactoryLayouts.edit ? 'cursor-grab active:cursor-grabbing' : ''} ${dragOverIndex === index ? 'bg-indigo-50 border-t-2 border-indigo-400' : ''}`}
+                            columns={[
+                                ...(pFactoryLayouts.edit ? [{ key: 'drag', label: '', mobileHidden: true, render: () => (
+                                    <span className="flex items-center justify-center text-slate-300" aria-hidden="true">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>
                                     </span>
-                                </td>
-                                <td className="p-4 text-slate-600 text-sm">{server.created_by || '—'}</td>
-                                <td className="p-4 text-slate-500 text-sm">{server.created_at ? new Date(server.created_at).toLocaleDateString('th-TH') : '—'}</td>
-                                <td className="p-4 text-right">
-                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        {pRecordServers.edit && <button onClick={() => { setEditingRecordServer(server); setRecordServerForm({ name: server.name, ip_address: server.ip_address || '' }); setIsRecordServerFormOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"><Edit2 size={16} /></button>}
-                                        {pRecordServers.del && <button onClick={() => handleDeleteRecordServer(server.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>}
-                                    </div>
-                                </td>
-                            </tr>
-                        ))
-                    ) : (
-                        <tr>
-                            <td colSpan="7" className="p-12 text-center text-slate-400">ยังไม่มี Record Server</td>
-                        </tr>
-                    )}
-                </tbody>
-            </table>
-        </div>
-    </div>
-)}
+                                ) }] : []),
+                                { key: 'name', label: 'ชื่อแผนผัง', primary: true, render: l => <span className="font-bold text-slate-700 flex items-center gap-2"><Map size={16} className="text-teal-600 shrink-0" />{l.name}</span> },
+                                { key: 'img', label: 'ไฟล์ภาพ', render: l => <span className="text-slate-500 font-mono text-[11px] block max-w-xs truncate" title={l.image_url}>{l.image_url}</span> },
+                                { key: 'size', label: 'ขนาด', render: l => <span className="font-mono text-slate-600">{l.width}×{l.height}</span> },
+                                { key: 'act', label: 'จัดการ', actions: true, render: l => <RowActions
+                                    onEdit={pFactoryLayouts.edit ? () => { setEditingFactoryLayout(l); setFactoryLayoutForm({ name: l.name, image_url: l.image_url, width: l.width || 1920, height: l.height || 1080 }); setSelectedFile(null); setIsAddFactoryLayoutOpen(true); } : undefined}
+                                    onDelete={pFactoryLayouts.del ? () => handleDeleteFactoryLayout(l.id) : undefined} /> },
+                            ]}
+                        />
+                    </MgmtSection>
+                )}
 
-{/* ACTIVITY CATEGORIES TAB */}
-{activeTab === 'activity-categories' && (
-    <div className="space-y-6 animate-in fade-in duration-300">
-        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">ACTIVITY CATEGORIES</h3>
-                <p className="text-slate-500 text-xs">จัดการหมวดหมู่สำหรับ Activity Gallery (ใช้ในฟอร์มอัปโหลดรูปกิจกรรม)</p>
+                {/* Record Server (CCTV) */}
+                {activeTab === 'record-servers' && (
+                    <MgmtSection title="Record Server (CCTV)" count={recordServers.length} subtitle="Server ที่ใช้บันทึกภาพกล้อง สำหรับผูกกับกล้องแต่ละตัว · ลบได้เฉพาะ Server ที่ไม่มีกล้องผูกอยู่"
+                        actions={pRecordServers.create && <PrimaryButton icon={Plus} onClick={() => { setEditingRecordServer(null); setRecordServerForm({ name: '', ip_address: '' }); setIsRecordServerFormOpen(true); }}>เพิ่ม Record Server</PrimaryButton>}>
+                        <MgmtTable
+                            {...searchProps} rows={recordServers} rowKey={s => s.id} minWidth={720}
+                            searchText={s => `${s.name} ${s.ip_address || ''}`} searchPlaceholder="ค้นหาชื่อหรือ IP…" emptyText="ยังไม่มี Record Server"
+                            columns={[
+                                { key: 'name', label: 'ชื่อ Server', primary: true, sortValue: s => s.name, render: s => <span className="font-bold text-slate-700 flex items-center gap-2"><Server size={16} className="text-indigo-600 shrink-0" />{s.name}</span> },
+                                { key: 'ip', label: 'IP Address', sortValue: s => s.ip_address, render: s => <span className="font-mono text-slate-600">{s.ip_address || '—'}</span> },
+                                { key: 'cams', label: 'กล้อง', align: 'center', sortValue: s => s.camera_count || 0, render: s => (
+                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${s.camera_count > 0 ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>{s.camera_count || 0} ตัว</span>
+                                ) },
+                                { key: 'by', label: 'สร้างโดย', sortValue: s => s.created_by, render: s => <span className="text-slate-600">{s.created_by || '—'}</span> },
+                                { key: 'at', label: 'วันที่สร้าง', mobileHidden: true, sortValue: s => s.created_at || '', render: s => <span className="text-slate-500">{s.created_at ? new Date(s.created_at).toLocaleDateString('th-TH') : '—'}</span> },
+                                { key: 'act', label: 'จัดการ', actions: true, render: s => <RowActions
+                                    onEdit={pRecordServers.edit ? () => { setEditingRecordServer(s); setRecordServerForm({ name: s.name, ip_address: s.ip_address || '' }); setIsRecordServerFormOpen(true); } : undefined}
+                                    onDelete={pRecordServers.del ? () => handleDeleteRecordServer(s.id) : undefined} /> },
+                            ]}
+                        />
+                    </MgmtSection>
+                )}
+
+                {/* หมวดกิจกรรม */}
+                {activeTab === 'activity-categories' && (
+                    <MgmtSection title="หมวดกิจกรรม" count={activityCategories.length} subtitle="หมวดหมู่ของ Activity Gallery (ใช้ในฟอร์มอัปโหลดรูปกิจกรรม)"
+                        actions={pActivityCategories.create && <PrimaryButton icon={Plus} onClick={() => { setEditingActivityCategory(null); setActivityCategoryForm({ CategoryCode: '', Label: '', ColorHex: '#64748B', SortOrder: activityCategories.length + 1 }); setIsAddActivityCategoryOpen(true); }}>เพิ่มหมวด</PrimaryButton>}>
+                        <MgmtTable
+                            {...searchProps} rows={activityCategories} rowKey={c => c.CategoryCode} minWidth={520}
+                            searchText={c => `${c.Label} ${c.CategoryCode}`} searchPlaceholder="ค้นหาหมวดกิจกรรม…" emptyText="ยังไม่มีหมวดกิจกรรม"
+                            columns={[
+                                { key: 'label', label: 'หมวด', primary: true, sortValue: c => c.Label, render: c => (
+                                    <span className="font-bold text-slate-700 flex items-center gap-2">
+                                        <span className="inline-block w-4 h-4 rounded-full border border-slate-200 shrink-0" style={{ backgroundColor: c.ColorHex }} aria-hidden="true" />{c.Label}
+                                    </span>
+                                ) },
+                                { key: 'code', label: 'รหัส', sortValue: c => c.CategoryCode, render: c => <span className="font-mono font-bold text-slate-500">{c.CategoryCode}</span> },
+                                { key: 'order', label: 'ลำดับ', align: 'right', sortValue: c => Number(c.SortOrder) || 0, render: c => <span className="tabular-nums text-slate-500">{c.SortOrder}</span> },
+                                { key: 'act', label: 'จัดการ', actions: true, render: c => <RowActions
+                                    onEdit={pActivityCategories.edit ? () => { setEditingActivityCategory(c); setActivityCategoryForm({ CategoryCode: c.CategoryCode, Label: c.Label, ColorHex: c.ColorHex, SortOrder: c.SortOrder }); setIsAddActivityCategoryOpen(true); } : undefined}
+                                    onDelete={pActivityCategories.del ? () => handleDeleteActivityCategory(c.CategoryCode) : undefined} /> },
+                            ]}
+                        />
+                    </MgmtSection>
+                )}
             </div>
-            {pActivityCategories.create && <button
-                onClick={() => { setEditingActivityCategory(null); setActivityCategoryForm({ CategoryCode: '', Label: '', ColorHex: '#64748B', SortOrder: activityCategories.length + 1 }); setIsAddActivityCategoryOpen(true); }}
-                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-105"
-            >
-                <Plus size={18} />
-                เพิ่มหมวดหมู่
-            </button>}
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto shadow-sm">
-            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[600px]">
-                <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
-                        <th className="p-4 font-bold">สี</th>
-                        <th className="p-4 font-bold">Code</th>
-                        <th className="p-4 font-bold">Label</th>
-                        <th className="p-4 font-bold">ลำดับ</th>
-                        <th className="p-4 font-bold text-right">จัดการ</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                    {activityCategories.filter(c => c.Label.toLowerCase().includes(searchTerm.toLowerCase())).length > 0 ? (
-                        activityCategories.filter(c => c.Label.toLowerCase().includes(searchTerm.toLowerCase())).map(cat => (
-                            <tr key={cat.CategoryCode} className="hover:bg-slate-50 transition-colors group">
-                                <td className="p-4">
-                                    <span className="inline-block w-6 h-6 rounded-full border border-slate-200" style={{ backgroundColor: cat.ColorHex }}></span>
-                                </td>
-                                <td className="p-4 text-slate-400 font-mono text-sm font-bold">{cat.CategoryCode}</td>
-                                <td className="p-4 font-bold text-slate-700">{cat.Label}</td>
-                                <td className="p-4 text-slate-500 text-sm">{cat.SortOrder}</td>
-                                <td className="p-4 text-right">
-                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        {pActivityCategories.edit && <button
-                                            onClick={() => { setEditingActivityCategory(cat); setActivityCategoryForm({ CategoryCode: cat.CategoryCode, Label: cat.Label, ColorHex: cat.ColorHex, SortOrder: cat.SortOrder }); setIsAddActivityCategoryOpen(true); }}
-                                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                                        >
-                                            <Edit2 size={16} />
-                                        </button>}
-                                        {pActivityCategories.del && <button
-                                            onClick={() => handleDeleteActivityCategory(cat.CategoryCode)}
-                                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>}
-                                    </div>
-                                </td>
-                            </tr>
-                        ))
-                    ) : (
-                        <tr>
-                            <td colSpan="5" className="p-12 text-center text-slate-400">No categories found</td>
-                        </tr>
-                    )}
-                </tbody>
-            </table>
-        </div>
-    </div>
-)}
             </div>
 
 

@@ -33,7 +33,9 @@ export default function ManagementTypeHelp() {
     const r = ref.current?.getBoundingClientRect();
     if (!r) return;
     const w = Math.min(352, window.innerWidth - 32);
-    const left = Math.max(16, Math.min(r.right - w, window.innerWidth - w - 16));
+    // เปิดไปทางขวาของปุ่มถ้ามีที่ ไม่งั้นชิดขวาของปุ่ม (บีบให้อยู่ในจอเสมอ)
+    const preferred = r.left + w <= window.innerWidth - 16 ? r.left : r.right - w;
+    const left = Math.max(16, Math.min(preferred, window.innerWidth - w - 16));
     setPos({ top: r.bottom + 8, left, width: w });
   };
 
