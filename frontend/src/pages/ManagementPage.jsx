@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks , ShieldCheck, ClipboardList } from 'lucide-react';
+import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks , ShieldCheck, ClipboardList, Crown, Activity, Moon, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../context/PermissionContext';
 import { useData } from '../context/DataContext';
 import Portal from '../components/Portal';
 import AlertModal from '../components/AlertModal';
-import PermissionEditorModal, { PermissionLogModal, PermissionHoldersModal } from '../components/PermissionEditorModal';
+import PermissionEditorModal, { PermissionLogModal, PermissionHoldersModal, loadCatalog } from '../components/PermissionEditorModal';
 import { API_BASE, API_URL } from '../config/api';
 import { getBadgeStyle, getDeviceTypeColor, getChartColor } from '../utils/styleHelpers';
 import DeviceTypeManagementTab from '../components/DeviceTypeManagementTab';
@@ -35,6 +35,75 @@ const UserAvatar = ({ pic, empCode, name, size = 36 }) => {
             className="shrink-0 rounded-lg object-cover bg-slate-100 ring-1 ring-slate-200" />
     );
 };
+
+// ── ส่วนประกอบของแท็บ "ผู้ใช้" ──
+const MIN = 60 * 1000, HOUR = 60 * MIN, DAY = 24 * HOUR;
+const msSince = (d) => { const t = d ? new Date(d).getTime() : NaN; return Number.isNaN(t) ? Infinity : Date.now() - t; };
+const relTime = (d) => {
+    const ms = msSince(d);
+    if (ms === Infinity) return 'ยังไม่เคย';
+    if (ms < MIN) return 'เมื่อสักครู่';
+    if (ms < HOUR) return `${Math.floor(ms / MIN)} นาทีที่แล้ว`;
+    if (ms < DAY) return `${Math.floor(ms / HOUR)} ชม.ที่แล้ว`;
+    if (ms < 30 * DAY) return `${Math.floor(ms / DAY)} วันที่แล้ว`;
+    if (ms < 365 * DAY) return `${Math.floor(ms / (30 * DAY))} เดือนที่แล้ว`;
+    return `${Math.floor(ms / (365 * DAY))} ปีที่แล้ว`;
+};
+// สีจุดตามความสดของการเข้าระบบ
+const recency = (d) => {
+    const ms = msSince(d);
+    if (ms < HOUR) return { dot: 'bg-emerald-500', ping: true, label: 'เพิ่งใช้งาน' };
+    if (ms < DAY) return { dot: 'bg-emerald-400', label: 'เข้าวันนี้' };
+    if (ms < 7 * DAY) return { dot: 'bg-amber-400', label: 'ภายใน 7 วัน' };
+    return { dot: 'bg-slate-300', label: 'ไม่ได้เข้านาน' };
+};
+const SECT_COLORS = ['bg-sky-50 text-sky-700 ring-sky-100', 'bg-emerald-50 text-emerald-700 ring-emerald-100', 'bg-amber-50 text-amber-700 ring-amber-100',
+    'bg-rose-50 text-rose-700 ring-rose-100', 'bg-teal-50 text-teal-700 ring-teal-100', 'bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-100', 'bg-indigo-50 text-indigo-700 ring-indigo-100'];
+const sectColor = (s = '') => SECT_COLORS[[...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % SECT_COLORS.length];
+
+const USER_FILTERS = [
+    { id: 'all', label: 'ผู้ใช้ทั้งหมด', icon: Users, tone: 'from-indigo-500 to-violet-500', test: () => true },
+    { id: 'admin', label: 'Admin', icon: Crown, tone: 'from-violet-500 to-fuchsia-500', test: (u) => u.Role === 'Admin' },
+    { id: 'today', label: 'เข้าใช้วันนี้', icon: Activity, tone: 'from-emerald-500 to-teal-500', test: (u) => msSince(u.LastLoginAt) < DAY },
+    { id: 'idle', label: 'ไม่ได้เข้า 30 วัน+', icon: Moon, tone: 'from-slate-400 to-slate-500', test: (u) => msSince(u.LastLoginAt) >= 30 * DAY },
+];
+
+const UserStatCard = ({ f, count, total, active, onClick }) => (
+    <motion.button type="button" onClick={onClick} whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} aria-pressed={active}
+        className={`relative overflow-hidden text-left p-3.5 rounded-2xl border transition-colors ${active ? 'border-indigo-300 bg-indigo-50/60 ring-2 ring-indigo-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+        <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${f.tone} text-white flex items-center justify-center shadow-sm shrink-0`}>
+                <f.icon size={18} />
+            </div>
+            <div className="min-w-0">
+                <div className="text-2xl font-black text-slate-800 leading-none tabular-nums">{count}</div>
+                <div className="text-[11px] font-bold text-slate-500 mt-1 truncate">{f.label}</div>
+            </div>
+        </div>
+        {f.id !== 'all' && total > 0 && (
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-100">
+                <motion.div className={`h-full bg-gradient-to-r ${f.tone}`} initial={{ width: 0 }} animate={{ width: `${(count / total) * 100}%` }} transition={{ duration: 0.6 }} />
+            </div>
+        )}
+    </motion.button>
+);
+
+// สลับบทบาท Staff / Admin แบบปุ่มคู่ (ยังถามยืนยันก่อนเปลี่ยนเหมือนเดิม)
+const RoleToggle = ({ u, disabled, onChange }) => (
+    <div className={`inline-flex p-0.5 rounded-xl bg-slate-100 ${disabled ? 'opacity-50' : ''}`} role="radiogroup" aria-label={`บทบาทของ ${u.Name || u.Username}`}>
+        {['Staff', 'Admin'].map((r) => {
+            const on = u.Role === r;
+            return (
+                <button key={r} type="button" role="radio" aria-checked={on} disabled={disabled} onClick={() => !on && onChange(r)}
+                    className={`relative px-2.5 h-7 rounded-lg text-xs font-bold transition-colors ${on ? (r === 'Admin' ? 'text-white' : 'text-slate-700') : 'text-slate-400 hover:text-slate-600'}`}>
+                    {on && <motion.span layoutId={`role-${u.ID}`} transition={{ type: 'spring', stiffness: 500, damping: 36 }}
+                        className={`absolute inset-0 rounded-lg shadow-sm ${r === 'Admin' ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600' : 'bg-white'}`} />}
+                    <span className="relative flex items-center gap-1">{r === 'Admin' && <Shield size={11} />}{r}</span>
+                </button>
+            );
+        })}
+    </div>
+);
 
 // กลุ่มของเมนูซ้าย (ลำดับในกลุ่ม = ลำดับที่แสดง)
 const TAB_GROUPS = [
@@ -71,6 +140,16 @@ const ManagementPage = () => {
     const [permTarget, setPermTarget] = useState(undefined);
     const [showPermLog, setShowPermLog] = useState(false);
     const [showHolders, setShowHolders] = useState(false);
+    const [userFilter, setUserFilter] = useState('all');
+    // memo: MgmtTable กลับไปหน้า 1 ทุกครั้งที่ rows เปลี่ยน identity
+    const filteredStockUsers = useMemo(
+        () => stockUsers.filter((USER_FILTERS.find((f) => f.id === userFilter) || USER_FILTERS[0]).test),
+        [stockUsers, userFilter],
+    );
+    const [permTotal, setPermTotal] = useState(0); // จำนวนสิทธิ์ทั้งหมดในระบบ (ใช้วาดแถบความคืบหน้าในคอลัมน์ "สิทธิ์")
+    useEffect(() => {
+        loadCatalog().then((c) => setPermTotal(c.pages.reduce((n, p) => n + p.actions.length, 0))).catch(() => {});
+    }, []);
     // Role and per-tab permissions come from the server (database); fall back to the token role only if
     // the permission lookup failed, so the page can still open (the backend decides every action anyway).
     const { ready: permReady, isAdmin: permIsAdmin, can } = usePermissions();
@@ -941,49 +1020,111 @@ const handleFileSelect = (e) => {
                             <SecondaryButton icon={ShieldCheck} onClick={() => setShowHolders(true)} title="เลือกหน้าและสิทธิ์ เพื่อดูว่าใครมีสิทธิ์นั้นบ้าง">ใครมีสิทธิ์นี้</SecondaryButton>
                         </>}
                     >
+                        {/* การ์ดสรุป = ตัวกรองไปด้วย */}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                            {USER_FILTERS.map((f) => (
+                                <UserStatCard key={f.id} f={f} count={stockUsers.filter(f.test).length} total={stockUsers.length}
+                                    active={userFilter === f.id} onClick={() => setUserFilter(userFilter === f.id ? 'all' : f.id)} />
+                            ))}
+                        </div>
                         <MgmtTable
-                            {...searchProps} loading={isLoadingUsers} rows={stockUsers} rowKey={u => u.ID} minWidth={860}
+                            {...searchProps} loading={isLoadingUsers}
+                            rows={filteredStockUsers}
+                            rowKey={u => u.ID} minWidth={900}
+                            defaultSort={{ key: 'last', dir: 'desc' }}
                             searchText={u => [u.EmpCode, u.Username, u.Name, u.Sect, u.Role].join(' ')}
-                            searchPlaceholder="ค้นหาชื่อ, รหัสพนักงาน, username, แผนก…" emptyText="ยังไม่มีผู้ใช้"
+                            searchPlaceholder="ค้นหาชื่อ, รหัสพนักงาน, username, แผนก…"
+                            emptyText={userFilter === 'all' ? 'ยังไม่มีผู้ใช้' : 'ไม่มีผู้ใช้ในกลุ่มนี้'}
+                            toolbar={userFilter !== 'all' && (
+                                <button type="button" onClick={() => setUserFilter('all')}
+                                    className="inline-flex items-center gap-1.5 h-8 pl-3 pr-2 rounded-full bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 transition-colors">
+                                    {USER_FILTERS.find((f) => f.id === userFilter)?.label} <X size={13} />
+                                </button>
+                            )}
                             columns={[
                                 { key: 'name', label: 'ผู้ใช้', primary: true, sortValue: u => u.Name || u.Username, render: u => {
                                     const isSelf = String(u.EmpCode) === String(user?.empcode);
+                                    const rc = recency(u.LastLoginAt);
+                                    const isAdm = u.Role === 'Admin';
                                     return (
                                         <div className="flex items-center gap-3">
-                                            <UserAvatar pic={u.EmpPic} empCode={u.EmpCode} name={u.Name || u.Username} size={36} />
+                                            <div className="relative shrink-0" title={rc.label}>
+                                                <div className={`rounded-xl p-[2px] ${isAdm ? 'bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-400' : 'bg-slate-100'}`}>
+                                                    <div className="rounded-[10px] bg-white p-[1px]">
+                                                        <UserAvatar pic={u.EmpPic} empCode={u.EmpCode} name={u.Name || u.Username} size={38} />
+                                                    </div>
+                                                </div>
+                                                <span className="absolute -bottom-0.5 -right-0.5 flex w-3 h-3">
+                                                    {rc.ping && <span className={`absolute inline-flex h-full w-full rounded-full ${rc.dot} opacity-60 animate-ping`} />}
+                                                    <span className={`relative inline-flex w-3 h-3 rounded-full ring-2 ring-white ${rc.dot}`} />
+                                                </span>
+                                            </div>
                                             <div className="min-w-0">
-                                                <div className="font-bold text-slate-700 truncate">{u.Name || '-'} {isSelf && <span className="ml-1 text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">คุณ</span>}</div>
+                                                <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
+                                                    {u.Name || '-'}
+                                                    {isSelf && <span className="text-[10px] font-bold text-white bg-gradient-to-r from-indigo-500 to-violet-500 px-1.5 py-0.5 rounded-md">คุณ</span>}
+                                                </div>
                                                 <div className="text-[11px] text-slate-400 font-medium">{u.Username || '-'}</div>
                                             </div>
                                         </div>
                                     );
                                 } },
-                                { key: 'emp', label: 'รหัสพนักงาน', sortValue: u => u.EmpCode, render: u => <span className="font-mono text-slate-600">{u.EmpCode}</span> },
-                                { key: 'sect', label: 'แผนก', sortValue: u => u.Sect, render: u => <span className="text-slate-600">{u.Sect || '-'}</span> },
+                                { key: 'emp', label: 'รหัสพนักงาน', sortValue: u => u.EmpCode, render: u => <span className="font-mono text-xs text-slate-500 bg-slate-50 px-2 py-1 rounded-md">{u.EmpCode}</span> },
+                                { key: 'sect', label: 'แผนก', sortValue: u => u.Sect, render: u => (u.Sect
+                                    ? <span className={`inline-block px-2 py-0.5 rounded-md text-[11px] font-bold ring-1 ${sectColor(u.Sect)}`}>{u.Sect}</span>
+                                    : <span className="text-slate-300">-</span>) },
                                 { key: 'role', label: 'บทบาท', sortValue: u => u.Role, render: u => {
                                     const canEdit = isAdminUser && String(u.EmpCode) !== String(user?.empcode);
                                     return canEdit ? (
-                                        <select value={u.Role} disabled={savingRoleId === u.ID} onChange={(e) => handleChangeRole(u, e.target.value)} aria-label={`บทบาทของ ${u.Name || u.Username}`}
-                                            className="px-2 py-1 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-500 disabled:opacity-50">
-                                            <option value="Staff">Staff</option>
-                                            <option value="Admin">Admin</option>
-                                        </select>
+                                        <RoleToggle u={u} disabled={savingRoleId === u.ID} onChange={(r) => handleChangeRole(u, r)} />
                                     ) : (
-                                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold ${u.Role === 'Admin' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
+                                        <span className={`inline-flex items-center gap-1 px-2.5 h-7 rounded-xl text-xs font-bold ${u.Role === 'Admin' ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-sm shadow-violet-200' : 'bg-slate-100 text-slate-600'}`}>
                                             {u.Role === 'Admin' && <Shield size={12} />}{u.Role}
                                         </span>
                                     );
                                 } },
-                                { key: 'perm', label: 'สิทธิ์', sortValue: u => (u.Role === 'Admin' ? 1e9 : u.PermCount ?? 0), render: u => (
-                                    u.Role === 'Admin' ? <span className="text-xs font-bold text-violet-600">ทุกสิทธิ์</span>
-                                        : isAdminUser ? (
-                                            <button type="button" onClick={() => setPermTarget(u)} className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
-                                                <KeyRound size={12} /> ตั้งสิทธิ์ <span className="text-slate-400 font-medium">({u.PermCount ?? 0})</span>
-                                            </button>
-                                        ) : <span className="text-xs text-slate-500">{u.PermCount ?? 0} สิทธิ์</span>
+                                { key: 'perm', label: 'สิทธิ์', sortValue: u => (u.Role === 'Admin' ? 1e9 : u.PermCount ?? 0), render: u => {
+                                    if (u.Role === 'Admin') {
+                                        return (
+                                            <span className="inline-flex items-center gap-1 text-xs font-black bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">
+                                                <Sparkles size={13} className="text-fuchsia-500" /> ทุกสิทธิ์
+                                            </span>
+                                        );
+                                    }
+                                    const n = u.PermCount ?? 0;
+                                    const pct = permTotal ? Math.min(100, Math.round((n / permTotal) * 100)) : 0;
+                                    const body = (
+                                        <>
+                                            <div className="flex items-center gap-1.5 text-xs font-bold">
+                                                <KeyRound size={12} className="text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                                                <span className="text-slate-700 tabular-nums">{n}</span>
+                                                {permTotal > 0 && <span className="text-slate-300 tabular-nums">/ {permTotal}</span>}
+                                                {isAdminUser && <span className="ml-auto text-[10px] text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">ตั้งสิทธิ์ →</span>}
+                                            </div>
+                                            {permTotal > 0 && (
+                                                <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                                    <motion.div className={`h-full rounded-full bg-gradient-to-r ${n === 0 ? 'from-rose-400 to-rose-400' : 'from-indigo-500 to-violet-500'}`}
+                                                        initial={{ width: 0 }} animate={{ width: `${Math.max(pct, n ? 4 : 0)}%` }} transition={{ duration: 0.6, ease: 'easeOut' }} />
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                    return isAdminUser ? (
+                                        <button type="button" onClick={() => setPermTarget(u)} title="คลิกเพื่อตั้งสิทธิ์"
+                                            className="group w-36 text-left px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/50 hover:shadow-sm transition-all">
+                                            {body}
+                                        </button>
+                                    ) : <div className="w-36">{body}</div>;
+                                } },
+                                { key: 'last', label: 'เข้าระบบล่าสุด', sortValue: u => u.LastLoginAt || '', render: u => (
+                                    <div className="whitespace-nowrap" title={formatDbDate(u.LastLoginAt)}>
+                                        <div className="text-sm font-bold text-slate-700">{relTime(u.LastLoginAt)}</div>
+                                        <div className="font-mono text-[11px] text-slate-400">{formatDbDate(u.LastLoginAt)}</div>
+                                    </div>
                                 ) },
-                                { key: 'last', label: 'เข้าระบบล่าสุด', sortValue: u => u.LastLoginAt || '', render: u => <span className="font-mono text-slate-600 whitespace-nowrap">{formatDbDate(u.LastLoginAt)}</span> },
-                                { key: 'first', label: 'เข้าครั้งแรก', mobileHidden: true, sortValue: u => u.FirstLoginAt || '', render: u => <span className="font-mono text-slate-400 whitespace-nowrap">{formatDbDate(u.FirstLoginAt)}</span> },
+                                { key: 'first', label: 'เข้าครั้งแรก', mobileHidden: true, sortValue: u => u.FirstLoginAt || '', render: u => (
+                                    <span className="font-mono text-xs text-slate-400 whitespace-nowrap" title={relTime(u.FirstLoginAt)}>{formatDbDate(u.FirstLoginAt).slice(0, 10)}</span>
+                                ) },
                             ]}
                         />
                     </MgmtSection>
