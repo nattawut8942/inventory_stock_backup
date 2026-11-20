@@ -85,8 +85,8 @@ export function MgmtTable({
     groupBy, renderGroup, rowProps, rowClassName, toolbar, minWidth = 640, dense = false,
 }) {
     // dense: แถวเตี้ย ตัวอักษรเล็ก (ใช้กับตารางประวัติที่มีหลายแถว)
-    const thPad = dense ? 'px-3 py-2' : 'px-4 py-3';
-    const tdPad = dense ? 'px-3 py-1.5 text-xs' : 'px-4 py-3 text-sm';
+    const thPad = dense ? 'px-4 py-2.5' : 'px-4 py-3';
+    const tdPad = dense ? 'px-4 py-2.5 text-xs' : 'px-4 py-3 text-sm';
     const [internalQ, setInternalQ] = useState('');
     const q = search !== undefined ? search : internalQ;
     const setQ = onSearch || setInternalQ;
