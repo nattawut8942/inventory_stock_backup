@@ -16,6 +16,7 @@ import { API_BASE, API_URL } from '../config/api';
 import StockCountPage from './StockCountPage';
 import StockReportView from '../components/StockReportView';
 import EmployeeCodeModal from '../components/EmployeeCodeModal';
+import ManagementTypeHelp from '../components/ManagementTypeHelp';
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
 
@@ -1041,6 +1042,7 @@ const handleFileUpload = async (file) => {
               <option value="all">ทุกการจัดการ</option>
               {MANAGEMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
+            <ManagementTypeHelp />
             <button onClick={() => setShowLowStock(!showLowStock)} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all font-bold text-sm ${showLowStock ? 'bg-red-50 text-red-600 border-red-200 shadow-sm ring-2 ring-red-100' : 'bg-white text-slate-500 border-slate-200 hover:text-red-500 hover:border-red-200'}`}>
               <AlertTriangle size={16} className={showLowStock ? 'fill-current' : ''} />
               <span>สต็อกต่ำ</span>
