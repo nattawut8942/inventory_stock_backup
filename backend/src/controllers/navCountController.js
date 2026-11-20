@@ -86,9 +86,11 @@ export const getNavCounts = async (req, res) => {
               AND Current_Status NOT IN ('Completed', 'Rejected', 'Cancel')`)),
 
         // อุปกรณ์เสียง (Sound Engineering) ที่ ping ไม่เจอ — ตรงกับนิยาม Offline ในหน้า Sound
+        // ไม่นับเครื่องที่ถอดชั่วคราว / ส่งซ่อม / ยกเลิกใช้งาน
         countOrNull(() => scalar(getSoundPool(), `
             SELECT COUNT(*) AS cnt FROM sound_devices
-            WHERE ping_status = 'Offline'`)),
+            WHERE ping_status = 'Offline'
+              AND ISNULL(usage_status, 'active') = 'active'`)),
     ]);
 
     res.json({

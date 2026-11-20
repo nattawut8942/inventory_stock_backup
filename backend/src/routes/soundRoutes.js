@@ -9,7 +9,7 @@ import { requirePerm } from '../middleware/permissionMiddleware.js';
 import {
   getDevices, getDevice, addDevice, editDevice, removeDevice,
   pingDevice, checkHttp, pingAll, checkAll,
-  updatePosition, getDeviceLogs,
+  updatePosition, getDeviceLogs, setUsageStatus,
 } from '../controllers/soundDeviceController.js';
 
 const router = express.Router();
@@ -20,6 +20,9 @@ router.get   ('/devices/:id',           getDevice);
 router.post  ('/devices', requirePerm('sound-layout', 'create'),               addDevice);
 router.put   ('/devices/:id', requirePerm('sound-layout', 'edit'),           editDevice);
 router.delete('/devices/:id', requirePerm('sound-layout', 'delete'),           removeDevice);
+
+// Usage status (ใช้งานอยู่ / ถอดชั่วคราว / ส่งซ่อม / ยกเลิกใช้งาน)
+router.put   ('/devices/:id/usage', requirePerm('sound-layout', 'edit'),     setUsageStatus);
 
 // Canvas Position
 router.put   ('/devices/:id/position', requirePerm('sound-layout', 'edit'),  updatePosition);

@@ -6,12 +6,39 @@
 import sql from 'mssql';
 import { getSoundPool } from '../config/soundDb.js';
 
+// ─── SCHEMA ───────────────────────────────────────────────────
+
+// สถานะการใช้งาน (แยกจากผล ping/http)
+export const USAGE_STATUSES = ['active', 'removed', 'repair', 'retired'];
+
+// เพิ่มคอลัมน์ usage_* ถ้ายังไม่มี (เหมือน migrations/2026-11-20_sound_usage_status.sql)
+export async function ensureSoundSchema() {
+  const p = getSoundPool();
+  await p.request().batch(`
+    IF COL_LENGTH('dbo.sound_devices', 'usage_status') IS NULL
+      ALTER TABLE dbo.sound_devices ADD usage_status NVARCHAR(20) NOT NULL CONSTRAINT DF_sound_devices_usage_status DEFAULT 'active';
+    IF COL_LENGTH('dbo.sound_devices', 'usage_note') IS NULL
+      ALTER TABLE dbo.sound_devices ADD usage_note NVARCHAR(200) NULL;
+    IF COL_LENGTH('dbo.sound_devices', 'usage_changed_at') IS NULL
+      ALTER TABLE dbo.sound_devices ADD usage_changed_at DATETIME NULL;
+  `);
+}
+
 // ─── DEVICES ──────────────────────────────────────────────────
 
 export async function getAllDevices() {
   const p = getSoundPool();
   const result = await p.request().query(
     'SELECT * FROM sound_devices ORDER BY id'
+  );
+  return result.recordset;
+}
+
+// เฉพาะอุปกรณ์ที่ใช้งานอยู่ — ใช้กับ Ping/HTTP ทั้งหมด และ cron
+export async function getActiveDevices() {
+  const p = getSoundPool();
+  const result = await p.request().query(
+    "SELECT * FROM sound_devices WHERE ISNULL(usage_status, 'active') = 'active' ORDER BY id"
   );
   return result.recordset;
 }
@@ -58,6 +85,33 @@ export async function updateDevice(id, updates) {
     return `${f} = @${f}`;
   });
   await req.query(`UPDATE sound_devices SET ${setClauses.join(', ')} WHERE id = @id`);
+}
+
+// เปลี่ยนสถานะการใช้งาน + บันทึก log ถ้าสถานะเปลี่ยน
+export async function updateUsageStatus(id, usageStatus, usageNote = null) {
+  const p = getSoundPool();
+  const cur = await p.request()
+    .input('id', sql.Int, id)
+    .query('SELECT usage_status FROM sound_devices WHERE id = @id');
+  if (!cur.recordset[0]) return false;
+  const prev = cur.recordset[0].usage_status || 'active';
+
+  await p.request()
+    .input('id',           sql.Int,           id)
+    .input('usage_status', sql.NVarChar(20),  usageStatus)
+    .input('usage_note',   sql.NVarChar(200), usageNote || null)
+    .query(`
+      UPDATE sound_devices
+      SET usage_changed_at = CASE WHEN ISNULL(usage_status, 'active') <> @usage_status THEN GETDATE() ELSE usage_changed_at END,
+          usage_status     = @usage_status,
+          usage_note       = @usage_note
+      WHERE id = @id
+    `);
+
+  if (prev !== usageStatus) {
+    await _insertLog(id, prev, usageStatus, `Usage: ${prev} → ${usageStatus}${usageNote ? ` (${usageNote})` : ''}`);
+  }
+  return true;
 }
 
 export async function deleteDevice(id) {

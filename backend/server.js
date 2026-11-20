@@ -47,6 +47,7 @@ import { runAllSubnets } from './auto_scan.js';
 import itRequestRoutes from './src/routes/itRequestRoute.js';
 import soundRoutes from './src/routes/soundRoutes.js';
 import { connectSoundDB } from './src/config/soundDb.js';
+import { ensureSoundSchema } from './src/services/soundDatabaseService.js';
 import BorrowRoute from './src/routes/BorrowRoute.js';
 import kbRoutes from './src/routes/kbRoutes.js';
 import activityRoutes from './src/routes/activityRoutes.js';
@@ -158,6 +159,8 @@ const startServer = async () => {
         await connectWithRetry(connectItRequestDB, 'IT Request DB');
         await connectWithRetry(connectHrmDB, 'HRM DB');
         await connectWithRetry(connectSoundDB, 'Sound DB');
+        try { await ensureSoundSchema(); } // คอลัมน์ usage_status ของ sound_devices
+        catch (err) { console.error('[Sound DB] ensure schema failed:', err.message); }
 
         // ════════════════════════════════════════════════════════════════
         // ✅ ROUTES (AFTER MIDDLEWARE!)

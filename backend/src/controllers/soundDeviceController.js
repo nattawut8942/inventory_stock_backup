@@ -8,6 +8,7 @@ import {
   getAllDevices, getDeviceById, createDevice,
   updateDevice, deleteDevice, updatePingStatus, updateHttpStatus,
   updateDeviceStatus, updateDevicePosition, getStatusLogs,
+  getActiveDevices, updateUsageStatus, USAGE_STATUSES,
 } from '../services/soundDatabaseService.js';
 
 import { checkDeviceHealth } from '../services/soundHealthCheckService.js';
@@ -65,6 +66,20 @@ export async function removeDevice(req, res) {
   } catch (err) { res.status(500).json({ error: err.message }); }
 }
 
+// ─── USAGE STATUS → ใช้งานอยู่ / ถอดชั่วคราว / ส่งซ่อม / ยกเลิกใช้งาน ─
+
+export async function setUsageStatus(req, res) {
+  try {
+    const { usage_status, usage_note } = req.body;
+    if (!USAGE_STATUSES.includes(usage_status))
+      return res.status(400).json({ error: `usage_status must be one of: ${USAGE_STATUSES.join(', ')}` });
+    const note = typeof usage_note === 'string' ? usage_note.trim().slice(0, 200) : null;
+    const ok = await updateUsageStatus(parseInt(req.params.id), usage_status, note);
+    if (!ok) return res.status(404).json({ error: 'Device not found' });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
 // ─── PING ONLY → ping_status = Online / Offline ───────────────
 
 export async function pingDevice(req, res) {
@@ -112,7 +127,7 @@ export async function checkHttp(req, res) {
 
 export async function pingAll(req, res) {
   try {
-    const devices = await getAllDevices();
+    const devices = await getActiveDevices(); // ข้ามอุปกรณ์ที่ถอด/ส่งซ่อม/ยกเลิก
     const results = await Promise.all(
       devices.map(async d => {
         const r = await checkDeviceHealth(d.ip_address);
@@ -134,7 +149,7 @@ export async function pingAll(req, res) {
 
 export async function checkAll(req, res) {
   try {
-    const devices = await getAllDevices();
+    const devices = await getActiveDevices(); // ข้ามอุปกรณ์ที่ถอด/ส่งซ่อม/ยกเลิก
     const results = await Promise.all(
       devices.map(async d => {
         const r = await checkDeviceHealth(d.ip_address);

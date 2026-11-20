@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Activity, AlertCircle, CheckCircle2, XCircle,
   Network, X, Zap, RefreshCw, Plus, Edit2, Trash2, Wifi,
-  Server, CheckCircle
+  Server, CheckCircle, Archive
 } from 'lucide-react';
 import { API_BASE } from '../config/api.js';
 import Portal from '../components/Portal.jsx';
@@ -41,6 +41,28 @@ const StatusBadge = ({ status }) => {
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${c.bg} ${c.color} ${c.border}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${c.dot} ${c.dotAnim}`} />
       {c.label}
+    </span>
+  );
+};
+
+// ─── USAGE STATUS (สถานะการใช้งาน — แยกจากผล Ping/HTTP) ─────────
+// ไม่ใช่ active → ไม่ถูก Ping อัตโนมัติ, ไม่นับใน badge Sidebar และการ์ดสถิติ
+const USAGE = {
+  active:  { label:'ใช้งานอยู่',    desc:'ติดตั้งและใช้งานตามปกติ',            chip:'bg-emerald-50 text-emerald-700 border-emerald-200', dot:'bg-emerald-500', on:'bg-emerald-600 text-white border-emerald-600' },
+  removed: { label:'ถอดชั่วคราว',  desc:'ถอดออกชั่วคราว จะนำกลับมาติดตั้ง',   chip:'bg-amber-50 text-amber-700 border-amber-200',       dot:'bg-amber-500',   on:'bg-amber-500 text-white border-amber-500' },
+  repair:  { label:'ส่งซ่อม',       desc:'อยู่ระหว่างซ่อม / เคลม',             chip:'bg-violet-50 text-violet-700 border-violet-200',    dot:'bg-violet-500',  on:'bg-violet-600 text-white border-violet-600' },
+  retired: { label:'ยกเลิกใช้งาน', desc:'เลิกใช้ถาวร เก็บไว้เป็นประวัติ',       chip:'bg-slate-100 text-slate-500 border-slate-300',      dot:'bg-slate-400',   on:'bg-slate-600 text-white border-slate-600' },
+};
+const USAGE_KEYS = Object.keys(USAGE);
+const usageOf  = (d) => USAGE[d?.usage_status] ? d.usage_status : 'active';
+const isInUse  = (d) => usageOf(d) === 'active';
+
+const UsageBadge = ({ device }) => {
+  const u = USAGE[usageOf(device)];
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${u.chip}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${u.dot}`} />
+      {u.label}
     </span>
   );
 };
@@ -206,7 +228,63 @@ function DeviceModal({ device, switches, onClose, onSave }) {
 }
 
 // ─── DETAIL PANEL ─────────────────────────────────────────────
-function DetailPanel({ device, devices, onClose, onPing, onCheckHttp, onEdit, onDelete }) {
+function UsageSection({ device, onSetUsage }) {
+  const current = usageOf(device);
+  const [pick, setPick] = useState(current);
+  const [note, setNote] = useState(device.usage_note || '');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setPick(usageOf(device)); setNote(device.usage_note || ''); }, [device.id, device.usage_status, device.usage_note]);
+
+  const dirty = pick !== current || (note || '') !== (device.usage_note || '');
+  const save = async () => {
+    setSaving(true);
+    await onSetUsage(device.id, pick, pick === 'active' ? '' : note);
+    setSaving(false);
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">สถานะการใช้งาน</p>
+        {device.usage_changed_at && current !== 'active' && (
+          <p className="text-[10px] text-slate-400">ตั้งแต่ {new Date(device.usage_changed_at).toLocaleDateString('th-TH')}</p>
+        )}
+      </div>
+      {onSetUsage ? (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5" role="radiogroup" aria-label="สถานะการใช้งาน">
+            {USAGE_KEYS.map(k => (
+              <button key={k} type="button" role="radio" aria-checked={pick === k} onClick={() => setPick(k)}
+                title={USAGE[k].desc}
+                className={`py-1.5 rounded-lg text-[12px] font-bold border transition-colors
+                  ${pick === k ? USAGE[k].on : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}>
+                {USAGE[k].label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-400">{USAGE[pick].desc}</p>
+          {pick !== 'active' && (
+            <input value={note} onChange={e => setNote(e.target.value)} maxLength={200}
+              placeholder="หมายเหตุ เช่น ถอดไปใช้ห้องประชุม 3, ส่งซ่อมที่ร้าน..."
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"/>
+          )}
+          {dirty && (
+            <button type="button" onClick={save} disabled={saving} className={`w-full ${BTN_PRIMARY}`}>
+              {saving && <RefreshCw size={12} className="animate-spin"/>} บันทึกสถานะการใช้งาน
+            </button>
+          )}
+        </>
+      ) : (
+        <div className="space-y-1">
+          <UsageBadge device={device}/>
+          {device.usage_note && current !== 'active' && <p className="text-[12px] text-slate-500">{device.usage_note}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailPanel({ device, devices, onClose, onPing, onCheckHttp, onEdit, onDelete, onSetUsage }) {
   const [busy, setBusy] = useState(null);
   const sw = device.connected_switch_id ? devices?.find(d => d.id === device.connected_switch_id) : null;
   const tx = device.connected_tx_id     ? devices?.find(d => d.id === device.connected_tx_id)     : null;
@@ -237,7 +315,13 @@ function DetailPanel({ device, devices, onClose, onPing, onCheckHttp, onEdit, on
               </div>
             </div>
           </div>
-          <div className="p-5 space-y-4">
+          <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+            <UsageSection device={device} onSetUsage={onSetUsage}/>
+            {!isInUse(device) && (
+              <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                อุปกรณ์นี้ไม่ได้ใช้งาน — ระบบจะไม่ Ping อัตโนมัติและไม่นับใน badge แจ้งเตือน (ผลด้านล่างเป็นค่าตรวจครั้งล่าสุด)
+              </p>
+            )}
             <div className="flex items-center gap-2 flex-wrap">
               {[
                 { label:'Ping', status: device.ping_status||'Unknown' },
@@ -330,24 +414,29 @@ function DetailPanel({ device, devices, onClose, onPing, onCheckHttp, onEdit, on
 
 // ─── DEVICE NODE (การ์ดในแผนผัง) ───────────────────────────────
 function DeviceNode({ device, role, selected, onSelect }) {
-  const issue = device.ping_status === 'Offline' || device.http_status === 'Offline' || device.http_status === 'Device Error';
+  const inUse = isInUse(device);
+  const issue = inUse && (device.ping_status === 'Offline' || device.http_status === 'Offline' || device.http_status === 'Device Error');
   return (
     <button type="button" onClick={() => onSelect(device.id)}
-      className={`text-left w-full min-w-0 rounded-xl border bg-white px-3 py-2.5 shadow-sm transition-all hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+      className={`text-left w-full min-w-0 rounded-xl border px-3 py-2.5 shadow-sm transition-all hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400
+        ${inUse ? 'bg-white' : 'bg-slate-50 border-dashed opacity-75 hover:opacity-100'}
         ${selected ? 'ring-2 ring-indigo-400 border-indigo-300' : issue ? 'border-red-200' : 'border-slate-200'}`}>
       <div className="flex items-center justify-between gap-2 mb-1">
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${ROLE_STYLE[role]}`}>{role}</span>
-        <StatusBadge status={device.ping_status} />
+        {inUse ? <StatusBadge status={device.ping_status} /> : <UsageBadge device={device} />}
       </div>
-      <p className="font-semibold text-sm text-slate-800 truncate">{device.device_name}</p>
+      <p className={`font-semibold text-sm truncate ${inUse ? 'text-slate-800' : 'text-slate-500'}`}>{device.device_name}</p>
       <p className="font-mono text-[11px] text-slate-400 truncate">{device.ip_address}</p>
-      <div className="mt-1.5"><StatusBadge status={device.http_status} /></div>
+      <div className="mt-1.5">
+        {inUse ? <StatusBadge status={device.http_status} />
+          : <p className="text-[11px] text-slate-400 truncate">{device.usage_note || 'ไม่ตรวจสถานะอัตโนมัติ'}</p>}
+      </div>
     </button>
   );
 }
 
 // ─── TOPOLOGY VIEW (Switch → TX → RX) ─────────────────────────
-function TopologyView({ devices, onSelect, selectedId }) {
+function TopologyView({ devices, allDevices = devices, onSelect, selectedId }) {
   const isTx = d => d.device_type === 'NX-100' && d.device_subtype === 'Transmitter';
   const isRx = d => d.device_type === 'NX-100' && d.device_subtype === 'Receiver';
   const isSw = d => d.device_type === 'Network Switch';
@@ -359,14 +448,18 @@ function TopologyView({ devices, onSelect, selectedId }) {
 
   const rxByTx = {};
   const unassignedRx = [];
+  const hiddenTxRx   = []; // ผูกกับ TX แล้ว แต่ TX ไม่อยู่ในมุมมองนี้ (เช่น ดูแท็บ "ไม่ได้ใช้งาน")
   rxList.forEach(rx => {
     if (rx.connected_tx_id && txList.some(t => t.id === rx.connected_tx_id)) {
       if (!rxByTx[rx.connected_tx_id]) rxByTx[rx.connected_tx_id] = [];
       rxByTx[rx.connected_tx_id].push(rx);
+    } else if (rx.connected_tx_id && allDevices.some(t => t.id === rx.connected_tx_id)) {
+      hiddenTxRx.push(rx);
     } else {
       unassignedRx.push(rx);
     }
   });
+  const txName = (id) => allDevices.find(t => t.id === id)?.device_name || '-';
 
   const groups = switches.map(sw => ({
     sw,
@@ -430,6 +523,20 @@ function TopologyView({ devices, onSelect, selectedId }) {
         </div>
       )}
 
+      {hiddenTxRx.length > 0 && (
+        <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+          <p className="text-[12px] font-bold text-slate-500">RX ที่ TX ไม่ได้แสดงในมุมมองนี้ ({hiddenTxRx.length})</p>
+          <div className="flex flex-wrap gap-2">
+            {hiddenTxRx.map(rx => (
+              <div key={rx.id} className="w-full sm:w-56 space-y-1">
+                <DeviceNode device={rx} role="RX" selected={selectedId === rx.id} onSelect={onSelect} />
+                <p className="text-[10px] text-slate-400 pl-1">ต่อกับ {txName(rx.connected_tx_id)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {unassignedRx.length > 0 && (
         <div className="rounded-xl border border-amber-200 p-4 space-y-3">
           <p className="text-[12px] font-bold text-amber-700">RX ที่ยังไม่ได้ผูกกับ TX ({unassignedRx.length})</p>
@@ -454,7 +561,7 @@ function TopologyView({ devices, onSelect, selectedId }) {
                   <p className="text-[12px] font-semibold text-slate-700 truncate">{d.device_name}</p>
                   <p className="font-mono text-[10px] text-slate-400">{d.ip_address}</p>
                 </div>
-                <StatusBadge status={d.ping_status} />
+                {isInUse(d) ? <StatusBadge status={d.ping_status} /> : <UsageBadge device={d} />}
               </button>
             ))}
           </div>
@@ -482,6 +589,7 @@ function ListView({ devices, onSelect, selectedId }) {
               <th className="px-4 py-3">ประเภท</th>
               <th className="px-4 py-3">บทบาท</th>
               <th className="px-4 py-3">สถานที่</th>
+              <th className="px-4 py-3">การใช้งาน</th>
               <th className="px-4 py-3">Ping</th>
               <th className="px-4 py-3">HTTP</th>
               <th className="px-4 py-3 hidden md:table-cell">ตอบสนอง</th>
@@ -493,7 +601,7 @@ function ListView({ devices, onSelect, selectedId }) {
               <tr key={device.id} onClick={()=>onSelect(device.id)} tabIndex={0}
                 onKeyDown={e => { if (e.key === 'Enter') onSelect(device.id); }}
                 className={`cursor-pointer hover:bg-slate-50 transition-colors focus:outline-none focus-visible:bg-indigo-50
-                  ${selectedId===device.id?'bg-indigo-50/50':''}`}>
+                  ${selectedId===device.id?'bg-indigo-50/50':''} ${isInUse(device)?'':'opacity-60'}`}>
                 <td className="px-4 py-3 font-medium text-slate-900">{device.device_name}</td>
                 <td className="px-4 py-3 font-mono text-slate-600 text-[12px]">{device.ip_address}</td>
                 <td className="px-4 py-3 font-mono text-slate-500 text-[11px] hidden md:table-cell">{device.mac_address||'—'}</td>
@@ -507,6 +615,7 @@ function ListView({ devices, onSelect, selectedId }) {
                   ) : <span className="text-slate-300">—</span>}
                 </td>
                 <td className="px-4 py-3 text-slate-500">{device.location||'-'}</td>
+                <td className="px-4 py-3" title={device.usage_note || undefined}><UsageBadge device={device} /></td>
                 <td className="px-4 py-3"><StatusBadge status={device.ping_status} /></td>
                 <td className="px-4 py-3"><StatusBadge status={device.http_status} /></td>
                 <td className="px-4 py-3 text-slate-500 font-mono text-[11px] hidden md:table-cell">
@@ -543,6 +652,7 @@ export default function SoundLayout() {
   const [editDevice, setEditDevice] = useState(null);
   const [busyAll,    setBusyAll]    = useState(null);
   const [cardFilter, setCardFilter] = useState('all');
+  const [usageView,  setUsageView]  = useState('active'); // active | inactive | all
   const [alertModal, setAlertModal] = useState({ isOpen:false, type:'info', title:'', message:'' });
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -622,9 +732,23 @@ export default function SoundLayout() {
     } catch { setAlertModal({ isOpen:true, type:'error', title:'ตรวจ HTTP ไม่สำเร็จ', message:'ไม่สามารถเช็ค HTTP ได้', onConfirm:closeAlert }); }
   };
 
+  const handleSetUsage = async (id, usage_status, usage_note) => {
+    const device = devices.find(d=>d.id===id);
+    try {
+      const res  = await fetch(`${API}/devices/${id}/usage`, {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ usage_status, usage_note }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'บันทึกไม่สำเร็จ');
+      showToast(`${device?.device_name || 'อุปกรณ์'} → ${USAGE[usage_status].label}`, 'success');
+      fetchDevices();
+    } catch(err) { setAlertModal({ isOpen:true, type:'error', title:'เปลี่ยนสถานะไม่สำเร็จ', message:err.message, onConfirm:closeAlert }); }
+  };
+
   const handlePingAll = async () => {
     setBusyAll('ping');
-    showToast(`กำลัง Ping ${devices.length} เครื่อง...`, 'info');
+    showToast(`กำลัง Ping ${devices.filter(isInUse).length} เครื่องที่ใช้งานอยู่...`, 'info');
     try {
       const res  = await fetch(`${API}/devices/ping-all`, {method:'POST'});
       const data = await res.json();
@@ -636,7 +760,7 @@ export default function SoundLayout() {
 
   const handleCheckAll = async () => {
     setBusyAll('http');
-    showToast(`กำลังตรวจ HTTP ${devices.length} เครื่อง...`, 'info');
+    showToast(`กำลังตรวจ HTTP ${devices.filter(isInUse).length} เครื่องที่ใช้งานอยู่...`, 'info');
     try {
       const res  = await fetch(`${API}/devices/check-all`, {method:'POST'});
       const data = await res.json();
@@ -654,6 +778,13 @@ export default function SoundLayout() {
 
   const filtered = devices.filter(d => {
     const matchSearch = (d.device_name||'').toLowerCase().includes(search.toLowerCase()) || (d.ip_address||'').includes(search);
+    const matchUsage =
+      usageView==='all' ||
+      (usageView==='active'   && isInUse(d)) ||
+      (usageView==='inactive' && !isInUse(d));
+    if (!matchUsage) return false;
+    // การ์ด Ping/HTTP กรองเฉพาะเครื่องที่ใช้งานอยู่
+    if (cardFilter!=='all' && !isInUse(d)) return false;
     const matchCard =
       cardFilter==='all' ||
       (cardFilter==='active'  && d.http_status==='Active') ||
@@ -664,13 +795,18 @@ export default function SoundLayout() {
   });
 
   const selectedDevice = devices.find(d=>d.id===selected);
+  // การ์ดสถิตินับเฉพาะเครื่องที่ "ใช้งานอยู่" — เครื่องที่ถอด/ส่งซ่อม/ยกเลิก ไม่ถือเป็นปัญหา
+  const inUse = devices.filter(isInUse);
   const counts = {
-    total:   devices.length,
-    active:  devices.filter(d=>d.http_status==='Active').length,
-    online:  devices.filter(d=>d.ping_status==='Online'&&d.http_status!=='Active').length,
-    offline: devices.filter(d=>d.ping_status==='Offline').length,
-    error:   devices.filter(d=>d.http_status==='Device Error').length,
+    total:    inUse.length,
+    inactive: devices.length - inUse.length,
+    active:   inUse.filter(d=>d.http_status==='Active').length,
+    online:   inUse.filter(d=>d.ping_status==='Online'&&d.http_status!=='Active').length,
+    offline:  inUse.filter(d=>d.ping_status==='Offline').length,
+    error:    inUse.filter(d=>d.http_status==='Device Error').length,
   };
+  const usageCounts = USAGE_KEYS.reduce((acc,k)=>({...acc,[k]:devices.filter(d=>usageOf(d)===k).length}),{});
+  const pickCard = (key) => { setCardFilter(f=>f===key?'all':key); if (usageView==='inactive') setUsageView('active'); };
   const FILTER_LABEL = { active:'Active', online:'Online', offline:'Offline', error:'Device Error' };
 
   return (
@@ -685,16 +821,46 @@ export default function SoundLayout() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <StatCard icon={Server}        title="อุปกรณ์ทั้งหมด" value={counts.total}   color="from-slate-600 to-slate-700"/>
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        <StatCard icon={Server}        title="ใช้งานอยู่"      value={counts.total}   color="from-slate-600 to-slate-700"/>
         <StatCard icon={CheckCircle}   title="Active"        value={counts.active}  color="from-emerald-500 to-emerald-600"
-          onClick={()=>setCardFilter(f=>f==='active'?'all':'active')}   isActive={cardFilter==='active'}/>
+          onClick={()=>pickCard('active')}   isActive={cardFilter==='active'}/>
         <StatCard icon={Wifi}          title="Online"        value={counts.online}  color="from-sky-400 to-sky-500"
-          onClick={()=>setCardFilter(f=>f==='online'?'all':'online')}   isActive={cardFilter==='online'}/>
+          onClick={()=>pickCard('online')}   isActive={cardFilter==='online'}/>
         <StatCard icon={AlertCircle}   title="Device Error"  value={counts.error}   color={counts.error>0?'from-amber-500 to-amber-600':'from-slate-400 to-slate-500'}
-          onClick={()=>setCardFilter(f=>f==='error'?'all':'error')}     isActive={cardFilter==='error'}/>
+          onClick={()=>pickCard('error')}    isActive={cardFilter==='error'}/>
         <StatCard icon={XCircle}       title="Offline"       value={counts.offline} color={counts.offline>0?'from-red-500 to-red-600':'from-slate-400 to-slate-500'}
-          onClick={()=>setCardFilter(f=>f==='offline'?'all':'offline')} isActive={cardFilter==='offline'}/>
+          onClick={()=>pickCard('offline')}  isActive={cardFilter==='offline'}/>
+        <StatCard icon={Archive}       title="ไม่ได้ใช้งาน"    value={counts.inactive} color="from-slate-300 to-slate-400"
+          onClick={()=>{ setCardFilter('all'); setUsageView(v=>v==='inactive'?'active':'inactive'); }} isActive={usageView==='inactive'}/>
+      </div>
+
+      {/* Usage view (สถานะการใช้งาน) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex p-1 bg-slate-100 rounded-xl" role="tablist" aria-label="แสดงตามสถานะการใช้งาน">
+          {[
+            { key:'active',   label:'ใช้งานอยู่',   n: counts.total },
+            { key:'inactive', label:'ไม่ได้ใช้งาน', n: counts.inactive },
+            { key:'all',      label:'ทั้งหมด',      n: devices.length },
+          ].map(t => (
+            <button key={t.key} type="button" role="tab" aria-selected={usageView===t.key}
+              onClick={()=>{ setUsageView(t.key); if (t.key==='inactive') setCardFilter('all'); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors
+                ${usageView===t.key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              {t.label} <span className="ml-1 text-slate-400">{t.n}</span>
+            </button>
+          ))}
+        </div>
+        {counts.inactive > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+            {USAGE_KEYS.filter(k=>k!=='active' && usageCounts[k]>0).map(k => (
+              <span key={k} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border font-bold ${USAGE[k].chip}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${USAGE[k].dot}`}/>{USAGE[k].label} {usageCounts[k]}
+              </span>
+            ))}
+            <span className="text-slate-400">· ไม่นับใน badge และไม่ Ping อัตโนมัติ</span>
+          </div>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -755,12 +921,12 @@ export default function SoundLayout() {
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center text-center py-12 bg-white rounded-2xl border border-slate-200">
             <p className="font-bold text-slate-700">ไม่พบอุปกรณ์ที่ตรงกับการค้นหาหรือตัวกรอง</p>
-            <button onClick={()=>{setSearch(''); setCardFilter('all');}} className="mt-3 text-sm font-bold text-indigo-600 hover:underline">
+            <button onClick={()=>{setSearch(''); setCardFilter('all'); setUsageView('all');}} className="mt-3 text-sm font-bold text-indigo-600 hover:underline">
               ล้างการค้นหาและตัวกรอง
             </button>
           </div>
         ) : (
-          <TopologyView devices={filtered} onSelect={setSelected} selectedId={selected}/>
+          <TopologyView devices={filtered} allDevices={devices} onSelect={setSelected} selectedId={selected}/>
         )
       )}
 
@@ -790,6 +956,7 @@ export default function SoundLayout() {
           onCheckHttp={handleCheckHttp}
           onEdit={canEditSound ? (d)=>{setSelected(null); setEditDevice(d);} : undefined}
           onDelete={canDeleteSound ? handleDelete : undefined}
+          onSetUsage={canEditSound ? handleSetUsage : undefined}
         />
       )}
 
