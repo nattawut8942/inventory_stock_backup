@@ -91,6 +91,8 @@ const FIELD_TH = {
     DeviceType: 'หมวด', ManagementType: 'ประเภทการจัดการ', DefaultManagementType: 'ค่าเริ่มต้นการจัดการ', IsActive: 'ใช้งาน', IsAsset: 'Asset',
     UnitOfMeasure: 'หน่วย', BarcodeID: 'บาร์โค้ด', ImageURL: 'รูป', VendorName: 'ชื่อผู้จัดหา', ContactInfo: 'ข้อมูลติดต่อ', Name: 'ชื่อ', Label: 'ชื่อ',
     TypeName: 'ชื่อประเภท', Category: 'หมวด', CategoryLabel: 'ชื่อหมวด', CategoryCode: 'รหัส', BudgetFormat: 'รูปแบบเลขงบ', Role: 'บทบาท', TypeId: 'ประเภท',
+    ColorHex: 'สี', SortOrder: 'ลำดับ', Status: 'สถานะ', pc_status: 'สถานะเครื่อง', owner_name: 'ผู้ใช้งาน', Note: 'หมายเหตุ', Reason: 'เหตุผล',
+    Qty: 'จำนวน', ActualQty: 'จำนวนนับได้', EmployeeName: 'ชื่อพนักงาน', EmployeeCode: 'รหัสพนักงาน', CostCenter: 'Cost Center',
     name: 'ชื่อ', status: 'สถานะ', location: 'ตำแหน่ง', ip_address: 'IP', hostname: 'ชื่อเครื่อง', remark: 'หมายเหตุ', note: 'หมายเหตุ', Remark: 'หมายเหตุ',
 };
 const fieldLabel = (f) => (FIELD_TH[f] ? `${FIELD_TH[f]} (${f})` : f);
@@ -294,13 +296,56 @@ export default function AuditLogTab({ UserAvatar, authHeaders }) {
                                         </div>
                                     );
                                 })()}
-                                <div>
-                                    <div className="text-xs font-bold text-slate-500 mb-1">ข้อมูลที่ส่งมา</div>
-                                    {detail.Body ? (
-                                        <pre className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 overflow-x-auto whitespace-pre-wrap break-words">{(() => { const b = parseBody(detail.Body); if (typeof b === 'string') return b; const { __changes, ...rest } = b || {}; return JSON.stringify(rest, null, 2); })()}</pre>
-                                    ) : <p className="text-xs text-slate-400">ไม่มีข้อมูล (เช่น การลบที่ส่งแค่รหัสรายการ)</p>}
-                                    {!changesOf(detail) && <p className="text-[11px] text-slate-400 mt-1">ส่วนนี้ยังไม่ได้ติดตามค่าเดิม → ค่าใหม่ จึงเห็นเฉพาะค่าที่ส่งมา</p>}
-                                </div>
+                                {(() => {
+                                    const raw = parseBody(detail.Body);
+                                    const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? (({ __changes, ...rest }) => rest)(raw) : null;
+                                    const entries = obj ? Object.entries(obj) : [];
+                                    const c = changesOf(detail);
+                                    const hasChanges = !!c && (c.deleted || (c.fields || []).length > 0);
+                                    const content = !detail.Body ? (
+                                        <p className="text-xs text-slate-400">ไม่มีข้อมูล (เช่น การลบที่ส่งแค่รหัสรายการ)</p>
+                                    ) : obj ? (
+                                        entries.length === 0 ? <p className="text-xs text-slate-400">ไม่มีข้อมูล</p> : (
+                                            <div className="rounded-xl border border-slate-200 divide-y divide-slate-100 text-xs">
+                                                {entries.map(([k, v]) => (
+                                                    <div key={k} className="grid grid-cols-[minmax(0,2fr),minmax(0,3fr)] gap-3 px-3 py-1.5">
+                                                        <span className="text-slate-500 break-words">{k === '__files' ? 'ไฟล์ที่แนบ' : fieldLabel(k)}</span>
+                                                        <span className="text-slate-800 break-words whitespace-pre-wrap">
+                                                            {Array.isArray(v) && k === '__files' ? v.join(', ')
+                                                                : v !== null && typeof v === 'object' ? <code className="text-[11px] text-slate-600">{JSON.stringify(v)}</code>
+                                                                : showVal(v)}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )
+                                    ) : (
+                                        <pre className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 overflow-x-auto whitespace-pre-wrap break-words">{String(raw)}</pre>
+                                    );
+                                    const label = `ข้อมูลที่ส่งมา${entries.length ? ` (${entries.length} ช่อง)` : ''}`;
+                                    return (
+                                        <div>
+                                            {hasChanges ? (
+                                                // มีการเปลี่ยนแปลงให้ดูแล้ว → ซ่อนข้อมูลที่ส่งไว้ กดเปิดได้
+                                                <details className="group">
+                                                    <summary className="cursor-pointer select-none text-xs font-bold text-slate-500 hover:text-indigo-600 list-none flex items-center gap-1">
+                                                        <span className="inline-block transition-transform group-open:rotate-90">▸</span>{label}
+                                                    </summary>
+                                                    <div className="mt-1.5">{content}</div>
+                                                </details>
+                                            ) : (
+                                                <>
+                                                    <div className="text-xs font-bold text-slate-500 mb-1">{label}</div>
+                                                    {content}
+                                                </>
+                                            )}
+                                            <p className="text-[11px] text-slate-400 mt-1">
+                                                {!c ? 'ส่วนนี้ไม่ได้ติดตามค่าเดิม → ค่าใหม่ จึงเห็นเฉพาะค่าที่ผู้ใช้ส่งมาตอนกดบันทึก'
+                                                    : 'ค่าทั้งหมดในฟอร์มที่ผู้ใช้ส่งมาตอนกดบันทึก (รวมช่องที่ไม่ได้เปลี่ยน)'}
+                                            </p>
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </div>
                     </div>
