@@ -4,7 +4,7 @@ import {
     ArrowDownToLine, History, Database, FileSpreadsheet, Shield,
     Printer, FileKey, Monitor, HardDrive, Camera,
     Cctv, Calendar, Network, ClipboardList, Activity, Briefcase, BookOpen,
-    LayoutGrid, Users, Settings2, Volume2
+    LayoutGrid, Users, Settings2, Volume2, Trash2
 } from 'lucide-react';
 
 // badge = key ใน response ของ /nav-counts, badgeTone = สีป้าย, badgeLabel = ข้อความสั้นบนป้าย
@@ -32,6 +32,7 @@ export const NAV_GROUPS = [
             { to: '/ma-license', label: 'MA / License', icon: FileKey, badge: 'ma_attention', badgeTone: 'rose', badgeLabel: 'ใกล้หมด' },
             { to: '/printer-health', label: 'Printer Health', icon: Activity, badge: 'printer_toner_low', badgeTone: 'amber', badgeLabel: 'หมึกใกล้หมด' },
             { to: '/sound-layout', label: 'Sound Engineering', icon: Volume2, badge: 'sound_offline', badgeTone: 'rose', badgeLabel: 'Offline' },
+            { to: '/it-disposal', label: 'IT Asset Disposal', icon: Trash2, badge: 'disposal_open', badgeTone: 'rose', badgeLabel: 'เปิดอยู่' },
         ],
     },
     {

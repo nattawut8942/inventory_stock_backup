@@ -244,7 +244,8 @@ export const auditLogMiddleware = async (req, res, next) => {
                 if (json.length > 8000) json = `${json.slice(0, 8000)}… [ตัดเหลือ 8000 ตัวอักษร]`;
                 // ระดับ 2: เทียบค่าเดิม/ค่าใหม่
                 let changes = null;
-                let summary = findName(req.body);
+                // controller อาจกำหนดข้อความสรุปเอง (เช่น รหัสรอบ / ASSET NO) ผ่าน res.locals.auditSummary
+                let summary = res.locals?.auditSummary ? String(res.locals.auditSummary).slice(0, 400) : findName(req.body);
                 if (tracked && before && res.statusCode < 400) {
                     if (req.method === 'DELETE') {
                         const after = await withTimeout(readRow(tracked), 1500).catch(() => undefined);

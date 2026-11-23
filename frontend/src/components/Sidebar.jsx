@@ -95,7 +95,9 @@ const NavItem = ({ item, active, collapsed, pinned, badgeCount, onNavigate, onTo
             )}
 
             {hasBadge && collapsed && (
-                <span className={`absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full ring-2 ring-slate-900 ${tone.dot}`} />
+                <span className={`absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full ring-2 ring-slate-900 text-[10px] font-bold leading-[18px] text-center tabular-nums shadow ${tone.solid}`}>
+                    {countText}
+                </span>
             )}
         </button>
     );

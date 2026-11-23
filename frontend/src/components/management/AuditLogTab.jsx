@@ -52,6 +52,7 @@ export const MODULE_LABELS = {
     'printer-health': 'Printer Health', 'printer-locations': 'ตำแหน่งปริ้นเตอร์', sound: 'Sound Engineering', borrowings: 'ระบบยืม-คืน',
     'knowledge-base': 'Knowledge Base', albums: 'กิจกรรม', photos: 'รูปกิจกรรม', upload: 'อัปโหลดไฟล์', 'activity-categories': 'หมวดกิจกรรม',
     'factory-layouts': 'แผนผังโรงงาน', permissions: 'สิทธิ์การใช้งาน', 'stock-users': 'ผู้ใช้', 'admin-users': 'ผู้ใช้ (เดิม)', 'it-request': 'IT Request',
+    disposal: 'IT Asset Disposal',
 };
 const moduleLabel = (m) => MODULE_LABELS[m] || m || '-';
 

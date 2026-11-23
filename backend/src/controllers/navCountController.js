@@ -25,7 +25,7 @@ export const getNavCounts = async (req, res) => {
 
     const [
         printer_toner_low, po_open, borrowed, ma_attention, stock_low, cctv_offline, po_partial, cal_today, it_request_open,
-        sound_offline,
+        sound_offline, disposal_open,
     ] = await Promise.all([
         // เครื่องพิมพ์ที่หมึกสีใดสีหนึ่งต่ำกว่าหรือเท่ากับ 20% (ค่าล่าสุดของแต่ละเครื่อง นับเครื่องละ 1)
         countOrNull(() => scalar(db(), `
@@ -91,13 +91,17 @@ export const getNavCounts = async (req, res) => {
             SELECT COUNT(*) AS cnt FROM sound_devices
             WHERE ping_status = 'Offline'
               AND ISNULL(usage_status, 'active') = 'active'`)),
+
+        // รอบ IT Asset Disposal ที่ยังเปิดอยู่
+        countOrNull(() => scalar(db(), `
+            SELECT COUNT(*) AS cnt FROM dbo.Disposal_Runs WHERE Status = 'Open'`)),
     ]);
 
     res.json({
         success: true,
         data: {
             po_open, borrowed, ma_attention, stock_low, cctv_offline, po_partial, cal_today, it_request_open, printer_toner_low,
-            sound_offline,
+            sound_offline, disposal_open,
         },
     });
 };

@@ -31,6 +31,7 @@ import IPManagementPage from './pages/IPManagementPage';
 import ITRequestPage from './pages/ITRequestPage';
 import SoundLayout from './pages/SoundLayout';
 import ITBorrowSystem from './pages/ITBorrowSystem';
+import ITDisposalPage from './pages/ITDisposalPage';
 import KBPage from './pages/KBPage';
 import ActivityPage from './pages/ActivityPage'; 
 import PrinterHealthPage from './pages/PrinterHealthPage';
@@ -79,6 +80,7 @@ const AppRoutes = () => {
                 <Route path="knowledge-base" element={<KBPage />} />
                 {/* ✅ ระบบยืม-คืน IT — ครอบด้วย Layout (Sidebar+Header) เหมือนหน้าอื่นในกลุ่มนี้ทุกอัน */}
                 <Route path="borrowings" element={<ITBorrowSystem />} />
+                <Route path="it-disposal" element={<ProtectedRoute perm={['it-disposal', 'view']}><ITDisposalPage /></ProtectedRoute>} />
                 <Route path="pc-control" element={<PCControlPage />} />
 
                 {/* PO and Receive */}

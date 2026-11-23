@@ -59,6 +59,7 @@ import { auditLogMiddleware } from './src/services/auditLogService.js';
 import { startPrinterScanCron, runPrinterScan } from './src/services/printerScanService.js';
 import cctvCaptureRoutes from './src/cctv/cctvCaptureRoutes.js';
 import { startCaptureCron } from './src/cctv/cctvCaptureCron.js';
+import itDisposalRoutes from './src/routes/itDisposalRoutes.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -106,10 +107,15 @@ const fileUploadMiddleware = fileUpload({
     abortOnLimit: true,          // ← เพิ่ม
     responseOnLimit: 'ไฟล์ใหญ่เกินขนาดที่กำหนด (50MB)',   // ← เพิ่ม
 });
-// ข้าม express-fileupload สำหรับการต่ออายุ MA: route นั้นใช้ multer เอง และ express-fileupload
-// อ่าน body multipart ไปก่อนจนทำให้ multer เจอ stream ที่ถูกอ่านแล้ว ("Unexpected end of form")
+// ข้าม express-fileupload สำหรับ route ที่ใช้ multer เอง: express-fileupload อ่าน body multipart ไปก่อน
+// จนทำให้ multer เจอ stream ที่ถูกอ่านแล้ว ("Unexpected end of form")
+// - การต่ออายุ MA
+// - IT Asset Disposal: เพิ่มรายการพร้อมรูป และแนบรูปภายหลัง
 app.use((req, res, next) => {
     if (req.method === 'POST' && /\/ma\/\d+\/renew$/.test(req.path)) return next();
+    if (req.method === 'POST' && /\/disposal\/runs\/\d+\/items$/.test(req.path)) return next();
+    if (req.method === 'PUT' && /\/disposal\/runs\/\d+\/items\/\d+\/photos$/.test(req.path)) return next();
+    if (req.method === 'POST' && /\/disposal\/runs\/\d+\/attachments$/.test(req.path)) return next();
     return fileUploadMiddleware(req, res, next);
 });
 
@@ -134,6 +140,8 @@ const activityUploadDir = process.env.ACTIVITY_UPLOAD_DIR
     || '\\\\W2kadth\\is\\Internal Use Only\\ActivityWorking';
 app.use('/uploads/activity', express.static(activityUploadDir));
 app.use('/ITinventory/uploads/activity', express.static(activityUploadDir));
+// ✅ IT Asset Disposal photos — เก็บใน backend/uploads/disposal/<RunID>/
+app.use('/ITinventory/uploads/disposal', express.static(path.join(uploadsDir, 'disposal')));
 
 // ── DB connection with retry ──────────────────────────────────────────────
 const connectWithRetry = async (fn, name, retries = 5) => {
@@ -191,6 +199,7 @@ const startServer = async () => {
         app.use('/ITinventory/api', calendarRoutes);
         app.use('/ITinventory/api', ipScanRoutes);
         app.use('/ITinventory/api', itRequestRoutes);
+        app.use('/ITinventory/api/disposal', itDisposalRoutes);
         app.use('/ITinventory/api/sound', soundRoutes);
         app.use('/ITinventory/api/borrowings', BorrowRoute);
         app.use('/api/pc-inventory', pcInventoryRoutes);

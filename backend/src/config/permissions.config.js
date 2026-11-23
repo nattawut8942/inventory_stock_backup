@@ -10,6 +10,9 @@
 export const ACTION_LABELS = {
     view: 'ดู',
     create: 'เพิ่ม',
+    open: 'เปิดรอบ',
+    'delete-run': 'ลบรอบ',
+    'edit-run': 'แก้ไขรอบ',
     edit: 'แก้ไข',
     delete: 'ลบ',
     withdraw: 'เบิกของ',
@@ -40,6 +43,7 @@ export const PAGES = [
     // ── Asset Management ──
     { key: 'pc-inventory',    group: 'Asset Management', label: 'PC / Monitor Inventory', route: '/pc-inventory',    actions: ['view', 'edit', 'delete'] },
     { key: 'devices-layout',  group: 'Asset Management', label: 'Devices Layout',         route: '/pc-control',      actions: ['view', 'edit'] },
+    { key: 'it-disposal',     group: 'Asset Management', label: 'IT Asset Disposal',      route: '/it-disposal',     actions: ['view', 'open', 'create', 'edit', 'edit-run', 'delete', 'delete-run'] },
     { key: 'cctv',            group: 'Asset Management', label: 'CCTV Management',        route: '/cctv-management', actions: CRUD },
     { key: 'ma-license',      group: 'Asset Management', label: 'MA / License',           route: '/ma-license',      actions: CRUD },
     // ── Infrastructure & Network ──
