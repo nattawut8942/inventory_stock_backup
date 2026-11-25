@@ -11,6 +11,11 @@ import {
   deleteItem,
   uploadDisposalPics,
   updateItemPhotos,
+  updateRunDoc,
+  scanItem,
+  setItemCheck,
+  setItemsKeyed,
+  setRunStage,
   getRunReport,
   deleteRun,
   getRunEvents,
@@ -55,6 +60,16 @@ router.delete('/runs/:id', requirePerm(PAGE, 'delete-run', { strict: true }), de
 router.post('/runs/:id/items', requirePerm(PAGE, 'create', { strict: true }), uploadDisposalPics, addItem);
 // แนบ/เปลี่ยนรูปของรายการที่มีอยู่แล้ว
 router.put('/runs/:id/items/:itemId/photos', requirePerm(PAGE, 'edit', { strict: true }), uploadDisposalPics, updateItemPhotos);
+// ตรวจนับ: สแกนรหัส (JSON body: { code }) และตั้งค่าตรวจแล้ว/ยังไม่ตรวจของรายการ (JSON body: { checked })
+router.post('/runs/:id/scan', requirePerm(PAGE, 'edit', { strict: true }), scanItem);
+router.put('/runs/:id/items/:itemId/check', requirePerm(PAGE, 'edit', { strict: true }), setItemCheck);
+// สถานะ "กรอกลงระบบบัญชีแล้ว" (JSON body: { itemIds: [], keyed: true|false }) — ติ๊กทีละหรือหลายรายการ
+router.put('/runs/:id/keyed', requirePerm(PAGE, 'edit', { strict: true }), setItemsKeyed);
+
+// เลขเอกสารบัญชีของทั้งรอบ (JSON body: { accountingDocNo })
+router.put('/runs/:id/doc', requirePerm(PAGE, 'edit-run', { strict: true }), updateRunDoc);
+// ขั้นตอนของรอบ (progress bar 5 ขั้น) — JSON body: { stage: 1..5 }
+router.put('/runs/:id/stage', requirePerm(PAGE, 'edit-run', { strict: true }), setRunStage);
 router.delete('/items/:itemId', requirePerm(PAGE, 'delete', { strict: true }), deleteItem);
 
 // ไฟล์แนบของรอบ (PDF หลักฐาน) — ดูได้ตามสิทธิ์ view, เพิ่ม/ลบใช้สิทธิ์ edit-run

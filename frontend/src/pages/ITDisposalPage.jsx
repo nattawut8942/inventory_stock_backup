@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import QRCode from 'qrcode';
+import JsBarcode from 'jsbarcode';
 import * as XLSX from 'xlsx-js-style';
-import { Trash2, Search, Plus, Lock, FileSpreadsheet, Printer, Loader2, AlertTriangle, CheckCircle2, Coins, Image as ImageIcon, ArrowLeft, Camera, X, ClipboardList, Eye, Copy, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Trash2, Search, Plus, Lock, FileSpreadsheet, Printer, Loader2, AlertTriangle, CheckCircle2, Circle, Coins, Image as ImageIcon, ArrowLeft, Camera, X, ClipboardList, Eye, Copy, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCan } from '../context/PermissionContext';
 import { getAuthToken, useAuth } from '../context/AuthContext';
 import { API_BASE, API_URL } from '../config/api';
@@ -29,6 +31,9 @@ const ITEM_SORT_VALUE = {
   assetDate: (i) => i.assetDate,
   assetName: (i) => i.assetName,
   place: (i) => i.place,
+  photo: (i) => (i.pic1Url ? 1 : 0) + (i.pic2Url ? 1 : 0),
+  checked: (i) => (i.isChecked ? 1 : 0),
+  keyed: (i) => (i.isKeyed ? 1 : 0),
   costCenter: (i) => i.costCenter,
   cost: (i) => Number(i.cost) || 0,
   accumDP: (i) => Number(i.accumDP) || 0,
@@ -37,7 +42,24 @@ const ITEM_SORT_VALUE = {
 const ITEM_SORT_LABELS = [
   ['assetNo', 'ASSET NO'], ['assetDate', 'DATE'], ['assetName', 'ASSET NAME'], ['place', 'PLACE'],
   ['costCenter', 'CC'], ['cost', 'COST'], ['accumDP', 'ACCUMDP'], ['bkAmt', 'BKAMT'],
+  ['photo', 'จำนวนรูปที่แนบ'], ['checked', 'ตรวจนับ'], ['keyed', 'ลงบัญชี'],
 ];
+// ตัวกรองรายการในรอบ
+const ITEM_FILTERS = [
+  ['all', 'ทั้งหมด'], ['nophoto', 'ยังไม่ครบรูป'], ['fullphoto', 'รูปครบแล้ว'], ['unchecked', 'ยังไม่ตรวจนับ'], ['checked', 'ตรวจนับแล้ว'],
+  ['unkeyed', 'ยังไม่ลงบัญชี'], ['keyed', 'ลงบัญชีแล้ว'],
+];
+const itemMatchesFilter = (f, i) => {
+  switch (f) {
+    case 'nophoto': return !i.pic1Url || !i.pic2Url;
+    case 'fullphoto': return !!i.pic1Url && !!i.pic2Url;
+    case 'unchecked': return !i.isChecked;
+    case 'checked': return !!i.isChecked;
+    case 'unkeyed': return !i.isKeyed;
+    case 'keyed': return !!i.isKeyed;
+    default: return true;
+  }
+};
 const RUN_SORT_VALUE = {
   createdAt: (r) => new Date(r.createdAt).getTime() || 0,
   runCode: (r) => r.runCode,
@@ -147,7 +169,23 @@ const EVENT_LABEL = {
   ATTACH_DELETE: 'ลบเอกสารแนบ',
   COMPLETE: 'ทำเป็นเสร็จสิ้น',
   UNCOMPLETE: 'ยกเลิกเสร็จสิ้น',
+  DOC: 'แก้เลขเอกสารบัญชี',
+  REOPEN: 'เปิดรอบอีกครั้ง',
+  CHECK: 'ตรวจนับ',
+  UNCHECK: 'ยกเลิกตรวจนับ',
+  KEYED: 'ลงบัญชีแล้ว',
+  UNKEYED: 'ยกเลิกลงบัญชี',
+  STAGE: 'เปลี่ยนขั้นตอน',
 };
+
+// ขั้นตอนของรอบ (progress bar 5 ขั้น) — ชื่อสั้นให้อ่านง่ายบนจอเล็ก
+const RUN_STAGES = [
+  { n: 1, label: 'บันทึกและถ่ายภาพ' },
+  { n: 2, label: 'จัดทำเอกสารบัญชี' },
+  { n: 3, label: 'ผู้บริหารอนุมัติ' },
+  { n: 4, label: 'ส่งฝ่ายบัญชี' },
+  { n: 5, label: 'รอจำหน่ายจริง' },
+];
 
 // สถานะรอบ: เปิดอยู่ / ปิดแล้ว / เสร็จสิ้น (เสร็จสิ้น = ปิดรอบแล้วและ บช. ดำเนินการทิ้งครบ)
 const runState = (r) => (r.status === 'Open' ? 'open' : r.completedAt ? 'completed' : 'closed');
@@ -210,16 +248,23 @@ const ITDisposalPage = () => {
   const [items, setItems] = useState([]);
   const [report, setReport] = useState(null);
   const [detailTab, setDetailTab] = useState('items');
+  const runDocRef = useRef(null);
+  const scanRef = useRef(null);
+  const [scanResult, setScanResult] = useState(null);
+  const [checkFilter, setCheckFilter] = useState('pending');
+  const [checkPage, setCheckPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [photoItem, setPhotoItem] = useState(null);
   const [detailItem, setDetailItem] = useState(null);
+  const [stickerOpen, setStickerOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [dupes, setDupes] = useState([]);
   const [searchWarn, setSearchWarn] = useState('');
   const [itemSort, setItemSort] = useState({ key: null, dir: 'asc' });
+  const [itemFilter, setItemFilter] = useState('all');
   const [runSort, setRunSort] = useState({ key: null, dir: 'desc' });
   const [events, setEvents] = useState([]);
   const [assetQuery, setAssetQuery] = useState('');
@@ -243,12 +288,16 @@ const ITDisposalPage = () => {
   const [saving, setSaving] = useState(false);
 
   const isOpen = run?.status === 'Open';
+  // ตั้งแต่ขั้นที่ 3 "ผู้บริหารอนุมัติ" ห้ามเพิ่มรายการ (ตรงกับฝั่งเซิร์ฟเวอร์)
+  const addLocked = (Number(run?.stage) || 1) >= 3;
+  const ADD_LOCK_MSG = 'รอบอยู่ขั้นผู้บริหารอนุมัติแล้ว ไม่สามารถเพิ่มรายการได้';
   // ปิดรอบได้เฉพาะผู้เปิดรอบ (ตรงกับกฎฝั่ง backend)
   const isCreator = !!run && (run.createdBy || '').toUpperCase() === (user?.username || '').toUpperCase();
   // แบ่งหน้ารายการ (ถ้าข้อมูลหดจนเกินหน้า จะถูกปรับกลับไปหน้าสุดท้ายอัตโนมัติ)
+  const filteredItems = items.filter((i) => itemMatchesFilter(itemFilter, i));
   const sortedItems = itemSort.key && ITEM_SORT_VALUE[itemSort.key]
-    ? [...items].sort(compareBy(ITEM_SORT_VALUE[itemSort.key], itemSort.dir))
-    : items;
+    ? [...filteredItems].sort(compareBy(ITEM_SORT_VALUE[itemSort.key], itemSort.dir))
+    : filteredItems;
   const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
   const curPage = Math.min(page, totalPages);
   const pagedItems = sortedItems.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
@@ -384,6 +433,153 @@ const ITDisposalPage = () => {
   };
 
   // เอกสารแนบ: ฟอร์มอัปโหลดแคบอยู่ด้านซ้าย รายการอยู่ด้านขวา (จอแคบเรียงลงมา)
+  // ─── ตรวจนับก่อนทิ้ง: สแกนป้าย (QR/Barcode) หรือพิมพ์รหัส แล้วระบบบันทึกว่าตรวจแล้ว ───
+  const submitScan = async (raw) => {
+    const code = String(raw ?? '').trim();
+    if (!code || !selectedRunId) return;
+    try {
+      const d = await apiRequest(`/disposal/runs/${selectedRunId}/scan`, { method: 'POST', body: { code } });
+      setScanResult({ status: d.status, code });
+      if (d.status === 'checked') await loadRun(selectedRunId);
+    } catch (err) {
+      setScanResult({ status: 'error', code, message: err.message });
+    }
+    if (scanRef.current) { scanRef.current.value = ''; scanRef.current.focus(); }
+  };
+
+  // เปลี่ยนขั้นตอนของรอบ (progress bar) — ยืนยันก่อนทุกครั้ง
+  const doSetStage = async (n) => {
+    try {
+      await apiRequest(`/disposal/runs/${selectedRunId}/stage`, { method: 'PUT', body: { stage: n } });
+      await loadRun(selectedRunId);
+      setToast({ id: Date.now(), message: `เปลี่ยนขั้นตอนเป็น "${RUN_STAGES.find((s) => s.n === n)?.label}" แล้ว`, duration: 2500 });
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  const askSetStage = (s) => setConfirmState({
+    type: 'confirm',
+    title: 'เปลี่ยนขั้นตอนของรอบ',
+    message: `เปลี่ยนขั้นตอนเป็น "${s.label}" (ขั้นที่ ${s.n})?`,
+    confirmText: 'เปลี่ยนขั้นตอน',
+    onConfirm: () => doSetStage(s.n),
+  });
+
+  // ติ๊ก/ยกเลิก "ลงระบบบัญชีแล้ว" ทีละรายการหรือหลายรายการ
+  const setKeyed = async (list, keyed) => {
+    const ids = list.map((i) => i.itemId);
+    if (!ids.length || busy) return;
+    setBusy(true);
+    try {
+      const d = await apiRequest(`/disposal/runs/${selectedRunId}/keyed`, { method: 'PUT', body: { itemIds: ids, keyed } });
+      await loadRun(selectedRunId);
+      const who = d?.data?.keyedByName ? ` · โดย ${d.data.keyedByName}` : '';
+      const label = list.length === 1 ? list[0].assetNo : `${list.length} รายการ`;
+      setToast({ id: Date.now(), message: keyed ? `ลงบัญชีแล้ว ${label}${who}` : `ยกเลิกลงบัญชี ${label}`, duration: 2500 });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleCheck = async (it) => {
+    try {
+      await apiRequest(`/disposal/runs/${selectedRunId}/items/${it.itemId}/check`, { method: 'PUT', body: { checked: !it.isChecked } });
+      await loadRun(selectedRunId);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const renderCheck = () => {
+    const CHECK_PAGE = 20;
+    const checkedCount = items.filter((i) => i.isChecked).length;
+    const total = items.length;
+    const pct = total ? Math.round((checkedCount / total) * 100) : 0;
+    const shownAll = items.filter((i) => checkFilter === 'all' || (checkFilter === 'checked' ? i.isChecked : !i.isChecked));
+    const tp = Math.max(1, Math.ceil(shownAll.length / CHECK_PAGE));
+    const cur = Math.min(checkPage, tp);
+    const shown = shownAll.slice((cur - 1) * CHECK_PAGE, cur * CHECK_PAGE);
+    const resultText = {
+      checked: ['ok', `ตรวจแล้ว ${scanResult?.code}`],
+      duplicate: ['warn', `${scanResult?.code} ตรวจไปแล้ว (สแกนซ้ำ)`],
+      notfound: ['bad', `${scanResult?.code} ไม่อยู่ในรอบนี้`],
+      error: ['bad', scanResult?.message || 'บันทึกไม่สำเร็จ'],
+    }[scanResult?.status];
+    const tone = { ok: 'bg-emerald-50 text-emerald-700 border-emerald-200', warn: 'bg-amber-50 text-amber-800 border-amber-200', bad: 'bg-rose-50 text-rose-700 border-rose-200' };
+    return (
+      <div className="space-y-4">
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-bold text-slate-800">ตรวจนับก่อนทิ้ง</span>
+            <span className="tabular-nums font-bold text-slate-700">{checkedCount} / {total} ({pct}%)</span>
+          </div>
+          <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-2 bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <label htmlFor="scan-input" className="text-xs font-bold text-slate-500 block">สแกน QR / Barcode หรือพิมพ์ ASSET NO แล้วกด Enter</label>
+          <input
+            id="scan-input"
+            ref={scanRef}
+            autoFocus
+            autoComplete="off"
+            disabled={!canEdit}
+            placeholder={canEdit ? 'เช่น CO24-017-02' : 'ไม่มีสิทธิ์ตรวจนับ'}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitScan(e.currentTarget.value); } }}
+            className="w-full max-w-md px-3 py-2.5 rounded-lg border border-slate-200 text-base focus:outline-none focus:ring-2 focus:ring-rose-500 disabled:bg-slate-100"
+          />
+          {resultText && (
+            <div className={`text-sm rounded-lg border px-3 py-2 ${tone[resultText[0]]}`}>{resultText[1]}</div>
+          )}
+        </section>
+
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <span className="font-bold text-slate-800 text-sm">รายการ ({shownAll.length})</span>
+            <select
+              value={checkFilter}
+              onChange={(e) => { setCheckFilter(e.target.value); setCheckPage(1); }}
+              aria-label="กรองรายการตามสถานะตรวจนับ"
+              className="px-2 py-1 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
+            >
+              <option value="pending">ยังไม่ตรวจ</option>
+              <option value="checked">ตรวจแล้ว</option>
+              <option value="all">ทั้งหมด</option>
+            </select>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {shown.length === 0 && <li className="px-4 py-8 text-center text-sm text-slate-400">ไม่มีรายการ</li>}
+            {shown.map((it) => (
+              <li key={it.itemId} className="flex items-center gap-3 px-4 py-2.5">
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${it.isChecked ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-slate-800 text-sm">{it.assetNo}</div>
+                  <div className="text-xs text-slate-400 truncate">{it.assetName || '-'}</div>
+                  {it.isChecked && (
+                    <div className="text-[11px] text-emerald-700">ตรวจโดย {it.checkedByName || it.checkedBy || '-'} · {fmtDateTime(it.checkedAt)}</div>
+                  )}
+                </div>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => toggleCheck(it)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                  >
+                    {it.isChecked ? 'ยกเลิก' : 'ตรวจแล้ว'}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {shownAll.length > CHECK_PAGE && (
+            <Pagination currentPage={cur} totalPages={tp} onPageChange={setCheckPage} itemsPerPage={CHECK_PAGE} totalItems={shownAll.length} />
+          )}
+        </section>
+      </div>
+    );
+  };
+
   const renderDocs = () => (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
       {canEditRun && (
@@ -650,13 +846,41 @@ const ITDisposalPage = () => {
   };
 
   // ยืนยันด้วย modal (AlertModal)
-  const handleCloseRun = () => setConfirmState({
-    type: 'danger',
-    title: 'ปิดรอบ',
-    message: `ปิดรอบ ${run.runCode}? เมื่อปิดแล้วจะเพิ่มหรือลบรายการไม่ได้ (แนบรูปเพิ่มได้)`,
-    confirmText: 'ปิดรอบ',
-    onConfirm: () => doCloseRun(),
-  });
+  // ตรวจความพร้อมก่อนปิดรอบ: เลขเอกสารบัญชี, ตรวจนับ, รูปครบ, หลักฐาน บช. (ไม่บังคับ แค่แจ้งให้เห็น)
+  const handleCloseRun = () => {
+    if ((Number(run.stage) || 1) < 2) {
+      setError('ยังปิดรอบไม่ได้ ต้องทำขั้นที่ 1 "บันทึกและถ่ายภาพ" ให้ครบก่อน');
+      return;
+    }
+    const total = items.length;
+    const checkedN = items.filter((i) => i.isChecked).length;
+    const fullN = items.filter((i) => i.pic1Url && i.pic2Url).length;
+    const hasDoc = !!run.accountingDocNo;
+    const hasAccDoc = attachments.some((a) => a.docType === 'ACCOUNTING_DONE');
+    const status = (ok, label, detail) => (
+      <span className="flex items-start gap-2 text-left">
+        <span className={`font-black ${ok ? 'text-emerald-600' : 'text-amber-600'}`}>{ok ? '✓' : '!'}</span>
+        <span className="text-slate-600"><b className="text-slate-800">{label}</b> {detail}</span>
+      </span>
+    );
+    setConfirmState({
+      type: 'danger',
+      title: 'ปิดรอบ',
+      message: (
+        <span className="flex flex-col gap-2 mt-2">
+          <span>ปิดรอบ {run.runCode}? เมื่อปิดแล้วจะเพิ่มหรือลบรายการไม่ได้ (แนบรูปเพิ่มได้)</span>
+          <span className="flex flex-col gap-1.5 rounded-xl bg-slate-50 border border-slate-200 p-3">
+            {status(hasDoc, 'เลขเอกสารบัญชี:', hasDoc ? `กรอกแล้ว (${run.accountingDocNo})` : 'ยังไม่ได้กรอก')}
+            {status(total > 0 && checkedN === total, 'ตรวจนับ:', total ? `${checkedN}/${total} รายการ${checkedN < total ? ` · ยังไม่ตรวจ ${total - checkedN}` : ''}` : 'ไม่มีรายการ')}
+            {status(total > 0 && fullN === total, 'รูปครบ 2 รูป:', total ? `${fullN}/${total} รายการ${fullN < total ? ` · ยังไม่ครบ ${total - fullN}` : ''}` : 'ไม่มีรายการ')}
+            {status(hasAccDoc, 'หลักฐาน บช.:', hasAccDoc ? 'แนบแล้ว' : 'ยังไม่ได้แนบ')}
+          </span>
+        </span>
+      ),
+      confirmText: 'ปิดรอบ',
+      onConfirm: () => doCloseRun(),
+    });
+  };
 
   // ลบรอบ (เฉพาะผู้เปิดรอบ + มีสิทธิ์ลบ) — ยืนยันด้วย modal
   const handleDeleteRun = () => setConfirmState({
@@ -685,6 +909,12 @@ const ITDisposalPage = () => {
     setConfirmState(null);
     const code = run?.runCode;
     setBusy(true); setError(''); setNotice('');
+    // ยกเลิกคำสั่งลบรายการที่ค้างรออยู่ (รอบจะถูกลบทั้งหมดอยู่แล้ว กันไม่ให้ส่งลบรายการซ้ำหลังรอบหายไป)
+    if (pendingDelRef.current) {
+      clearTimeout(pendingDelRef.current.timer);
+      pendingDelRef.current = null;
+      setToast(null);
+    }
     try {
       await apiRequest(`/disposal/runs/${selectedRunId}`, { method: 'DELETE' });
       backToList();
@@ -827,10 +1057,10 @@ const ITDisposalPage = () => {
     setToast({ id: Date.now(), message: `ลบ ${item.assetNo} แล้ว`, duration: 5000, action: { label: 'เลิกทำ', onClick: undoDelete } });
   };
 
-  // Export Excel — คอลัมน์ตามที่กำหนด: ASSET NO, ASSET DATE, ASSET NAME, PLACE, COSTCENTER, COST, ACCUMDP, BKAMT, PIC 1, PIC 2
+  // Export Excel — คอลัมน์ตามที่กำหนด: ASSET NO, ASSET DATE, ASSET NAME, PLACE, COSTCENTER, COST, ACCUMDP, BKAMT
   const handleExport = () => {
     if (!items.length || !run) return;
-    const header = ['ASSET NO', 'ASSET DATE', 'ASSET NAME', 'PLACE', 'COSTCENTER', 'COST', 'ACCUMDP', 'BKAMT', 'PIC 1', 'PIC 2'];
+    const header = ['ASSET NO', 'ASSET DATE', 'ASSET NAME', 'PLACE', 'COSTCENTER', 'COST', 'ACCUMDP', 'BKAMT', 'ลงบัญชีแล้ว', 'ลงบัญชีโดย', 'วันที่ลงบัญชี'];
     const rows = items.map((i) => [
       i.assetNo,
       fmtDate(i.assetDate),
@@ -840,11 +1070,12 @@ const ITDisposalPage = () => {
       i.cost != null ? Number(i.cost) : '',
       i.accumDP != null ? Number(i.accumDP) : '',
       i.bkAmt != null ? Number(i.bkAmt) : '',
-      imgUrl(i.pic1Url),
-      imgUrl(i.pic2Url),
+      i.isKeyed ? 'ลงแล้ว' : '',
+      i.isKeyed ? (i.keyedByName || i.keyedBy || '') : '',
+      i.isKeyed && i.keyedAt ? fmtDateTime(i.keyedAt) : '',
     ]);
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-    ws['!cols'] = [18, 12, 45, 45, 13, 14, 14, 14, 60, 60].map((wch) => ({ wch }));
+    ws['!cols'] = [18, 12, 45, 45, 13, 14, 14, 14, 12, 18, 18].map((wch) => ({ wch }));
 
     const thin = { style: 'thin', color: { rgb: 'CBD5E1' } };
     const border = { top: thin, bottom: thin, left: thin, right: thin };
@@ -862,6 +1093,19 @@ const ITDisposalPage = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, run.runCode.slice(0, 31));
     XLSX.writeFile(wb, `${run.runCode}.xlsx`);
+  };
+
+  // บันทึกเลขเอกสารบัญชีของทั้งรอบ (ว่าง = ล้างค่า)
+  const saveRunDoc = async () => {
+    if (!selectedRunId || !runDocRef.current) return;
+    const value = runDocRef.current.value.trim();
+    try {
+      await apiRequest(`/disposal/runs/${selectedRunId}/doc`, { method: 'PUT', body: { accountingDocNo: value } });
+      setNotice(value ? `บันทึกเลขเอกสารบัญชี ${value} แล้ว` : 'ล้างเลขเอกสารบัญชีแล้ว');
+      await loadRun(selectedRunId);
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   // พิมพ์ / บันทึกเป็น PDF — เปิดหน้าตารางแยก (มีคอลัมน์รูป PIC 1 / PIC 2) แล้วสั่ง print ของ browser
@@ -902,6 +1146,7 @@ const ITDisposalPage = () => {
   .none { color: #94a3b8; }
   tfoot td { font-weight: 700; background: #f8fafc; }
   tr { page-break-inside: avoid; }
+  h2.sec { font-size: 13px; margin: 14px 0 6px; }
 </style></head><body>
   <h1>IT ASSET DISPOSAL — ${esc(run.runCode)}</h1>
   <div class="meta">สถานะ: ${run.status === 'Open' ? 'เปิดอยู่' : 'ปิดแล้ว'} · จำนวน ${items.length} รายการ · พิมพ์เมื่อ ${esc(fmtDateTime(new Date()))}</div>
@@ -919,6 +1164,20 @@ const ITDisposalPage = () => {
       <td colspan="2"></td>
     </tr></tfoot>
   </table>
+  <h2 class="sec">เอกสารแนบ (${attachments.length} ไฟล์)</h2>
+  ${attachments.length === 0 ? '<div class="meta">ยังไม่มีเอกสารแนบในรอบนี้</div>' : `
+  <table>
+    <thead><tr><th>#</th><th>ชื่อไฟล์</th><th>ประเภท</th><th>คำอธิบาย</th><th>ขนาด</th><th>ผู้แนบ / วันที่</th></tr></thead>
+    <tbody>${attachments.map((a, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td class="b">${esc(a.fileName)}</td>
+        <td>${esc(DOC_TYPE_LABEL[a.docType] || a.docType)}</td>
+        <td>${esc(a.title)}</td>
+        <td class="r">${(a.fileSize / 1024).toFixed(0)} KB</td>
+        <td>${esc(a.uploadedByName || '-')} · ${esc(fmtDateTime(a.uploadedAt))}</td>
+      </tr>`).join('')}</tbody>
+  </table>`}
   <script>
     // รอให้รูปโหลดครบแล้วค่อยเปิดหน้าต่างพิมพ์ (เลือก "Save as PDF" ได้ในหน้าพิมพ์)
     window.onload = () => {
@@ -1032,7 +1291,7 @@ const ITDisposalPage = () => {
           message={confirmState?.message}
           confirmText={confirmState?.confirmText || 'ยืนยัน'}
           cancelText="ยกเลิก"
-          onConfirm={() => confirmState?.onConfirm()}
+          onConfirm={() => { const fn = confirmState?.onConfirm; setConfirmState(null); fn?.(); }}
           onCancel={() => setConfirmState(null)}
         />
 
@@ -1334,13 +1593,21 @@ const ITDisposalPage = () => {
                     <div className="font-bold text-slate-800 tabular-nums">{fmtMoney(r.totalBkAmt)}</div>
                   </div>
                 </div>
-                <div className="mt-4 flex items-center gap-3">
-                  <ProgressRing pct={r.itemCount ? Math.round(((r.fullPhotoCount ?? 0) / r.itemCount) * 100) : 0} />
-                  <div className="text-xs text-slate-500 leading-snug">
-                    <div>รูปครบ 2 รูป</div>
-                    <div className="font-semibold text-slate-700">{r.fullPhotoCount ?? 0} / {r.itemCount} รายการ</div>
-                  </div>
-                </div>
+                {/* ความคืบหน้าตามขั้นตอนของรอบ (5 ขั้น) */}
+                {(() => {
+                  const st = Math.min(5, Math.max(1, Number(r.stage) || 1));
+                  const stageLabel = RUN_STAGES.find((s) => s.n === st)?.label || '';
+                  return (
+                    <div className="mt-4">
+                      <div className="flex items-center gap-1" aria-label={`ขั้นที่ ${st} จาก 5`}>
+                        {RUN_STAGES.map((s) => (
+                          <span key={s.n} className={`h-1.5 flex-1 rounded-full ${s.n <= st ? (st === 5 ? 'bg-sky-500' : 'bg-emerald-500') : 'bg-slate-200'}`} />
+                        ))}
+                      </div>
+                      <div className="mt-1.5 text-xs text-slate-500">ขั้นที่ {st}/5 · <span className="font-semibold text-slate-700">{stageLabel}</span></div>
+                    </div>
+                  );
+                })()}
                 {!open && r.closedAt && (
                   <div className="text-xs text-slate-400 mt-3">ปิดเมื่อ {fmtDateTime(r.closedAt)}{r.closedBy ? ` · ${r.closedBy}` : ''}</div>
                 )}
@@ -1381,11 +1648,14 @@ const ITDisposalPage = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {canEditRun && isOpen && isCreator && (
-            <button onClick={handleCloseRun} disabled={busy} className="bg-white hover:bg-slate-100 disabled:opacity-60 text-slate-700 border border-slate-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap">
+          {canEditRun && isOpen && (isCreator || isAdmin) && (
+            <button onClick={handleCloseRun} disabled={busy || (Number(run.stage) || 1) < 2} title={(Number(run.stage) || 1) < 2 ? 'ต้องทำขั้นที่ 1 "บันทึกและถ่ายภาพ" ให้ครบก่อน' : 'ปิดรอบ'} className="bg-white hover:bg-slate-100 disabled:opacity-60 text-slate-700 border border-slate-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap">
               <Lock size={16} /> ปิดรอบ
             </button>
           )}
+          <button onClick={() => setStickerOpen(true)} disabled={!items.length} className="bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 border border-slate-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap">
+            <Printer size={16} /> พิมพ์ป้าย
+          </button>
           <button onClick={handlePrintPdf} disabled={!items.length} className="bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 border border-slate-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap">
             <Printer size={16} /> พิมพ์ / PDF
           </button>
@@ -1410,14 +1680,17 @@ const ITDisposalPage = () => {
               <Lock size={16} /> เปิดรอบอีกครั้ง
             </button>
           )}
-          {canDeleteRun && isCreator && (
-            <button onClick={handleDeleteRun} disabled={busy} className="bg-white hover:bg-rose-50 disabled:opacity-60 text-rose-600 border border-rose-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap">
-              <Trash2 size={16} /> ลบรอบ
-            </button>
-          )}
           <button onClick={handleExport} disabled={!items.length} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-200 whitespace-nowrap">
             <FileSpreadsheet size={18} /> Export Excel
           </button>
+          {/* ลบรอบแยกไว้ท้ายสุด ห่างจากปุ่มพิมพ์ เพื่อกันกดผิด */}
+          {canDeleteRun && (isCreator || isAdmin) && (
+            <div className="ml-auto pl-3 border-l border-slate-200">
+              <button onClick={handleDeleteRun} disabled={busy} className="bg-white hover:bg-rose-50 disabled:opacity-60 text-rose-600 border border-rose-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap">
+                <Trash2 size={16} /> ลบรอบ
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -1430,14 +1703,9 @@ const ITDisposalPage = () => {
 
       {/* ความคืบหน้าของรอบ + สิ่งที่ต้องทำต่อ */}
       {run && (() => {
-        const accountingDoc = attachments.find((a) => a.docType === 'ACCOUNTING_DONE');
-        const steps = [
-          { label: 'เปิดรอบ', done: true, at: run.createdAt, by: run.createdByName || run.createdBy },
-          { label: 'ปิดรอบ', done: run.status !== 'Open', at: run.status !== 'Open' ? run.closedAt : null, by: run.status !== 'Open' ? run.closedBy : null },
-          { label: 'มีหลักฐาน บช.', done: hasAccountingDoc, at: accountingDoc?.uploadedAt ?? null, by: accountingDoc?.uploadedByName ?? null },
-          { label: 'เสร็จสิ้น', done: isCompleted, at: isCompleted ? run.completedAt : null, by: isCompleted ? (run.completedByName || run.completedBy) : null },
-        ];
-        const currentIdx = steps.findIndex((s) => !s.done);
+        const stage = Number(run.stage) || 1;
+        const steps = RUN_STAGES.map((s) => ({ label: s.label, n: s.n, done: s.n < stage, current: s.n === stage }));
+        const currentIdx = stage - 1;
         const missingPhotos = items.filter((i) => !i.pic1Url || !i.pic2Url);
         const doneDays = isCompleted && run.createdAt
           ? Math.max(0, Math.round((new Date(run.completedAt) - new Date(run.createdAt)) / 86400000))
@@ -1448,19 +1716,25 @@ const ITDisposalPage = () => {
               <div className="text-xs font-bold text-slate-500 mb-3">ความคืบหน้าของรอบ</div>
               <ol className="flex items-start">
                 {steps.map((s, i) => (
-                  <Fragment key={s.label}>
+                  <Fragment key={s.n}>
                     {i > 0 && <li aria-hidden="true" className={`flex-1 h-0.5 mt-3.5 mx-1 rounded ${steps[i - 1].done ? 'bg-emerald-400' : 'bg-slate-200'}`} />}
-                    <li className="flex flex-col items-center text-center w-24 shrink-0" aria-current={i === currentIdx ? 'step' : undefined}>
-                      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                        s.done ? 'bg-emerald-500 text-white'
-                          : i === currentIdx ? 'bg-white text-rose-600 ring-2 ring-rose-500'
-                            : 'bg-slate-100 text-slate-400'
-                      }`}>
-                        {s.done ? <CheckCircle2 size={14} /> : i + 1}
-                      </span>
-                      <span className={`mt-1.5 text-[11px] font-semibold leading-tight ${s.done || i === currentIdx ? 'text-slate-800' : 'text-slate-400'}`}>{s.label}</span>
-                      {s.at && <span className="text-[10px] text-slate-500 leading-tight mt-0.5">{fmtDateTime(s.at)}</span>}
-                      {s.by && <span className="text-[10px] text-slate-400 leading-tight truncate max-w-full">{s.by}</span>}
+                    <li className="flex flex-col items-center text-center w-20 shrink-0" aria-current={s.current ? 'step' : undefined}>
+                      <button
+                        type="button"
+                        onClick={() => askSetStage(s)}
+                        disabled={!canEditRun || s.current || isCompleted}
+                        title={canEditRun ? `ขั้นที่ ${s.n}: ${s.label}${s.current ? ' (ขั้นปัจจุบัน)' : ' — กดเพื่อเปลี่ยนมาขั้นนี้'}` : `ขั้นที่ ${s.n}: ${s.label}`}
+                        className="flex flex-col items-center disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded-lg"
+                      >
+                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                          s.done ? 'bg-emerald-500 text-white'
+                            : s.current ? 'bg-white text-rose-600 ring-2 ring-rose-500'
+                              : 'bg-slate-100 text-slate-400'
+                        }`}>
+                          {s.done ? <CheckCircle2 size={14} /> : s.n}
+                        </span>
+                        <span className={`mt-1.5 text-[11px] font-semibold leading-tight ${s.done || s.current ? 'text-slate-800' : 'text-slate-400'}`}>{s.label}</span>
+                      </button>
                     </li>
                   </Fragment>
                 ))}
@@ -1512,9 +1786,41 @@ const ITDisposalPage = () => {
         );
       })()}
 
+      {run && (canEditRun || run.accountingDocNo) && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="run-doc-input" className="text-xs font-bold text-slate-500 block mb-1">เลขเอกสารบัญชีของรอบ (พิมพ์บนป้าย)</label>
+            {canEditRun ? (
+              <input
+                id="run-doc-input"
+                key={`${selectedRunId}-${run.accountingDocNo || ''}`}
+                ref={runDocRef}
+                defaultValue={run.accountingDocNo || ''}
+                maxLength={50}
+                placeholder="เช่น JV-2026-0001"
+                onKeyDown={(e) => { if (e.key === 'Enter') saveRunDoc(); }}
+                className="w-full max-w-md px-2.5 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+              />
+            ) : (
+              <div className="text-sm font-bold text-slate-800 break-all">{run.accountingDocNo}</div>
+            )}
+          </div>
+          {canEditRun && (
+            <button
+              type="button"
+              onClick={saveRunDoc}
+              className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+            >
+              บันทึกเลขเอกสาร
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="inline-flex bg-white border border-slate-200 rounded-xl p-1 shadow-sm mb-6">
         {[
           { k: 'items', label: 'รายการ' },
+          { k: 'check', label: `ตรวจนับ${items.length ? ` (${items.filter((i) => i.isChecked).length}/${items.length})` : ''}` },
           { k: 'report', label: 'รายงาน' },
           { k: 'docs', label: `เอกสารแนบ${attachments.length ? ` (${attachments.length})` : ''}` },
         ].map((t) => (
@@ -1525,7 +1831,7 @@ const ITDisposalPage = () => {
         ))}
       </div>
 
-      {detailTab === 'docs' ? renderDocs() : detailTab === 'report' ? (
+      {detailTab === 'check' ? renderCheck() : detailTab === 'docs' ? renderDocs() : detailTab === 'report' ? (
         <>
           {/* สถานะเอกสารและการเสร็จสิ้นของรอบ */}
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-4 flex flex-wrap items-center gap-2">
@@ -1575,10 +1881,12 @@ const ITDisposalPage = () => {
                     value={searchCode}
                     onChange={(e) => { setSearchCode(formatAssetCode(e.target.value, searchCode)); setSearchWarn(''); }}
                     placeholder="ค้นหา ASSET NO เช่น CO24-017-02"
-                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                    disabled={addLocked}
+                    title={addLocked ? ADD_LOCK_MSG : undefined}
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 disabled:bg-slate-100 disabled:text-slate-400"
                   />
                 </div>
-                <button type="submit" disabled={searching || !searchCode.trim()} className="bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2">
+                <button type="submit" disabled={searching || !searchCode.trim() || addLocked} title={addLocked ? ADD_LOCK_MSG : undefined} className={`px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 ${addLocked ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white'}`}>
                   {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} ค้นหา Fixed Asset
                 </button>
               </form>
@@ -1617,7 +1925,7 @@ const ITDisposalPage = () => {
                   </div>
 
                   <div className="flex justify-end">
-                    <button type="submit" disabled={saving} className="bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-rose-200">
+                    <button type="submit" disabled={saving || addLocked} title={addLocked ? ADD_LOCK_MSG : undefined} className={`px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 ${addLocked ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white shadow-lg shadow-rose-200'}`}>
                       {saving && <Loader2 size={16} className="animate-spin" />} บันทึกรายการ
                     </button>
                   </div>
@@ -1680,7 +1988,7 @@ const ITDisposalPage = () => {
                       </button>
                     )}
                     {isOpen && canDelete && (
-                      <button onClick={() => handleDelete(it)} title="ลบรายการ" className="p-2 rounded-lg text-rose-500 hover:bg-rose-50">
+                      <button onClick={() => handleDelete(it)} disabled={addLocked} title={addLocked ? ADD_LOCK_MSG.replace('เพิ่มรายการ', 'ลบรายการ') : 'ลบรายการ'} className={`p-2 rounded-lg ${addLocked ? 'text-slate-300 cursor-not-allowed' : 'text-rose-500 hover:bg-rose-50'}`}>
                         <Trash2 size={18} />
                       </button>
                     )}
@@ -1691,12 +1999,23 @@ const ITDisposalPage = () => {
           </div>
 
           <div className="lg:hidden mt-3 bg-white rounded-2xl border border-slate-200 overflow-hidden">
-            <Pagination currentPage={curPage} totalPages={totalPages} onPageChange={setPage} itemsPerPage={PAGE_SIZE} totalItems={items.length} />
+            <Pagination currentPage={curPage} totalPages={totalPages} onPageChange={setPage} itemsPerPage={PAGE_SIZE} totalItems={sortedItems.length} />
           </div>
 
           {/* เรียงลำดับรายการ (เลือกจาก dropdown หรือกดหัวคอลัมน์ในตาราง) */}
           {items.length > 1 && (
             <div className="flex flex-wrap items-center gap-2 mb-2 text-xs">
+              <span className="text-slate-400 font-bold">กรอง</span>
+              <select
+                value={itemFilter}
+                onChange={(e) => { setItemFilter(e.target.value); setPage(1); }}
+                aria-label="กรองรายการ"
+                className="px-2 py-1 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
+              >
+                {ITEM_FILTERS.map(([k, l]) => (
+                  <option key={k} value={k}>{l} ({items.filter((i) => itemMatchesFilter(k, i)).length})</option>
+                ))}
+              </select>
               <span className="text-slate-400 font-bold">เรียงตาม</span>
               <select
                 value={itemSort.key || ''}
@@ -1706,6 +2025,46 @@ const ITDisposalPage = () => {
                 <option value="">ลำดับที่บันทึก</option>
                 {ITEM_SORT_LABELS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
+              {canEdit && (
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const list = pagedItems.filter((i) => !i.isKeyed);
+                      setConfirmState({
+                        type: 'confirm',
+                        title: 'ติ๊กลงบัญชีทั้งหน้า',
+                        message: `ทำเครื่องหมายว่าลงบัญชีแล้ว ${list.length} รายการในหน้านี้? (ยกเลิกได้ภายหลัง)`,
+                        confirmText: 'ติ๊กทั้งหน้า',
+                        onConfirm: () => setKeyed(list, true),
+                      });
+                    }}
+                    disabled={busy || !pagedItems.some((i) => !i.isKeyed)}
+                    title="ทำเครื่องหมายว่าลงบัญชีแล้วทุกรายการในหน้านี้ที่ยังไม่ได้ติ๊ก"
+                    className="px-2.5 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold hover:bg-emerald-100 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                  >
+                    ติ๊กลงบัญชีทั้งหน้านี้
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const list = pagedItems.filter((i) => i.isKeyed);
+                      setConfirmState({
+                        type: 'confirm',
+                        title: 'ยกเลิกลงบัญชีทั้งหน้า',
+                        message: `ยกเลิกเครื่องหมายลงบัญชี ${list.length} รายการในหน้านี้?`,
+                        confirmText: 'ยกเลิกทั้งหน้า',
+                        onConfirm: () => setKeyed(list, false),
+                      });
+                    }}
+                    disabled={busy || !pagedItems.some((i) => i.isKeyed)}
+                    title="ยกเลิกเครื่องหมายลงบัญชีของทุกรายการในหน้านี้ที่ติ๊กไว้"
+                    className="px-2.5 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 font-bold hover:bg-rose-100 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                  >
+                    ยกเลิกลงบัญชีทั้งหน้านี้
+                  </button>
+                </div>
+              )}
               {itemSort.key && (
                 <button
                   onClick={() => setItemSort((s) => ({ ...s, dir: s.dir === 'asc' ? 'desc' : 'asc' }))}
@@ -1722,15 +2081,16 @@ const ITDisposalPage = () => {
             <div>
               <table className="w-full text-[11px] table-fixed">
                 <colgroup>
-                  <col style={{ width: '2%' }} /><col style={{ width: '8%' }} /><col style={{ width: '6.5%' }} />
-                  <col style={{ width: '19%' }} /><col style={{ width: '19%' }} /><col style={{ width: '4%' }} />
-                  <col style={{ width: '6%' }} /><col style={{ width: '6%' }} /><col style={{ width: '6%' }} />
-                  <col style={{ width: '3.5%' }} /><col style={{ width: '3.5%' }} /><col style={{ width: '9.5%' }} />
-                  <col style={{ width: '7%' }} />
+                  <col style={{ width: '2%' }} /><col style={{ width: '3%' }} /><col style={{ width: '8%' }} />
+                  <col style={{ width: '6.5%' }} /><col style={{ width: '18%' }} /><col style={{ width: '18%' }} />
+                  <col style={{ width: '4%' }} /><col style={{ width: '6%' }} /><col style={{ width: '6%' }} />
+                  <col style={{ width: '6%' }} /><col style={{ width: '3.5%' }} /><col style={{ width: '3.5%' }} />
+                  <col style={{ width: '9.5%' }} /><col style={{ width: '6%' }} />
                 </colgroup>
                 <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase">
                   <tr>
                     <th className="px-2 py-1.5 text-left">#</th>
+                    <th className="px-1 py-1.5 text-center whitespace-nowrap normal-case" title="ติ๊กเมื่อกรอกรายการนี้ลงระบบบัญชีแล้ว">ลงบัญชี</th>
                     <th onClick={() => toggleItemSort('assetNo')} className="px-2 py-1.5 text-left cursor-pointer select-none hover:text-slate-800 whitespace-nowrap">ASSET NO{sortMark('assetNo')}</th>
                     <th onClick={() => toggleItemSort('assetDate')} className="px-2 py-1.5 text-left cursor-pointer select-none hover:text-slate-800 whitespace-nowrap">DATE{sortMark('assetDate')}</th>
                     <th onClick={() => toggleItemSort('assetName')} className="px-2 py-1.5 text-left cursor-pointer select-none hover:text-slate-800">ASSET NAME{sortMark('assetName')}</th>
@@ -1748,7 +2108,7 @@ const ITDisposalPage = () => {
                 <tbody className="divide-y divide-slate-100">
                   {items.length === 0 && (
                     <tr>
-                      <td colSpan={13} className="px-4 py-12 text-center text-slate-400">
+                      <td colSpan={14} className="px-4 py-12 text-center text-slate-400">
                         <ImageIcon size={28} className="mx-auto mb-2 opacity-40" />
                         {isOpen ? 'ยังไม่มีรายการในรอบนี้ — ค้นหา ASSET NO เพื่อเพิ่มรายการ' : 'ไม่มีรายการในรอบนี้'}
                       </td>
@@ -1757,6 +2117,18 @@ const ITDisposalPage = () => {
                   {pagedItems.map((it, idx) => (
                     <tr key={it.itemId} className="hover:bg-slate-50/70">
                       <td className="px-2 py-1 text-slate-400">{(curPage - 1) * PAGE_SIZE + idx + 1}</td>
+                      <td className="px-1 py-1 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setKeyed([it], !it.isKeyed)}
+                          disabled={busy || !canEdit}
+                          title={it.isKeyed ? `ลงบัญชีแล้ว (${it.keyedByName || it.keyedBy || ''}) — กดเพื่อยกเลิก` : 'ยังไม่ได้ลงบัญชี — กดเพื่อทำเครื่องหมายว่าลงแล้ว'}
+                          aria-label={it.isKeyed ? 'ยกเลิกลงบัญชี' : 'ทำเครื่องหมายว่าลงบัญชีแล้ว'}
+                          className={`p-0.5 rounded disabled:opacity-50 ${it.isKeyed ? 'text-emerald-600 hover:bg-emerald-50' : 'text-slate-300 hover:text-emerald-600 hover:bg-emerald-50'}`}
+                        >
+                          {it.isKeyed ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+                        </button>
+                      </td>
                       <td className="px-2 py-1 font-bold text-slate-800 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1">
                           {it.assetNo}
@@ -1797,7 +2169,7 @@ const ITDisposalPage = () => {
                           </button>
                         )}
                         {isOpen && canDelete && (
-                          <button onClick={() => handleDelete(it)} title="ลบรายการ" className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50">
+                          <button onClick={() => handleDelete(it)} disabled={addLocked} title={addLocked ? ADD_LOCK_MSG.replace('เพิ่มรายการ', 'ลบรายการ') : 'ลบรายการ'} className={`p-1 rounded-lg ${addLocked ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'}`}>
                             <Trash2 size={16} />
                           </button>
                         )}
@@ -1808,7 +2180,7 @@ const ITDisposalPage = () => {
                 {items.length > 0 && (
                   <tfoot className="bg-slate-50 font-bold text-slate-700">
                     <tr>
-                      <td colSpan={6} className="px-2 py-1.5 text-right">รวม</td>
+                      <td colSpan={7} className="px-2 py-1.5 text-right">รวม</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(totals.cost)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(totals.accum)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(totals.bk)}</td>
@@ -1823,7 +2195,7 @@ const ITDisposalPage = () => {
               totalPages={totalPages}
               onPageChange={setPage}
               itemsPerPage={PAGE_SIZE}
-              totalItems={items.length}
+              totalItems={sortedItems.length}
             />
           </section>
         </>
@@ -1834,6 +2206,7 @@ const ITDisposalPage = () => {
           item={detailItem}
           list={sortedItems}
           runCode={run?.runCode}
+          runDocNo={run?.accountingDocNo}
           canEdit={canEdit}
           onNavigate={setDetailItem}
           onClose={() => setDetailItem(null)}
@@ -1848,9 +2221,18 @@ const ITDisposalPage = () => {
         message={confirmState?.message}
         confirmText={confirmState?.confirmText || 'ยืนยัน'}
         cancelText="ยกเลิก"
-        onConfirm={() => confirmState?.onConfirm()}
+        onConfirm={() => { const fn = confirmState?.onConfirm; setConfirmState(null); fn?.(); }}
         onCancel={() => setConfirmState(null)}
       />
+
+      {stickerOpen && (
+        <StickerSheetModal
+          items={items}
+          runCode={run?.runCode}
+          runDocNo={run?.accountingDocNo}
+          onClose={() => setStickerOpen(false)}
+        />
+      )}
 
       {photoItem && (
         <PhotoModal
@@ -1868,14 +2250,407 @@ const ITDisposalPage = () => {
   );
 };
 
+// ─── พิมพ์ป้ายหลายรายการลงกระดาษ (ตัดเอง) ───────────────────────────────────────
+// ขนาดกระดาษมาตรฐาน + กำหนดเอง, คำนวณจำนวนแถว/คอลัมน์ที่ใส่ได้ต่อหน้า แล้วพิมพ์เป็นหลายหน้าอัตโนมัติ
+const STICKER_PAPERS = [
+  { key: 'A3', label: 'A3 (297 × 420 มม.)', w: 297, h: 420 },
+  { key: 'A4', label: 'A4 (210 × 297 มม.)', w: 210, h: 297 },
+  { key: 'A5', label: 'A5 (148 × 210 มม.)', w: 148, h: 210 },
+  { key: 'A6', label: 'A6 (105 × 148 มม.)', w: 105, h: 148 },
+  { key: 'B5', label: 'B5 (176 × 250 มม.)', w: 176, h: 250 },
+  { key: 'Letter', label: 'Letter (216 × 279 มม.)', w: 216, h: 279 },
+  { key: 'Legal', label: 'Legal (216 × 356 มม.)', w: 216, h: 356 },
+  { key: 'Custom', label: 'กำหนดเอง', w: 210, h: 297 },
+];
+
+const stickerEsc = (v) => String(v ?? '-').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Barcode Code 128 เป็น SVG (ใช้ได้เมื่อเครื่องสแกนอ่าน QR ไม่ได้)
+// ปรับความกว้างแท่งให้เต็มความกว้างที่กำหนด (มม.) — ไม่ให้เหลือช่องว่างสองข้างแบบเดิม
+const barcodeSvg = (text, widthMm) => {
+  const make = (w) => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    JsBarcode(svg, String(text), { format: 'CODE128', displayValue: false, margin: 0, height: 40, width: w });
+    return svg;
+  };
+  const naturalPx = Number(make(1).getAttribute('width')) || 1;
+  const targetPx = (widthMm * 96) / 25.4;
+  const w = Math.max(1, Math.floor((targetPx / naturalPx) * 100) / 100);
+  const svg = make(w);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  return svg.outerHTML;
+};
+
+// สร้าง HTML สำหรับพิมพ์ป้าย ใช้ร่วมกันทั้งพิมพ์หลายรายการและพิมพ์ป้ายเดี่ยว
+// sheets = [[รายการหน้า 1], [รายการหน้า 2], ...] แต่ละหน้าจัดเป็น cols คอลัมน์
+const buildStickerHtml = async ({ sheets, pw, ph, cols, rows, lw, lh, gap, margin, showGuide, showBoxes, runCode, runDocNo }) => {
+  const flat = sheets.flat();
+  // ขนาดฐานอ้างอิงป้าย 70×40 มม. เมื่อป้ายใหญ่ขึ้น (ลดคอลัมน์/แถว) ตัวอักษรและ QR/บาร์โค้ดจะขยายตาม
+  const sc = Math.max(0.2, Math.min(lw / 70, lh / 40));
+  const z = (v) => +(v * sc).toFixed(2);
+  // เส้นตัดแบ่งกลางช่องว่างระหว่างป้าย วิ่งตลอดแผ่น (ตัดตามเส้นได้โดยไม่ต้องตัดทีละกรอบ)
+  let guideHtml = '';
+  if (showGuide) {
+    // รวมเส้นนอกสุดด้วย (ห่างจากป้ายนอกสุดเท่ากับครึ่งช่องว่าง) เพื่อให้ทุกป้ายมีขอบขาวเท่ากันเมื่อตัด
+    for (let c = 0; c <= cols; c++) guideHtml += `<div class="gv" style="left:${margin + c * lw + (c - 0.5) * gap}mm"></div>`;
+    for (let r = 0; r <= rows; r++) guideHtml += `<div class="gh" style="top:${margin + r * lh + (r - 0.5) * gap}mm"></div>`;
+  }
+  const media = await Promise.all(flat.map(async (i) => ({
+    qr: await QRCode.toString(i.assetNo, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' }),
+    bc: barcodeSvg(i.assetNo, lw - 4),
+  })));
+  let n = 0;
+  const sheetHtml = sheets.map((items) => `<section class="sheet">${items.map((i) => {
+    const mm = media[n++];
+    return `
+      <div class="lb">
+        <div class="top">
+          <div class="txt">
+            <div class="code">${stickerEsc(i.assetNo)}</div>
+            <div class="name">${stickerEsc(i.assetName)}</div>
+            <div class="place">${stickerEsc(i.place)}</div>
+            <div class="meta">CC ${stickerEsc(i.costCenter)} · ${stickerEsc(fmtDate(i.assetDate))}</div>
+            <div class="meta">${stickerEsc(runCode)} · รูปภาพ ${(i.pic1Url ? 1 : 0) + (i.pic2Url ? 1 : 0)}/2</div>
+            <div class="doc">เอกสารบัญชี: ${stickerEsc(runDocNo)}</div>
+            <div class="meta">ผู้บันทึก: ${stickerEsc(i.createdByName || i.createdBy)}</div>
+          </div>
+          <div class="qr">${mm.qr}</div>
+        </div>
+        <div class="bc">${mm.bc}</div>
+      </div>`;
+  }).join('')}${guideHtml}</section>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>ป้ายครุภัณฑ์</title><style>
+  @page { size: ${pw}mm ${ph}mm; margin: 0; }
+  html, body { margin: 0; padding: 0; color: #000; font-family: 'Sarabun', Tahoma, sans-serif; }
+  .sheet { position: relative; box-sizing: border-box; width: ${pw}mm; height: ${ph}mm; padding: ${margin}mm; display: grid; grid-template-columns: repeat(${cols}, ${lw}mm); grid-auto-rows: ${lh}mm; gap: ${gap}mm; align-content: start; justify-content: start; overflow: hidden; }
+  .sheet + .sheet { break-before: page; page-break-before: always; }
+  .lb { box-sizing: border-box; width: ${lw}mm; height: ${lh}mm; padding: ${z(2)}mm; overflow: hidden; display: flex; flex-direction: column; ${showBoxes ? 'border: 0.2mm dashed #94a3b8;' : ''} }
+  .gv { position: absolute; top: 0; bottom: 0; width: 0; border-left: 0.2mm dashed #94a3b8; }
+  .gh { position: absolute; left: 0; right: 0; height: 0; border-top: 0.2mm dashed #94a3b8; }
+  .top { display: flex; align-items: flex-start; gap: ${z(2)}mm; flex: 1; min-height: 0; overflow: hidden; }
+  .txt { flex: 1; min-width: 0; max-height: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; }
+  .qr { flex: 0 0 ${z(18)}mm; width: ${z(18)}mm; height: ${z(18)}mm; }
+  .qr svg, .bc svg { display: block; width: 100%; height: 100%; }
+  .bc { flex: 0 0 ${z(7)}mm; height: ${z(7)}mm; margin-top: ${z(1.5)}mm; }
+  .code { font-size: ${z(10)}pt; font-weight: 900; line-height: 1.05; word-break: break-all; }
+  .name { font-size: ${z(6.5)}pt; line-height: 1.15; margin-top: ${z(0.6)}mm; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .place { font-size: ${z(6)}pt; line-height: 1.15; color: #222; margin-top: ${z(0.5)}mm; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .meta { font-size: ${z(5.5)}pt; color: #333; margin-top: ${z(0.5)}mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .doc { font-size: ${z(7)}pt; font-weight: 700; margin-top: ${z(0.5)}mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style></head><body>${sheetHtml}
+<script>window.onload = function () { setTimeout(function () { window.print(); }, 150); };</script>
+</body></html>`;
+};
+
+// พิมพ์ HTML ผ่าน iframe ที่ซ่อนอยู่ (ไม่เปิดแท็บใหม่ และไม่โดนบล็อกป๊อปอัป)
+const printHtmlInFrame = (html) => {
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  document.body.appendChild(frame);
+  const doc = frame.contentWindow.document;
+  doc.open();
+  doc.write(html);
+  doc.close();
+  const cleanup = () => setTimeout(() => frame.remove(), 500);
+  frame.contentWindow.addEventListener('afterprint', cleanup);
+  setTimeout(() => { if (frame.isConnected) frame.remove(); }, 10 * 60 * 1000);
+};
+
+// คำนวณจำนวนป้ายที่ใส่ได้ในกระดาษ (หน่วยมม.) — ขอบกระดาษ margin, ระยะห่างระหว่างป้าย gap
+const calcStickerGrid = ({ pw, ph, lw, lh, gap, margin }) => {
+  const uw = pw - 2 * margin;
+  const uh = ph - 2 * margin;
+  const cols = lw > 0 && uw > 0 ? Math.floor((uw + gap) / (lw + gap)) : 0;
+  const rows = lh > 0 && uh > 0 ? Math.floor((uh + gap) / (lh + gap)) : 0;
+  const c = Math.max(0, cols);
+  const r = Math.max(0, rows);
+  return { cols: c, rows: r, perPage: c * r };
+};
+
+// ปุ่ม −/+ สำหรับจำนวนคอลัมน์หรือแถว (ขั้นต่ำ 1)
+const CountStepper = ({ label, value, onChange }) => (
+  <div>
+    <span className="text-xs font-bold text-slate-500 block mb-1">{label}</span>
+    <div className="flex items-center gap-1">
+      <button type="button" onClick={() => onChange(Math.max(1, value - 1))} aria-label={`ลด${label}`} className="w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-700 font-bold hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">−</button>
+      <input
+        type="number"
+        min="1"
+        value={value}
+        onChange={(e) => onChange(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+        aria-label={label}
+        className="w-16 h-9 text-center rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+      />
+      <button type="button" onClick={() => onChange(value + 1)} aria-label={`เพิ่ม${label}`} className="w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-700 font-bold hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">+</button>
+    </div>
+  </div>
+);
+
+const StickerSheetModal = ({ items, runCode, runDocNo, onClose }) => {
+  const [paper, setPaper] = useState('A4');
+  const [orient, setOrient] = useState('landscape');
+  const [custom, setCustom] = useState({ w: 210, h: 297 });
+  const [label, setLabel] = useState({ w: 70, h: 40 });
+  const [gap, setGap] = useState(2);
+  const [margin, setMargin] = useState(5);
+  const [showGuide, setShowGuide] = useState(true);
+  const [showBoxes, setShowBoxes] = useState(true);
+  const [fit, setFit] = useState(true);
+  const [fitCols, setFitCols] = useState(3);
+  const [fitRows, setFitRows] = useState(3);
+  // เริ่มต้นยังไม่เลือกรายการใดเลย กันการพิมพ์ทั้งรอบโดยไม่ตั้งใจ
+  const [selected, setSelected] = useState(() => new Set());
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const base = STICKER_PAPERS.find((p) => p.key === paper) || STICKER_PAPERS[1];
+  const baseW = paper === 'Custom' ? Number(custom.w) : base.w;
+  const baseH = paper === 'Custom' ? Number(custom.h) : base.h;
+  const pw = orient === 'landscape' ? Math.max(baseW, baseH) : Math.min(baseW, baseH);
+  const ph = orient === 'landscape' ? Math.min(baseW, baseH) : Math.max(baseW, baseH);
+  const g = Number(gap);
+  const m = Number(margin);
+  // โหมดกำหนดแถว/คอลัมน์เอง: คำนวณขนาดป้ายให้พอดีกระดาษ (ปัดลง 0.1 มม.)
+  const fitW = fitCols > 0 ? Math.max(0, Math.floor(((pw - 2 * m - (fitCols - 1) * g) / fitCols) * 10) / 10) : 0;
+  const fitH = fitRows > 0 ? Math.max(0, Math.floor(((ph - 2 * m - (fitRows - 1) * g) / fitRows) * 10) / 10) : 0;
+  const lw = fit ? fitW : Number(label.w);
+  const lh = fit ? fitH : Number(label.h);
+  const grid = calcStickerGrid({ pw, ph, lw, lh, gap: g, margin: m });
+  const chosen = items.filter((i) => selected.has(i.itemId));
+  const pages = grid.perPage > 0 ? Math.ceil(chosen.length / grid.perPage) : 0;
+  const canPrint = grid.perPage > 0 && chosen.length > 0;
+
+  const toggle = (id) => setSelected((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+  const allOn = items.length > 0 && chosen.length === items.length;
+  const toggleAll = () => setSelected(allOn ? new Set() : new Set(items.map((i) => i.itemId)));
+
+  const handlePrint = async () => {
+    if (!canPrint) return;
+    const sheets = [];
+    for (let p = 0; p < pages; p++) sheets.push(chosen.slice(p * grid.perPage, (p + 1) * grid.perPage));
+    printHtmlInFrame(await buildStickerHtml({ sheets, pw, ph, cols: grid.cols, rows: grid.rows, lw, lh, gap: g, margin: m, showGuide, showBoxes, runCode, runDocNo }));
+  };
+
+  // ตัวอย่างตำแหน่งป้ายบนกระดาษ (หนึ่งหน้า)
+  const previewCells = [];
+  if (grid.perPage > 0 && grid.perPage <= 300) {
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        previewCells.push(
+          <div
+            key={`${r}-${c}`}
+            className="absolute bg-sky-50 border border-sky-300"
+            style={{
+              left: `${((m + c * (lw + g)) / pw) * 100}%`,
+              top: `${((m + r * (lh + g)) / ph) * 100}%`,
+              width: `${(lw / pw) * 100}%`,
+              height: `${(lh / ph) * 100}%`,
+            }}
+          />
+        );
+      }
+    }
+  }
+
+  const inp = 'px-2.5 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 w-full';
+  const lbl = 'text-xs font-bold text-slate-500 block mb-1';
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="พิมพ์ป้ายรายการ"
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto p-5 space-y-4"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-black text-slate-800 text-lg">พิมพ์ป้ายหลายรายการ</h3>
+            <p className="text-xs text-slate-400">เลือกกระดาษและขนาดป้าย ระบบจะคำนวณว่าใส่ได้กี่แถวกี่คอลัมน์</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="ปิด" className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="space-y-3">
+            <div>
+              <label className={lbl} htmlFor="stk-paper">ขนาดกระดาษ</label>
+              <select id="stk-paper" value={paper} onChange={(e) => setPaper(e.target.value)} className={inp}>
+                {STICKER_PAPERS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+            </div>
+
+            {paper === 'Custom' && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className={lbl} htmlFor="stk-cw">กว้าง (มม.)</label>
+                  <input id="stk-cw" type="number" min="10" value={custom.w} onChange={(e) => setCustom({ ...custom, w: e.target.value })} className={inp} />
+                </div>
+                <div>
+                  <label className={lbl} htmlFor="stk-ch">สูง (มม.)</label>
+                  <input id="stk-ch" type="number" min="10" value={custom.h} onChange={(e) => setCustom({ ...custom, h: e.target.value })} className={inp} />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <span className={lbl}>แนวกระดาษ</span>
+              <div className="grid grid-cols-2 gap-2">
+                {[['portrait', 'แนวตั้ง'], ['landscape', 'แนวนอน']].map(([k, l]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setOrient(k)}
+                    aria-pressed={orient === k}
+                    className={`px-3 py-2 rounded-lg text-sm font-bold border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${orient === k ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
+              <input type="checkbox" checked={fit} onChange={(e) => setFit(e.target.checked)} className="rounded border-slate-300" />
+              กำหนดแถวและคอลัมน์เอง (ขนาดป้ายปรับอัตโนมัติ)
+            </label>
+            {fit && (
+              <div className="grid grid-cols-2 gap-2">
+                <CountStepper label="คอลัมน์" value={fitCols} onChange={setFitCols} />
+                <CountStepper label="แถว" value={fitRows} onChange={setFitRows} />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className={lbl} htmlFor="stk-lw">ป้ายกว้าง (มม.)</label>
+                <input id="stk-lw" type="number" min="5" value={fit ? fitW : label.w} disabled={fit} onChange={(e) => setLabel({ ...label, w: e.target.value })} className={`${inp} disabled:bg-slate-100 disabled:text-slate-500`} />
+              </div>
+              <div>
+                <label className={lbl} htmlFor="stk-lh">ป้ายสูง (มม.)</label>
+                <input id="stk-lh" type="number" min="5" value={fit ? fitH : label.h} disabled={fit} onChange={(e) => setLabel({ ...label, h: e.target.value })} className={`${inp} disabled:bg-slate-100 disabled:text-slate-500`} />
+              </div>
+              <div>
+                <label className={lbl} htmlFor="stk-gap">ช่องว่างระหว่างป้าย (มม.)</label>
+                <input id="stk-gap" type="number" min="0" value={gap} onChange={(e) => setGap(e.target.value)} className={inp} />
+              </div>
+              <div>
+                <label className={lbl} htmlFor="stk-margin">ขอบกระดาษ (มม.)</label>
+                <input id="stk-margin" type="number" min="0" value={margin} onChange={(e) => setMargin(e.target.value)} className={inp} />
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input type="checkbox" checked={showGuide} onChange={(e) => setShowGuide(e.target.checked)} className="rounded border-slate-300" />
+              พิมพ์เส้นประตัดป้าย (ตรงกลางช่องว่าง)
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input type="checkbox" checked={showBoxes} onChange={(e) => setShowBoxes(e.target.checked)} className="rounded border-slate-300" />
+              พิมพ์กรอบสี่เหลี่ยมรอบป้ายแต่ละใบ
+            </label>
+
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm space-y-1">
+              {grid.perPage > 0 ? (
+                <>
+                  <div className="font-bold text-slate-800">
+                    {grid.cols} คอลัมน์ × {grid.rows} แถว = {grid.perPage} ป้ายต่อหน้า
+                  </div>
+                  <div className="text-slate-500">
+                    เลือกไว้ {chosen.length} รายการ → {pages} หน้า
+                  </div>
+                </>
+              ) : (
+                <div className="text-rose-600 font-bold">ขนาดป้ายหรือขอบใหญ่เกินกระดาษ ปรับค่าก่อนพิมพ์</div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <span className={lbl}>ตัวอย่างหนึ่งหน้า ({pw} × {ph} มม.)</span>
+            <div className="flex justify-center">
+              <div
+                className="relative bg-white border border-slate-300 shadow-sm"
+                style={{ width: `min(100%, calc(40vh * ${pw} / ${ph}))`, aspectRatio: `${pw} / ${ph}` }}
+              >
+                {previewCells}
+                {grid.perPage > 300 && (
+                  <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">ป้ายจำนวนมากเกินจะแสดงตัวอย่าง</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-slate-500">เลือกรายการที่จะพิมพ์</span>
+            <button type="button" onClick={toggleAll} className="text-xs font-bold text-rose-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded">
+              {allOn ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด'}
+            </button>
+          </div>
+          <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
+            {items.map((i) => (
+              <label key={i.itemId} className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" checked={selected.has(i.itemId)} onChange={() => toggle(i.itemId)} className="rounded border-slate-300" />
+                <span className="font-bold text-slate-800 whitespace-nowrap">{i.assetNo}</span>
+                <span className="text-slate-500 truncate">{i.assetName || '-'}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+          <p className="text-[11px] text-slate-400 max-w-md">
+            ในหน้าต่างพิมพ์ ตั้ง Margins = None, Scale = 100% และปิด Headers and footers เพื่อให้ขนาดตรงกับที่ตั้งไว้
+          </p>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">ปิด</button>
+            <button
+              type="button"
+              onClick={handlePrint}
+              disabled={!canPrint}
+              className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+            >
+              <Printer size={15} /> พิมพ์ป้าย
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── รายละเอียดรายการ + ดูรูปขนาดใหญ่ ──────────────────────────────────────────
 // รายละเอียดรายการ: เลื่อนดูทีละรายการได้ (ปุ่มหรือลูกศรซ้าย-ขวา), คัดลอก/พิมพ์ป้าย, ประวัติของรายการ,
 // ขยายรูป, Esc ปิด, โฟกัสอยู่ในกล่องตลอด (กด Tab วนในกล่อง)
-const DetailModal = ({ item, list = [], canEdit, onClose, onAttach, onNavigate, runCode }) => {
+const DetailModal = ({ item, list = [], canEdit, onClose, onAttach, onNavigate, runCode, runDocNo }) => {
   const dialogRef = useRef(null);
   const [zoom, setZoom] = useState('');
   const [history, setHistory] = useState([]);
   const [copied, setCopied] = useState(false);
+  // รูปเดิมของครุภัณฑ์จากระบบ Fixed Asset (ดึงผ่าน lookup API ตามรหัส ASSET NO)
+  const [legacy, setLegacy] = useState({ loading: true, urls: [] });
+
+  useEffect(() => {
+    let alive = true;
+    setLegacy({ loading: true, urls: [] });
+    apiRequest(`/disposal/lookup/${encodeURIComponent(item.assetNo)}`)
+      .then((d) => { if (alive) setLegacy({ loading: false, urls: d.item?.legacyPicUrls || [] }); })
+      .catch(() => { if (alive) setLegacy({ loading: false, urls: [] }); });
+    return () => { alive = false; };
+  }, [item.assetNo]);
   const idx = list.findIndex((x) => x.itemId === item.itemId);
   const prev = idx > 0 ? list[idx - 1] : null;
   const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null;
@@ -1928,25 +2703,9 @@ const DetailModal = ({ item, list = [], canEdit, onClose, onAttach, onNavigate, 
     setTimeout(() => setCopied(false), 1500);
   };
 
-  // พิมพ์ป้ายรายการเดียว (ขนาดป้ายประมาณ 70 x 40 มม.)
-  const printSticker = () => {
-    const esc = (v) => String(v ?? '-').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    const w = window.open('', '_blank');
-    if (!w) return;
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(item.assetNo)}</title><style>
-      @page { size: 70mm 40mm; margin: 3mm; }
-      body { font-family: sans-serif; margin: 0; color: #000; }
-      .code { font-size: 18pt; font-weight: 900; letter-spacing: .5px; }
-      .name { font-size: 8.5pt; margin-top: 1.5mm; line-height: 1.25; }
-      .meta { font-size: 7.5pt; color: #333; margin-top: 1mm; }
-    </style></head><body>
-      <div class="code">${esc(item.assetNo)}</div>
-      <div class="name">${esc(item.assetName)}</div>
-      <div class="meta">${esc(item.place)} · CC ${esc(item.costCenter)}</div>
-      <div class="meta">${esc(runCode)} · ${esc(fmtDate(item.assetDate))}</div>
-      <script>window.onload = function () { window.print(); };</script>
-    </body></html>`);
-    w.document.close();
+  // พิมพ์ป้ายรายการเดียว — ใช้แบบเดียวกับการพิมพ์ป้ายหลายรายการ (ขนาด 70 x 40 มม. มี QR + Barcode)
+  const printSticker = async () => {
+    printHtmlInFrame(await buildStickerHtml({ sheets: [[item]], pw: 70, ph: 40, cols: 1, rows: 1, lw: 70, lh: 40, gap: 0, margin: 0, showGuide: false, showBoxes: false, runCode, runDocNo }));
   };
 
   const rows = [
@@ -1984,7 +2743,7 @@ const DetailModal = ({ item, list = [], canEdit, onClose, onAttach, onNavigate, 
 
   return (
     <>
-      <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4">
         <div
           ref={dialogRef}
           tabIndex={-1}
@@ -2032,6 +2791,35 @@ const DetailModal = ({ item, list = [], canEdit, onClose, onAttach, onNavigate, 
             ))}
           </dl>
 
+          {/* รูปเดิมจากระบบ Fixed Asset — รูปเล็กด้านบน แยกจากรูปหน้างานที่อัปโหลดในรอบนี้ */}
+          <section className="rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-bold text-slate-500">รูปเดิมจากระบบ Fixed Asset</span>
+              {!legacy.loading && legacy.urls.length > 0 && <span className="text-[11px] text-slate-400">({legacy.urls.length} รูป)</span>}
+            </div>
+            {legacy.loading ? (
+              <div className="text-xs text-slate-400">กำลังโหลด...</div>
+            ) : legacy.urls.length === 0 ? (
+              <div className="text-xs text-slate-400">ไม่มีรูปเดิมในระบบ Fixed Asset</div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {legacy.urls.map((u, i) => (
+                  <button
+                    key={u}
+                    type="button"
+                    onClick={() => setZoom(u)}
+                    title={`รูปเดิม ${i + 1} — กดเพื่อขยาย`}
+                    aria-label={`ขยายรูปเดิม ${i + 1} ของ ${item.assetNo}`}
+                    className="block w-20 h-20 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                  >
+                    <img src={u} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <div className="text-xs font-bold text-slate-500">รูปหน้างานจริง (ที่บันทึกในรอบนี้)</div>
           <div className="flex flex-col md:flex-row gap-4">
             <Photo label="PIC 1" url={item.pic1Url} />
             <Photo label="PIC 2" url={item.pic2Url} />
@@ -2065,7 +2853,7 @@ const DetailModal = ({ item, list = [], canEdit, onClose, onAttach, onNavigate, 
       </div>
 
       {zoom && (
-        <div className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-4" onClick={() => setZoom('')}>
+        <div className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-4">
           <img src={zoom} alt="" className="max-w-full max-h-full object-contain rounded-xl" />
           <button type="button" onClick={() => setZoom('')} aria-label="ปิดรูป" className="absolute top-4 right-4 p-2 rounded-lg bg-white/90 text-slate-700">
             <X size={18} />
@@ -2111,7 +2899,7 @@ const PhotoModal = ({ runId, item, onClose, onSaved }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4">
       <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -2146,13 +2934,15 @@ const PhotoModal = ({ runId, item, onClose, onSaved }) => {
 };
 
 // ─── รายงานของรอบ ───────────────────────────────────────────────────────────
-const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
-  if (!report) {
-    return <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400"><Loader2 size={22} className="mx-auto animate-spin" /></div>;
-  }
-  const { summary, byCostCenter, byRecorder, byDay = [], missingPhotoItems } = report;
-  const totalCost = summary.totalCost || 0;
-  const Table = ({ title, rows, labelHead }) => (
+const REPORT_PAGE_SIZE = 10;
+
+// ตารางสรุปในหน้ารายงาน — แบ่งหน้าละ REPORT_PAGE_SIZE แถว
+const ReportTable = ({ title, rows, labelHead, totalCost }) => {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / REPORT_PAGE_SIZE));
+  const cur = Math.min(page, totalPages);
+  const shown = rows.slice((cur - 1) * REPORT_PAGE_SIZE, cur * REPORT_PAGE_SIZE);
+  return (
     <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="px-5 py-3 border-b border-slate-100 font-bold text-slate-800">{title}</div>
       <div>
@@ -2167,7 +2957,7 @@ const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.length === 0 && <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">ไม่มีข้อมูล</td></tr>}
-            {rows.map((r) => {
+            {shown.map((r) => {
               const pct = totalCost > 0 ? (r.cost / totalCost) * 100 : 0;
               return (
                 <tr key={r.key}>
@@ -2186,8 +2976,27 @@ const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
           </tbody>
         </table>
       </div>
+      {rows.length > REPORT_PAGE_SIZE && (
+        <Pagination currentPage={cur} totalPages={totalPages} onPageChange={setPage} itemsPerPage={REPORT_PAGE_SIZE} totalItems={rows.length} />
+      )}
     </section>
   );
+};
+
+const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
+  const [missPage, setMissPage] = useState(1);
+  const [evPage, setEvPage] = useState(1);
+  if (!report) {
+    return <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400"><Loader2 size={22} className="mx-auto animate-spin" /></div>;
+  }
+  const { summary, byCostCenter, byRecorder, byDay = [], missingPhotoItems } = report;
+  const totalCost = summary.totalCost || 0;
+  const missTotalPages = Math.max(1, Math.ceil(missingPhotoItems.length / REPORT_PAGE_SIZE));
+  const missCur = Math.min(missPage, missTotalPages);
+  const missShown = missingPhotoItems.slice((missCur - 1) * REPORT_PAGE_SIZE, missCur * REPORT_PAGE_SIZE);
+  const evTotalPages = Math.max(1, Math.ceil(events.length / REPORT_PAGE_SIZE));
+  const evCur = Math.min(evPage, evTotalPages);
+  const evShown = events.slice((evCur - 1) * REPORT_PAGE_SIZE, evCur * REPORT_PAGE_SIZE);
 
   return (
     <div className="space-y-6">
@@ -2199,8 +3008,8 @@ const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <Table title="สรุปตาม COSTCENTER" rows={byCostCenter} labelHead="COSTCENTER" />
-        <Table title="สรุปตามผู้บันทึก" rows={byRecorder} labelHead="ผู้บันทึก" />
+        <ReportTable title="สรุปตาม COSTCENTER" rows={byCostCenter} labelHead="COSTCENTER" totalCost={totalCost} />
+        <ReportTable title="สรุปตามผู้บันทึก" rows={byRecorder} labelHead="ผู้บันทึก" totalCost={totalCost} />
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-3 text-sm flex flex-wrap gap-x-8 gap-y-1 text-slate-600">
@@ -2209,7 +3018,7 @@ const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
         <span>COST เฉลี่ยต่อรายการ <b className="text-slate-800">{fmtMoney(summary.itemCount ? summary.totalCost / summary.itemCount : 0)}</b></span>
       </div>
 
-      <Table title="สรุปตามวันที่บันทึก" rows={byDay} labelHead="วันที่บันทึก" />
+      <ReportTable title="สรุปตามวันที่บันทึก" rows={byDay} labelHead="วันที่บันทึก" totalCost={totalCost} />
 
       <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 font-bold text-slate-800">รายการที่ยังไม่มีรูปครบ ({missingPhotoItems.length})</div>
@@ -2217,7 +3026,7 @@ const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
           <div className="px-5 py-6 text-center text-slate-400 text-sm">ทุกรายการมีรูปครบแล้ว</div>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {missingPhotoItems.map((m) => (
+            {missShown.map((m) => (
               <li key={m.itemId} className="px-5 py-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="font-bold text-slate-800">{m.assetNo}</div>
@@ -2237,6 +3046,9 @@ const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
             ))}
           </ul>
         )}
+        {missingPhotoItems.length > REPORT_PAGE_SIZE && (
+          <Pagination currentPage={missCur} totalPages={missTotalPages} onPageChange={setMissPage} itemsPerPage={REPORT_PAGE_SIZE} totalItems={missingPhotoItems.length} />
+        )}
       </section>
 
       <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -2245,7 +3057,7 @@ const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
           <div className="px-5 py-6 text-center text-slate-400 text-sm">ยังไม่มีประวัติ</div>
         ) : (
           <ol className="relative px-5 py-4 space-y-3 border-l-2 border-slate-100 ml-7">
-            {events.map((ev) => (
+            {evShown.map((ev) => (
               <li key={ev.eventId} className="relative pl-4 text-sm">
                 <span className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full bg-rose-500 ring-4 ring-white" />
                 <div className="font-semibold text-slate-800">
@@ -2255,6 +3067,9 @@ const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
               </li>
             ))}
           </ol>
+        )}
+        {events.length > REPORT_PAGE_SIZE && (
+          <Pagination currentPage={evCur} totalPages={evTotalPages} onPageChange={setEvPage} itemsPerPage={REPORT_PAGE_SIZE} totalItems={events.length} />
         )}
       </section>
     </div>
@@ -2285,6 +3100,7 @@ const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const PicPicker = ({ label, file, preview, onChange }) => {
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
+  const camRef = useRef(null);
 
   const accept = async (f) => {
     if (!f || !IMAGE_TYPES.includes(f.type)) return;
@@ -2323,9 +3139,31 @@ const PicPicker = ({ label, file, preview, onChange }) => {
       }`}
     >
       <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">{label}</label>
+      <div className="flex flex-wrap gap-2 mb-1.5">
+        {/* เปิดกล้องโดยตรงบนมือถือ/iPad (จอคอมจะเปิดหน้าต่างเลือกไฟล์แทน) */}
+        <button
+          type="button"
+          onClick={() => camRef.current?.click()}
+          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+        >
+          ถ่ายรูป
+        </button>
+        <input
+          ref={camRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            accept(e.target.files?.[0]);
+            e.target.value = '';
+          }}
+        />
+      </div>
       <input
         type="file"
         accept="image/jpeg,image/png,image/webp"
+        aria-label={`เลือกรูปไฟล์ ${label}`}
         onChange={(e) => {
           accept(e.target.files?.[0]);
           e.target.value = '';
