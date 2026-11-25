@@ -189,7 +189,7 @@ const mapItem = (r) => ({
 
 const findRun = async (pool, id) => {
     const r = await pool.request().input('id', sql.Int, Number(id))
-        .query('SELECT RunID, RunCode, Status, CreatedBy, Stage, CompletedAt FROM dbo.Disposal_Runs WHERE RunID = @id');
+        .query('SELECT RunID, RunCode, Status, CreatedBy, Stage, CompletedAt, AccountingDocNo FROM dbo.Disposal_Runs WHERE RunID = @id');
     return r.recordset[0] || null;
 };
 
@@ -401,13 +401,18 @@ export const completeRun = async (req, res) => {
             .query('SELECT CompletedAt FROM dbo.Disposal_Runs WHERE RunID = @id');
         if (current.recordset[0]?.CompletedAt) return res.status(409).json({ error: 'รอบนี้เสร็จสิ้นแล้ว' });
 
+        // ทำเป็นเสร็จสิ้นได้เฉพาะเมื่อถึงขั้นที่ 5 "รอจำหน่ายจริง" และแนบรูปหลักฐานการทิ้งครบ 3 รูปแล้ว
+        if ((Number(run.Stage) || 1) !== 5) return res.status(409).json({ error: 'ต้องทำขั้นที่ 1-5 ให้ครบตามลำดับก่อน จึงจะทำเป็นเสร็จสิ้นได้' });
+        const gate = await stageGateError(pool, { ...run, RunID: runId }, 6);
+        if (gate) return res.status(409).json({ error: gate });
+
         const actor = getActor(req);
-        // ทำเป็นเสร็จสิ้น = ขั้นที่ 5 "รอจำหน่ายจริง" ด้วยเสมอ เพื่อให้ progress bar ตรงกับสถานะ
+        // ทำเป็นเสร็จสิ้น = ขั้นที่ 6 "ทำทิ้งแล้ว"
         await pool.request()
             .input('id', sql.Int, runId)
             .input('by', sql.NVarChar(100), actor.by)
             .input('name', sql.NVarChar(150), actor.name)
-            .query(`UPDATE dbo.Disposal_Runs SET CompletedBy = @by, CompletedByName = @name, CompletedAt = GETDATE(), Stage = 5
+            .query(`UPDATE dbo.Disposal_Runs SET CompletedBy = @by, CompletedByName = @name, CompletedAt = GETDATE(), Stage = 6
                     WHERE RunID = @id`);
         res.locals.auditSummary = run.RunCode;
         await logEvent(runId, 'COMPLETE', actor, run.RunCode);
@@ -430,10 +435,10 @@ export const uncompleteRun = async (req, res) => {
             .query('SELECT CompletedAt FROM dbo.Disposal_Runs WHERE RunID = @id');
         if (!current.recordset[0]?.CompletedAt) return res.status(409).json({ error: 'รอบนี้ยังไม่ได้เป็นเสร็จสิ้น' });
 
-        // ยกเลิกเสร็จสิ้น = กลับไปขั้นที่ 4 "ส่งฝ่ายบัญชี"
+        // ยกเลิกเสร็จสิ้น = กลับไปขั้นที่ 5 "รอจำหน่ายจริง"
         await pool.request().input('id', sql.Int, runId)
             .query(`UPDATE dbo.Disposal_Runs SET CompletedBy = NULL, CompletedByName = NULL, CompletedAt = NULL,
-                    Stage = CASE WHEN Stage = 5 THEN 4 ELSE Stage END WHERE RunID = @id`);
+                    Stage = CASE WHEN Stage = 6 THEN 5 ELSE Stage END WHERE RunID = @id`);
         res.locals.auditSummary = run.RunCode;
         await logEvent(runId, 'UNCOMPLETE', getActor(req), run.RunCode);
         res.json({ success: true });
@@ -575,6 +580,8 @@ export const deleteRun = async (req, res) => {
 
 // ─── POST /disposal/runs/:id/items ─────────────────────────────────────────
 // multipart: assetNo, assetDate, assetName, place, costCenter, cost, accumDP, bkAmt + pic1/pic2 (ไม่บังคับ)
+const REQUIRED_COST_CENTER = '7510';
+
 export const addItem = async (req, res) => {
     const files = req.files || {};
     const body = req.body || {};
@@ -585,6 +592,10 @@ export const addItem = async (req, res) => {
 
     const assetNo = textOrNull(body.assetNo, 50);
     if (!assetNo) return fail(400, 'กรุณาระบุ ASSET NO');
+    // บันทึกได้เฉพาะ COSTCENTER 7510 เท่านั้น
+    if (String(body.costCenter ?? '').trim() !== REQUIRED_COST_CENTER) {
+        return fail(400, `บันทึกได้เฉพาะ COSTCENTER ${REQUIRED_COST_CENTER} เท่านั้น`);
+    }
 
     const cost = numOrNull(body.cost);
     const accumDP = numOrNull(body.accumDP);
@@ -697,9 +708,13 @@ export const updateRunDoc = async (req, res) => {
         const pool = getPool();
         const runId = Number(req.params.id);
         const r = await pool.request().input('id', sql.Int, runId)
-            .query('SELECT RunID, RunCode FROM dbo.Disposal_Runs WHERE RunID = @id');
+            .query('SELECT RunID, RunCode, Stage, AccountingDocNo FROM dbo.Disposal_Runs WHERE RunID = @id');
         const run = r.recordset[0];
         if (!run) return res.status(404).json({ error: 'ไม่พบรอบ Disposal นี้' });
+        // ตั้งแต่ขั้นที่ 3 ต้องมีเลขเอกสารบัญชีแล้ว จึงแก้ไขหรือล้างเลขไม่ได้ (ต้องย้อนขั้นตอนก่อน)
+        if ((Number(run.Stage) || 1) >= 3 && (run.AccountingDocNo ?? null) !== docNo) {
+            return res.status(409).json({ error: 'แก้ไขเลขเอกสารบัญชีไม่ได้ เพราะรอบถึงขั้นที่ 3 แล้ว (ย้อนขั้นตอนก่อน)' });
+        }
 
         await pool.request()
             .input('id', sql.Int, runId)
@@ -722,6 +737,30 @@ const STAGE_LABEL = {
     3: 'ผู้บริหารอนุมัติ',
     4: 'ส่งฝ่ายบัญชี',
     5: 'รอจำหน่ายจริง',
+    6: 'ทำทิ้งแล้ว',
+};
+
+// เงื่อนไขที่ต้องครบก่อนเข้าแต่ละขั้น (เดินหน้าทีละขั้นเท่านั้น) — คืนข้อความที่ยังขาด หรือ null ถ้าผ่าน
+const stageGateError = async (pool, run, target) => {
+    const counts = await pool.request().input('id', sql.Int, run.RunID).query(`
+        SELECT
+          (SELECT COUNT(*) FROM dbo.Disposal_Items WHERE RunID = @id) AS ItemCount,
+          (SELECT COUNT(*) FROM dbo.Disposal_Items WHERE RunID = @id AND (Pic1Path IS NULL OR Pic2Path IS NULL)) AS MissingPhotos,
+          (SELECT COUNT(*) FROM dbo.Disposal_Attachments WHERE RunID = @id AND DocType = 'DOC_ACCOUNTING') AS DocAccounting,
+          (SELECT COUNT(*) FROM dbo.Disposal_Attachments WHERE RunID = @id AND DocType = 'DOC_APPROVED') AS DocApproved,
+          (SELECT COUNT(*) FROM dbo.Disposal_Attachments WHERE RunID = @id AND DocType = 'DOC_SENT_ACCOUNTING') AS DocSent,
+          (SELECT COUNT(*) FROM dbo.Disposal_Attachments WHERE RunID = @id AND DocType = 'DISPOSED_PHOTO') AS DisposedPhotos`);
+    const c = counts.recordset[0];
+    const photosOk = c.ItemCount > 0 && c.MissingPhotos === 0;
+    if (target >= 2 && !photosOk) return 'ต้องแนบรูปให้ครบ 2 รูปทุกรายการก่อน';
+    if (target >= 3) {
+        if (!run.AccountingDocNo) return 'ต้องกรอกเลขเอกสารบัญชีของรอบก่อน';
+        if (!c.DocAccounting) return 'ต้องแนบเอกสารบัญชีก่อน';
+    }
+    if (target >= 4 && !c.DocApproved) return 'ต้องแนบเอกสารที่ผู้บริหารอนุมัติก่อน';
+    if (target >= 5 && !c.DocSent) return 'ต้องแนบหลักฐานส่งฝ่ายบัญชีก่อน';
+    if (target >= 6 && c.DisposedPhotos < 3) return 'ต้องแนบรูปหลักฐานการทิ้งให้ครบ 3 รูปก่อน';
+    return null;
 };
 // PUT /disposal/runs/:id/stage  body: { stage: 1..5 }
 export const setRunStage = async (req, res) => {
@@ -735,10 +774,18 @@ export const setRunStage = async (req, res) => {
         if (!run) return res.status(404).json({ error: 'ไม่พบรอบ Disposal นี้' });
         // ถ้าทำเป็นเสร็จสิ้นแล้ว ต้องยกเลิกเสร็จสิ้นก่อน จึงจะเปลี่ยนขั้นได้ (กันสถานะไม่ตรงกัน)
         if (run.CompletedAt) return res.status(409).json({ error: 'รอบนี้เสร็จสิ้นแล้ว ต้องยกเลิกเสร็จสิ้นก่อนจึงจะเปลี่ยนขั้นได้' });
-        // ขั้นที่ 5 ตั้งได้ด้วยการทำเป็นเสร็จสิ้นเท่านั้น
-        if (stage === 5) return res.status(409).json({ error: 'ขั้นที่ 5 ตั้งได้จากปุ่มทำเป็นเสร็จสิ้นเท่านั้น' });
+        const current = Number(run.Stage) || 1;
+        // ขั้นที่ 6 ตั้งได้ด้วยปุ่มทำเป็นเสร็จสิ้นเท่านั้น
+        if (stage === 6) return res.status(409).json({ error: 'ขั้นที่ 6 ตั้งได้จากปุ่มทำเป็นเสร็จสิ้นเท่านั้น' });
+        // เดินหน้าหรือถอยกลับได้ทีละ 1 ขั้นเท่านั้น ห้ามข้ามขั้น
+        if (Math.abs(stage - current) !== 1) return res.status(409).json({ error: 'เปลี่ยนสถานะได้ทีละ 1 ขั้นเท่านั้น' });
         // รอบที่ปิดแล้วต้องอยู่ขั้นที่ 2 ขึ้นไป (ตรงกับกฎการปิดรอบ)
         if (run.Status === 'Closed' && stage < 2) return res.status(409).json({ error: 'รอบที่ปิดแล้วต้องอยู่ที่ขั้นที่ 2 ขึ้นไป' });
+        // เดินหน้าเข้าขั้นใหม่ต้องผ่านเงื่อนไขของขั้นนั้นก่อน
+        if (stage > current) {
+            const gate = await stageGateError(pool, run, stage);
+            if (gate) return res.status(409).json({ error: gate });
+        }
         await pool.request()
             .input('id', sql.Int, runId)
             .input('stage', sql.Int, stage)
@@ -994,7 +1041,10 @@ export const deleteItem = async (req, res) => {
 
 // ─── ไฟล์แนบของรอบ (PDF หลักฐาน เช่น บช. ดำเนินการทิ้งเสร็จแล้ว) ─────────────────────
 const DOC_MAX_BYTES = 20 * 1024 * 1024;
-const DOC_TYPES = ['ACCOUNTING_DONE', 'APPROVAL', 'OTHER'];
+const DOC_TYPES = ['ACCOUNTING_DONE', 'APPROVAL', 'OTHER', 'DOC_ACCOUNTING', 'DOC_APPROVED', 'DOC_SENT_ACCOUNTING', 'DISPOSED_PHOTO'];
+// รูปหลักฐานการทิ้ง (DISPOSED_PHOTO) เป็นรูปภาพ ที่เหลือเป็น PDF
+const IMAGE_EXT = ['.jpg', '.jpeg', '.png'];
+const isPhotoType = (docType) => docType === 'DISPOSED_PHOTO';
 
 const docStorage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -1002,7 +1052,8 @@ const docStorage = multer.diskStorage({
         fs.mkdir(dir, { recursive: true }, (err) => cb(err, dir));
     },
     filename: (req, file, cb) => {
-        cb(null, `${Date.now()}_${crypto.randomBytes(6).toString('hex')}.pdf`);
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, `${Date.now()}_${crypto.randomBytes(6).toString('hex')}${ext}`);
     },
 });
 
@@ -1010,8 +1061,9 @@ const uploadDoc = multer({
     storage: docStorage,
     limits: { fileSize: DOC_MAX_BYTES, files: 1 },
     fileFilter: (req, file, cb) => {
-        if (path.extname(file.originalname).toLowerCase() !== '.pdf') {
-            return cb(new Error('รองรับเฉพาะไฟล์ PDF'));
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (ext !== '.pdf' && !IMAGE_EXT.includes(ext)) {
+            return cb(new Error('รองรับเฉพาะไฟล์ PDF หรือรูปภาพ (JPG/PNG)'));
         }
         cb(null, true);
     },
@@ -1067,17 +1119,20 @@ export const addAttachment = async (req, res) => {
         if (!run) { discard(); return res.status(404).json({ error: 'ไม่พบรอบนี้' }); }
         if (!file) return res.status(400).json({ error: 'กรุณาเลือกไฟล์ PDF' });
 
-        // ตรวจว่าเป็น PDF จริง (ดูจากหัวไฟล์ ไม่เชื่อแค่นามสกุล)
-        const head = Buffer.alloc(5);
+        const docType = DOC_TYPES.includes(req.body.docType) ? req.body.docType : 'OTHER';
+        // ตรวจชนิดไฟล์จากหัวไฟล์จริง (ไม่เชื่อแค่นามสกุล) ให้ตรงกับประเภทเอกสาร
+        const head = Buffer.alloc(8);
         const fd = fs.openSync(file.path, 'r');
-        fs.readSync(fd, head, 0, 5, 0);
+        fs.readSync(fd, head, 0, 8, 0);
         fs.closeSync(fd);
-        if (head.toString('latin1') !== '%PDF-') {
+        const isPdfHead = head.subarray(0, 5).toString('latin1') === '%PDF-';
+        const isJpeg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+        const isPng = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+        if (isPhotoType(docType) ? !(isJpeg || isPng) : !isPdfHead) {
             discard();
-            return res.status(400).json({ error: 'ไฟล์ไม่ใช่ PDF ที่ถูกต้อง' });
+            return res.status(400).json({ error: isPhotoType(docType) ? 'รูปหลักฐานต้องเป็นไฟล์ JPG หรือ PNG' : 'ไฟล์ไม่ใช่ PDF ที่ถูกต้อง' });
         }
 
-        const docType = DOC_TYPES.includes(req.body.docType) ? req.body.docType : 'OTHER';
         const title = textOrNull(req.body.title, 200);
         const actor = getActor(req);
         const originalName = textOrNull(path.basename(file.originalname), 260) || 'document.pdf';
@@ -1115,7 +1170,9 @@ export const getAttachmentFile = async (req, res) => {
         if (!row) return res.status(404).json({ error: 'ไม่พบไฟล์แนบ' });
         const abs = attachmentPath(row.RunID, row.StoredName);
         if (!fs.existsSync(abs)) return res.status(404).json({ error: 'ไม่พบไฟล์บนเซิร์ฟเวอร์' });
-        res.setHeader('Content-Type', 'application/pdf');
+        const ext = path.extname(row.StoredName).toLowerCase();
+        const mime = ext === '.png' ? 'image/png' : (ext === '.jpg' || ext === '.jpeg') ? 'image/jpeg' : 'application/pdf';
+        res.setHeader('Content-Type', mime);
         res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(row.FileName)}`);
         res.sendFile(abs);
     } catch (err) {
@@ -1124,15 +1181,25 @@ export const getAttachmentFile = async (req, res) => {
     }
 };
 
+// ประเภทเอกสาร → ขั้นที่ต้องใช้เอกสารนั้นผ่าน (ถ้ารอบถึงขั้นนี้แล้ว ห้ามลบเอกสาร)
+const DOC_LOCK_STAGE = { DOC_ACCOUNTING: 3, DOC_APPROVED: 4, DOC_SENT_ACCOUNTING: 5, DISPOSED_PHOTO: 6 };
+
 // ─── DELETE /disposal/attachments/:id ─────────────────────────────────────────────
 export const deleteAttachment = async (req, res) => {
     if (!isId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
     try {
         const pool = getPool();
         const r = await pool.request().input('id', sql.Int, Number(req.params.id))
-            .query('SELECT RunID, StoredName, FileName FROM dbo.Disposal_Attachments WHERE AttachmentID = @id');
+            .query(`SELECT a.RunID, a.StoredName, a.FileName, a.DocType, r.Stage
+                    FROM dbo.Disposal_Attachments a JOIN dbo.Disposal_Runs r ON r.RunID = a.RunID
+                    WHERE a.AttachmentID = @id`);
         const row = r.recordset[0];
         if (!row) return res.status(404).json({ error: 'ไม่พบไฟล์แนบ' });
+        // เอกสารที่ใช้ผ่านเงื่อนไขขั้นแล้ว ลบไม่ได้ (ต้องย้อนขั้นตอนก่อน)
+        const lockStage = DOC_LOCK_STAGE[row.DocType];
+        if (lockStage && (Number(row.Stage) || 1) >= lockStage) {
+            return res.status(409).json({ error: `ลบเอกสารนี้ไม่ได้ เพราะรอบผ่านขั้นที่ ${lockStage} แล้ว (ย้อนขั้นตอนก่อน)` });
+        }
 
         await pool.request().input('id', sql.Int, Number(req.params.id))
             .query('DELETE FROM dbo.Disposal_Attachments WHERE AttachmentID = @id');

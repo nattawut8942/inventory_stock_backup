@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, Fragment } from 'react
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
 import * as XLSX from 'xlsx-js-style';
-import { Trash2, Search, Plus, Lock, FileSpreadsheet, Printer, Loader2, AlertTriangle, CheckCircle2, Circle, Coins, Image as ImageIcon, ArrowLeft, Camera, X, ClipboardList, Eye, Copy, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Trash2, Search, Plus, Lock, FileSpreadsheet, Printer, Loader2, AlertTriangle, CheckCircle2, Circle, Coins, ArrowRight, FileSignature, Send, Archive, Image as ImageIcon, ArrowLeft, Camera, X, ClipboardList, Eye, Copy, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCan } from '../context/PermissionContext';
 import { getAuthToken, useAuth } from '../context/AuthContext';
 import { API_BASE, API_URL } from '../config/api';
@@ -178,6 +178,9 @@ const EVENT_LABEL = {
   STAGE: 'เปลี่ยนขั้นตอน',
 };
 
+// ไอคอนประจำแต่ละขั้นของการ์ดความคืบหน้า (ตามลำดับขั้น 1-5)
+const RUN_STAGE_ICONS = [Camera, FileText, FileSignature, Send, Archive, Trash2];
+
 // ขั้นตอนของรอบ (progress bar 5 ขั้น) — ชื่อสั้นให้อ่านง่ายบนจอเล็ก
 const RUN_STAGES = [
   { n: 1, label: 'บันทึกและถ่ายภาพ' },
@@ -185,13 +188,32 @@ const RUN_STAGES = [
   { n: 3, label: 'ผู้บริหารอนุมัติ' },
   { n: 4, label: 'ส่งฝ่ายบัญชี' },
   { n: 5, label: 'รอจำหน่ายจริง' },
+  { n: 6, label: 'ทำทิ้งแล้ว' },
 ];
 
 // สถานะรอบ: เปิดอยู่ / ปิดแล้ว / เสร็จสิ้น (เสร็จสิ้น = ปิดรอบแล้วและ บช. ดำเนินการทิ้งครบ)
 const runState = (r) => (r.status === 'Open' ? 'open' : r.completedAt ? 'completed' : 'closed');
 const RUN_STATE_LABEL = { open: 'เปิดอยู่', closed: 'ปิดแล้ว', completed: 'เสร็จสิ้น' };
 
-const DOC_TYPE_LABEL = { ACCOUNTING_DONE: 'บช. ดำเนินการทิ้งแล้ว', APPROVAL: 'หนังสืออนุมัติ', OTHER: 'อื่นๆ' };
+const DOC_TYPE_LABEL = {
+  DOC_ACCOUNTING: 'เอกสารบัญชี (ขั้นที่ 2)',
+  DOC_APPROVED: 'เอกสารที่ผู้บริหารอนุมัติ (ขั้นที่ 3)',
+  DOC_SENT_ACCOUNTING: 'หลักฐานส่งฝ่ายบัญชี (ขั้นที่ 4)',
+  DISPOSED_PHOTO: 'รูปหลักฐานการทิ้ง (ขั้นที่ 6, 3 รูป)',
+  ACCOUNTING_DONE: 'บช. ดำเนินการทิ้งแล้ว',
+  APPROVAL: 'หนังสืออนุมัติ',
+  OTHER: 'อื่นๆ',
+};
+const isPhotoDocType = (t) => t === 'DISPOSED_PHOTO';
+
+// เอกสารที่ใช้ผ่านเงื่อนไขขั้นแล้ว ลบไม่ได้ (ตรงกับ DOC_LOCK_STAGE ฝั่งเซิร์ฟเวอร์)
+const DOC_LOCK_STAGE = { DOC_ACCOUNTING: 3, DOC_APPROVED: 4, DOC_SENT_ACCOUNTING: 5, DISPOSED_PHOTO: 6 };
+const isDocLocked = (docType, stage) => !!DOC_LOCK_STAGE[docType] && stage >= DOC_LOCK_STAGE[docType];
+// เลขเอกสารบัญชีแก้ไขได้เฉพาะก่อนขั้นที่ 3 (ตรงกับเซิร์ฟเวอร์)
+const DOC_NO_LOCK_STAGE = 3;
+
+// COSTCENTER ที่บันทึกรายการได้ (ตรงกับเซิร์ฟเวอร์)
+const REQUIRED_COST_CENTER = '7510';
 
 const EMPTY_FORM = { assetNo: '', assetDate: '', assetName: '', place: '', costCenter: '', cost: '', accumDP: '', bkAmt: '' };
 
@@ -247,6 +269,7 @@ const ITDisposalPage = () => {
   const [run, setRun] = useState(null);
   const [items, setItems] = useState([]);
   const [report, setReport] = useState(null);
+  const [docEditing, setDocEditing] = useState(false);
   const [detailTab, setDetailTab] = useState('items');
   const runDocRef = useRef(null);
   const scanRef = useRef(null);
@@ -282,6 +305,7 @@ const ITDisposalPage = () => {
   const [searchCode, setSearchCode] = useState('');
   const [searching, setSearching] = useState(false);
   const [found, setFound] = useState(false);
+  const [ccWarning, setCcWarning] = useState(null); // COSTCENTER ที่ไม่ใช่ 7510 (เปิด modal เตือน)
   const [form, setForm] = useState(EMPTY_FORM);
   const [pics, setPics] = useState({ pic1: null, pic2: null });
   const [previews, setPreviews] = useState({ pic1: '', pic2: '' });
@@ -290,6 +314,8 @@ const ITDisposalPage = () => {
   const isOpen = run?.status === 'Open';
   // ตั้งแต่ขั้นที่ 3 "ผู้บริหารอนุมัติ" ห้ามเพิ่มรายการ (ตรงกับฝั่งเซิร์ฟเวอร์)
   const addLocked = (Number(run?.stage) || 1) >= 3;
+  // รายการที่ COSTCENTER ไม่ใช่ 7510 บันทึกไม่ได้ (แสดงเตือนและปิดปุ่มบันทึก)
+  const ccMismatch = found && String(form.costCenter ?? '').trim() !== REQUIRED_COST_CENTER;
   const ADD_LOCK_MSG = 'รอบอยู่ขั้นผู้บริหารอนุมัติแล้ว ไม่สามารถเพิ่มรายการได้';
   // ปิดรอบได้เฉพาะผู้เปิดรอบ (ตรงกับกฎฝั่ง backend)
   const isCreator = !!run && (run.createdBy || '').toUpperCase() === (user?.username || '').toUpperCase();
@@ -309,7 +335,7 @@ const ITDisposalPage = () => {
 
   // ─── เอกสารแนบของรอบ (PDF หลักฐาน) ────────────────────────────────────────────
   const [attachments, setAttachments] = useState([]);
-  const [docType, setDocType] = useState('ACCOUNTING_DONE');
+  const [docType, setDocType] = useState('DOC_ACCOUNTING');
   const [docTitle, setDocTitle] = useState('');
   const [docFile, setDocFile] = useState(null);
   const [docUploading, setDocUploading] = useState(false);
@@ -327,8 +353,12 @@ const ITDisposalPage = () => {
 
   const pickDocFile = (f) => {
     if (!f) return;
+    const isImg = /\.(jpe?g|png)$/i.test(f.name);
     const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
-    if (!isPdf) { setError('รองรับเฉพาะไฟล์ PDF'); return; }
+    if (isPhotoDocType(docType) ? !isImg : !isPdf) {
+      setError(isPhotoDocType(docType) ? 'ประเภทนี้ต้องเป็นรูป JPG หรือ PNG' : 'ประเภทนี้ต้องเป็นไฟล์ PDF');
+      return;
+    }
     setDocFile(f);
   };
 
@@ -391,9 +421,7 @@ const ITDisposalPage = () => {
   const askComplete = () => setConfirmState({
     type: 'confirm',
     title: 'ทำเป็นเสร็จสิ้น',
-    message: hasAccountingDoc
-      ? `ยืนยันว่า ${run.runCode} เสร็จสิ้นแล้ว? (มีเอกสาร บช. แนบอยู่แล้ว)`
-      : `ยังไม่มีเอกสาร "บช. ดำเนินการทิ้งแล้ว" แนบในรอบนี้ ยืนยันว่า ${run.runCode} เสร็จสิ้นแล้วหรือไม่?`,
+    message: `ยืนยันว่า ${run.runCode} ทำทิ้งแล้ว (ขั้นที่ 6)? เมื่อยืนยันแล้วจะเปลี่ยนสถานะเป็นเสร็จสิ้น`,
     confirmText: 'ยืนยันเสร็จสิ้น',
     onConfirm: () => doComplete(),
   });
@@ -457,13 +485,44 @@ const ITDisposalPage = () => {
       setError(err.message);
     }
   };
-  const askSetStage = (s) => setConfirmState({
-    type: 'confirm',
-    title: 'เปลี่ยนขั้นตอนของรอบ',
-    message: `เปลี่ยนขั้นตอนเป็น "${s.label}" (ขั้นที่ ${s.n})?`,
-    confirmText: 'เปลี่ยนขั้นตอน',
-    onConfirm: () => doSetStage(s.n),
-  });
+  // เงื่อนไขก่อนเข้าแต่ละขั้น (ตรงกับฝั่งเซิร์ฟเวอร์) — คืนข้อความที่ยังขาด หรือ null ถ้าผ่าน
+  const stageGateReason = (target) => {
+    const photosOk = items.length > 0 && items.every((i) => i.pic1Url && i.pic2Url);
+    const has = (t) => attachments.some((a) => a.docType === t);
+    const photoCount = attachments.filter((a) => a.docType === 'DISPOSED_PHOTO').length;
+    if (target >= 2 && !photosOk) return 'ต้องแนบรูปให้ครบ 2 รูปทุกรายการก่อน';
+    if (target >= 3) {
+      if (!run?.accountingDocNo) return 'ต้องกรอกเลขเอกสารบัญชีของรอบก่อน';
+      if (!has('DOC_ACCOUNTING')) return 'ต้องแนบเอกสารบัญชีก่อน';
+    }
+    if (target >= 4 && !has('DOC_APPROVED')) return 'ต้องแนบเอกสารที่ผู้บริหารอนุมัติก่อน';
+    if (target >= 5 && !has('DOC_SENT_ACCOUNTING')) return 'ต้องแนบหลักฐานส่งฝ่ายบัญชีก่อน';
+    if (target >= 6 && photoCount < 3) return 'ต้องแนบรูปหลักฐานการทิ้งให้ครบ 3 รูปก่อน';
+    return null;
+  };
+
+  const askSetStage = (s) => {
+    const cur = Number(run?.stage) || 1;
+    if (s.n === 6) {
+      if (cur !== 5) { setError('ต้องทำขั้นที่ 1-5 ให้ครบตามลำดับก่อน'); return; }
+      const reason = stageGateReason(6);
+      if (reason) { setError(reason); return; }
+      askComplete();
+      return;
+    }
+    if (Math.abs(s.n - cur) !== 1) { setError('เปลี่ยนสถานะได้ทีละ 1 ขั้นเท่านั้น'); return; }
+    if (s.n > cur) {
+      const reason = stageGateReason(s.n);
+      if (reason) { setError(reason); return; }
+    }
+    setConfirmState({
+      type: 'confirm',
+      title: 'เปลี่ยนขั้นตอนของรอบ',
+      message: `เปลี่ยนขั้นตอนเป็น "${s.label}" (ขั้นที่ ${s.n})?`,
+      confirmText: 'เปลี่ยนขั้นตอน',
+      onConfirm: () => doSetStage(s.n),
+    });
+  };
 
   // ติ๊ก/ยกเลิก "ลงระบบบัญชีแล้ว" ทีละรายการหรือหลายรายการ
   const setKeyed = async (list, keyed) => {
@@ -606,13 +665,13 @@ const ITDisposalPage = () => {
               </>
             ) : (
               <>
-                <span className="text-sm text-slate-600">ลากไฟล์ PDF มาวางที่นี่</span>
+                <span className="text-sm text-slate-600">{isPhotoDocType(docType) ? 'ลากรูป JPG/PNG มาวางที่นี่' : 'ลากไฟล์ PDF มาวางที่นี่'}</span>
                 <span className="text-[11px] text-slate-400">หรือคลิกเพื่อเลือกไฟล์</span>
               </>
             )}
             <input
               type="file"
-              accept="application/pdf,.pdf"
+              accept={isPhotoDocType(docType) ? 'image/jpeg,image/png,.jpg,.jpeg,.png' : 'application/pdf,.pdf'}
               className="sr-only"
               onChange={(e) => { pickDocFile(e.target.files?.[0]); e.target.value = ''; }}
             />
@@ -688,7 +747,7 @@ const ITDisposalPage = () => {
                 >
                   <Eye size={16} />
                 </button>
-                {canEditRun && (
+                {canEditRun && !isDocLocked(a.docType, Number(run?.stage) || 1) && (
                   <button
                     onClick={() => deleteDoc(a)}
                     title="ลบเอกสาร"
@@ -965,6 +1024,11 @@ const ITDisposalPage = () => {
       });
       setPics({ pic1: null, pic2: null });
       setFound(true);
+      if (String(it.costCenter ?? '').trim() !== REQUIRED_COST_CENTER) {
+        // เก็บข้อมูลไว้ให้ modal แสดง แล้วล้างฟอร์มทันที (กันค้างข้อมูลที่บันทึกไม่ได้)
+        setCcWarning({ assetNo: it.assetNo, assetName: it.assetName, place: it.place, costCenter: it.costCenter || '-', cost: it.cost });
+        resetForm();
+      }
       // เตือนถ้า ASSET NO นี้เคยถูกบันทึกในรอบอื่นแล้ว
       apiRequest(`/disposal/search?assetNo=${encodeURIComponent(it.assetNo)}`)
         .then((d) => setDupes((d.data || []).filter((x) => x.assetNo === it.assetNo && x.runId !== selectedRunId)))
@@ -982,6 +1046,10 @@ const ITDisposalPage = () => {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!found) return;
+    if (String(form.costCenter ?? '').trim() !== REQUIRED_COST_CENTER) {
+      setError(`บันทึกได้เฉพาะ COSTCENTER ${REQUIRED_COST_CENTER} เท่านั้น`);
+      return;
+    }
     const fd = new FormData();
     Object.entries(form).forEach(([k, v]) => fd.append(k, v ?? ''));
     if (pics.pic1) fd.append('pic1', pics.pic1);
@@ -1102,6 +1170,7 @@ const ITDisposalPage = () => {
     try {
       await apiRequest(`/disposal/runs/${selectedRunId}/doc`, { method: 'PUT', body: { accountingDocNo: value } });
       setNotice(value ? `บันทึกเลขเอกสารบัญชี ${value} แล้ว` : 'ล้างเลขเอกสารบัญชีแล้ว');
+      setDocEditing(false);
       await loadRun(selectedRunId);
     } catch (err) {
       setError(err.message);
@@ -1119,7 +1188,7 @@ const ITDisposalPage = () => {
         <td class="b">${esc(i.assetNo)}</td>
         <td>${esc(fmtDate(i.assetDate))}</td>
         <td>${esc(i.assetName)}</td>
-        <td>${esc(i.place)}</td>
+        <td>${esc(i.place)} <b style="color:#dc2626">(DISPOSAL)</b></td>
         <td>${esc(i.costCenter)}</td>
         <td class="r">${esc(fmtMoney(i.cost))}</td>
         <td class="r">${esc(fmtMoney(i.accumDP))}</td>
@@ -1164,20 +1233,6 @@ const ITDisposalPage = () => {
       <td colspan="2"></td>
     </tr></tfoot>
   </table>
-  <h2 class="sec">เอกสารแนบ (${attachments.length} ไฟล์)</h2>
-  ${attachments.length === 0 ? '<div class="meta">ยังไม่มีเอกสารแนบในรอบนี้</div>' : `
-  <table>
-    <thead><tr><th>#</th><th>ชื่อไฟล์</th><th>ประเภท</th><th>คำอธิบาย</th><th>ขนาด</th><th>ผู้แนบ / วันที่</th></tr></thead>
-    <tbody>${attachments.map((a, idx) => `
-      <tr>
-        <td>${idx + 1}</td>
-        <td class="b">${esc(a.fileName)}</td>
-        <td>${esc(DOC_TYPE_LABEL[a.docType] || a.docType)}</td>
-        <td>${esc(a.title)}</td>
-        <td class="r">${(a.fileSize / 1024).toFixed(0)} KB</td>
-        <td>${esc(a.uploadedByName || '-')} · ${esc(fmtDateTime(a.uploadedAt))}</td>
-      </tr>`).join('')}</tbody>
-  </table>`}
   <script>
     // รอให้รูปโหลดครบแล้วค่อยเปิดหน้าต่างพิมพ์ (เลือก "Save as PDF" ได้ในหน้าพิมพ์)
     window.onload = () => {
@@ -1200,6 +1255,197 @@ const ITDisposalPage = () => {
     const cleanup = () => setTimeout(() => frame.remove(), 500);
     frame.contentWindow.addEventListener('afterprint', cleanup);
     setTimeout(() => { if (frame.isConnected) frame.remove(); }, 10 * 60 * 1000);
+  };
+
+  // รายงานฉบับพิมพ์ (PDF): สรุปทุกขั้นตอน + สถานะเอกสาร + รูปหลักฐานการทิ้ง + ตารางรายการ + ลายเซ็น
+  const handlePrintReport = async () => {
+    if (!run) return;
+    setError('');
+    const esc = (v) => String(v ?? '-').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    // รูปแนบต้องล็อกอินจึงโหลดเป็น blob แล้วฝังเป็น data URL (ไฟล์ PDF ใส่แค่รายการ)
+    let docs;
+    try {
+      docs = await Promise.all(attachments.map(async (a) => {
+        if (!/\.(jpe?g|png)$/i.test(a.fileName || '')) return { ...a, dataUrl: null };
+        const res = await fetch(`${API_BASE}/disposal/attachments/${a.attachmentId}/file`, { headers: authHeaders() });
+        if (!res.ok) return { ...a, dataUrl: null };
+        const blob = await res.blob();
+        const dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+        return { ...a, dataUrl };
+      }));
+    } catch (err) {
+      setError(`โหลดเอกสารแนบไม่สำเร็จ: ${err.message}`);
+      return;
+    }
+
+    const stageNum = Number(run.stage) || 1;
+    const countType = (t) => docs.filter((a) => a.docType === t).length;
+    const photosDone = items.filter((i) => i.pic1Url && i.pic2Url).length;
+    const checkedCount = items.filter((i) => i.isChecked).length;
+    const keyedCount = items.filter((i) => i.isKeyed).length;
+    const evidence = [
+      `รูปครบ ${photosDone}/${items.length} รายการ`,
+      `${run.accountingDocNo ? `เลขเอกสาร ${run.accountingDocNo} · ` : ''}เอกสารบัญชี ${countType('DOC_ACCOUNTING')} ไฟล์`,
+      `เอกสารที่ผู้บริหารอนุมัติ ${countType('DOC_APPROVED')} ไฟล์`,
+      `หลักฐานส่งฝ่ายบัญชี ${countType('DOC_SENT_ACCOUNTING')} ไฟล์`,
+      'รอจำหน่ายจริง',
+      `รูปหลักฐานการทิ้ง ${countType('DISPOSED_PHOTO')}/3 รูป`,
+    ];
+    const stepsHtml = RUN_STAGES.map((s, idx) => {
+      const done = s.n === 6 ? !!run.completedAt : stageNum > s.n;
+      const current = !done && stageNum === s.n;
+      const gap = !done && s.n === stageNum + 1 ? stageGateReason(s.n) : null;
+      const cls = done ? 'done' : current ? 'current' : 'todo';
+      const badge = done ? 'เสร็จแล้ว' : current ? 'กำลังดำเนินการ' : 'ยังไม่ถึง';
+      return `<td class="step ${cls}">
+        <div class="dot">${done ? '✓' : s.n}</div>
+        <div class="sn">ขั้นที่ ${s.n}</div>
+        <div class="sl">${esc(s.label)}</div>
+        <div class="sb">${badge}</div>
+        <div class="se">${esc(evidence[idx])}</div>
+        ${gap ? `<div class="gap">ขาด: ${esc(gap)}</div>` : ''}
+      </td>${idx < RUN_STAGES.length - 1 ? '<td class="arrow">▶</td>' : ''}`;
+    }).join('');
+
+    const DOC_ORDER = ['DOC_ACCOUNTING', 'DOC_APPROVED', 'DOC_SENT_ACCOUNTING', 'DISPOSED_PHOTO', 'ACCOUNTING_DONE', 'APPROVAL', 'OTHER'];
+    const docsHtml = DOC_ORDER.map((t) => {
+      const list = docs.filter((a) => a.docType === t);
+      if (!list.length) {
+        return `<div class="group"><div class="gh">${esc(DOC_TYPE_LABEL[t])}</div><div class="none">ยังไม่มีการแนบ</div></div>`;
+      }
+      const body = list.map((a) => (a.dataUrl
+        ? `<figure><img src="${a.dataUrl}" /><figcaption>${esc(a.fileName)}<br>${esc(a.uploadedByName || '-')} · ${esc(fmtDateTime(a.uploadedAt))}</figcaption></figure>`
+        : `<div class="file">📄 <b>${esc(a.fileName)}</b><span>${(a.fileSize / 1024).toFixed(0)} KB · ${esc(a.uploadedByName || '-')} · ${esc(fmtDateTime(a.uploadedAt))}</span></div>`)).join('');
+      return `<div class="group"><div class="gh">${esc(DOC_TYPE_LABEL[t])} <span>· ${list.length} ไฟล์</span></div><div class="${t === 'DISPOSED_PHOTO' ? 'grid3' : 'grid2'}">${body}</div></div>`;
+    }).join('');
+
+    const rowsHtml = items.map((i, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td class="b">${esc(i.assetNo)}</td>
+        <td>${esc(i.assetName)}</td>
+        <td>${esc(i.place)} <b style="color:#dc2626">(DISPOSAL)</b></td>
+        <td>${esc(i.costCenter)}</td>
+        <td class="r">${esc(fmtMoney(i.cost))}</td>
+        <td class="r">${esc(fmtMoney(i.bkAmt))}</td>
+        <td class="c">${i.isChecked ? '✓' : '—'}</td>
+        <td class="c">${i.isKeyed ? '✓' : '—'}</td>
+      </tr>`).join('');
+
+    const statusText = run.completedAt ? `เสร็จสิ้นเมื่อ ${fmtDate(run.completedAt)}` : run.status === 'Open' ? 'เปิดอยู่' : 'ปิดแล้ว';
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(run.runCode)} · รายงาน</title>
+<style>
+  @page { size: A4; margin: 12mm 12mm 16mm; }
+  @page { @bottom-left { content: "${esc(run.runCode)} · พิมพ์ ${esc(fmtDateTime(new Date()))}"; font-size: 8px; color: #64748b; } }
+  @page { @bottom-right { content: "หน้า " counter(page) " / " counter(pages); font-size: 8px; color: #64748b; } }
+  * { box-sizing: border-box; }
+  body { font-family: 'Sarabun', Tahoma, sans-serif; color: #1e293b; font-size: 11px; margin: 0; }
+  .sub { color: #64748b; font-size: 11px; margin-top: 2px; }
+  .hero { background: linear-gradient(135deg,#fff1f2,#ffffff); border: 1px solid #fecdd3; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .code { font-size: 20px; font-weight: 800; color: #881337; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e2e8f0; font-weight: 700; font-size: 10px; }
+  .cards { display: flex; gap: 8px; margin-bottom: 12px; }
+  .card { flex: 1; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; }
+  .card .k { font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: .03em; }
+  .card .v { font-size: 14px; font-weight: 800; margin-top: 2px; }
+  h2 { font-size: 12px; margin: 14px 0 6px; color: #9f1239; border-bottom: 2px solid #fecdd3; padding-bottom: 3px; }
+  table.flow { width: 100%; border-collapse: separate; border-spacing: 0; }
+  td.step { width: 15%; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px; vertical-align: top; text-align: center; }
+  td.step.done { background: #ecfdf5; border-color: #6ee7b7; }
+  td.step.current { background: #fff7ed; border-color: #fdba74; }
+  td.step.todo { background: #f8fafc; color: #94a3b8; }
+  td.arrow { width: 1.5%; text-align: center; color: #cbd5e1; font-size: 10px; }
+  .dot { width: 22px; height: 22px; line-height: 22px; border-radius: 50%; margin: 0 auto 4px; font-weight: 800; background: #cbd5e1; color: #fff; }
+  .done .dot { background: #10b981; }
+  .current .dot { background: #f97316; }
+  .sn { font-size: 8px; color: #64748b; }
+  .sl { font-weight: 800; font-size: 10px; margin: 2px 0; }
+  .sb { font-size: 8px; font-weight: 700; }
+  .se { font-size: 8px; color: #475569; margin-top: 3px; }
+  .gap { font-size: 8px; color: #be123c; margin-top: 3px; font-weight: 700; }
+  .group { margin-bottom: 10px; break-inside: avoid; }
+  .gh { font-weight: 800; font-size: 11px; margin-bottom: 4px; }
+  .gh span { color: #64748b; font-weight: 600; }
+  .none { color: #94a3b8; font-size: 10px; padding: 4px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  figure { margin: 0; border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px; break-inside: avoid; }
+  figure img { width: 100%; height: 150px; object-fit: contain; background: #f8fafc; }
+  figcaption { font-size: 8px; color: #64748b; margin-top: 3px; }
+  .file { border: 1px dashed #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 10px; }
+  .file span { display: block; color: #64748b; font-size: 8px; margin-top: 2px; }
+  table.items { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+  table.items th, table.items td { border: 1px solid #cbd5e1; padding: 3px 4px; text-align: left; vertical-align: middle; }
+  table.items th { background: #ffe4e6; text-align: center; font-weight: 700; }
+  table.items td.r { text-align: right; white-space: nowrap; }
+  table.items td.c { text-align: center; }
+  table.items td.b { font-weight: 700; white-space: nowrap; }
+  table.items thead { display: table-header-group; }
+  table.items tr { page-break-inside: avoid; }
+  table.items tfoot td { font-weight: 800; background: #f8fafc; }
+  .sign { display: flex; gap: 12px; margin-top: 18px; break-inside: avoid; }
+  .sign div { flex: 1; text-align: center; font-size: 10px; }
+  .sign .line { border-bottom: 1px solid #334155; height: 28px; margin: 0 14px 4px; }
+</style></head><body>
+  <div class="hero">
+    <div class="sub">IT ASSET DISPOSAL · รายงานการทำลายครุภัณฑ์</div>
+    <div class="code">${esc(run.runCode)}</div>
+    <div class="sub">
+      <span class="pill">${esc(statusText)}</span>
+      &nbsp; ขั้นที่ ${stageNum}/${RUN_STAGES.length} · ${esc(RUN_STAGES[Math.min(stageNum, RUN_STAGES.length) - 1].label)}
+      &nbsp; · ผู้บันทึก ${esc(run.createdByName || '-')} · เปิดรอบ ${esc(fmtDate(run.createdAt))}
+      ${run.accountingDocNo ? `&nbsp; · เลขเอกสารบัญชี ${esc(run.accountingDocNo)}` : ''}
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="k">จำนวนรายการ</div><div class="v">${items.length}</div></div>
+    <div class="card"><div class="k">ราคาทุนรวม (COST)</div><div class="v">${esc(fmtMoney(totals.cost))}</div></div>
+    <div class="card"><div class="k">ค่าเสื่อมสะสม</div><div class="v">${esc(fmtMoney(totals.accum))}</div></div>
+    <div class="card"><div class="k">มูลค่าคงเหลือ (BKAMT)</div><div class="v">${esc(fmtMoney(totals.bk))}</div></div>
+    <div class="card"><div class="k">ตรวจนับแล้ว</div><div class="v">${checkedCount} / ${items.length}</div></div>
+    <div class="card"><div class="k">ลงบัญชีแล้ว</div><div class="v">${keyedCount} / ${items.length}</div></div>
+  </div>
+
+  <h2>ความคืบหน้าตามขั้นตอน</h2>
+  <table class="flow"><tr>${stepsHtml}</tr></table>
+
+  <h2>เอกสารแนบและรูปหลักฐาน (${docs.length} ไฟล์)</h2>
+  ${docsHtml}
+
+  <h2>รายการครุภัณฑ์ (${items.length} รายการ)</h2>
+  <table class="items">
+    <thead><tr>
+      <th>#</th><th>ASSET NO</th><th>ASSET NAME</th><th>PLACE</th><th>COSTCENTER</th><th>COST</th><th>BKAMT</th><th>ตรวจนับ</th><th>ลงบัญชี</th>
+    </tr></thead>
+    <tbody>${rowsHtml || '<tr><td colspan="9" class="c">ไม่มีรายการ</td></tr>'}</tbody>
+    <tfoot><tr>
+      <td colspan="5" class="r">รวม</td>
+      <td class="r">${esc(fmtMoney(totals.cost))}</td>
+      <td class="r">${esc(fmtMoney(totals.bk))}</td>
+      <td colspan="2"></td>
+    </tr></tfoot>
+  </table>
+
+  <div class="sign">
+    <div><div class="line"></div>ผู้บันทึกรายการ<br>วันที่ ____________</div>
+    <div><div class="line"></div>ผู้ตรวจสอบ<br>วันที่ ____________</div>
+    <div><div class="line"></div>ผู้อนุมัติ<br>วันที่ ____________</div>
+  </div>
+  <script>
+    window.onload = () => {
+      const imgs = Array.from(document.images);
+      Promise.all(imgs.map((im) => im.complete ? null : new Promise((r) => { im.onload = im.onerror = r; })))
+        .then(() => setTimeout(() => window.print(), 200));
+    };
+  </script>
+</body></html>`;
+    printHtmlInFrame(html);
   };
 
   const totals = run
@@ -1595,7 +1841,7 @@ const ITDisposalPage = () => {
                 </div>
                 {/* ความคืบหน้าตามขั้นตอนของรอบ (5 ขั้น) */}
                 {(() => {
-                  const st = Math.min(5, Math.max(1, Number(r.stage) || 1));
+                  const st = Math.min(RUN_STAGES.length, Math.max(1, Number(r.stage) || 1));
                   const stageLabel = RUN_STAGES.find((s) => s.n === st)?.label || '';
                   return (
                     <div className="mt-4">
@@ -1604,7 +1850,7 @@ const ITDisposalPage = () => {
                           <span key={s.n} className={`h-1.5 flex-1 rounded-full ${s.n <= st ? (st === 5 ? 'bg-sky-500' : 'bg-emerald-500') : 'bg-slate-200'}`} />
                         ))}
                       </div>
-                      <div className="mt-1.5 text-xs text-slate-500">ขั้นที่ {st}/5 · <span className="font-semibold text-slate-700">{stageLabel}</span></div>
+                      <div className="mt-1.5 text-xs text-slate-500">ขั้นที่ {st}/{RUN_STAGES.length} ·<span className="font-semibold text-slate-700">{stageLabel}</span></div>
                     </div>
                   );
                 })()}
@@ -1706,39 +1952,69 @@ const ITDisposalPage = () => {
         const stage = Number(run.stage) || 1;
         const steps = RUN_STAGES.map((s) => ({ label: s.label, n: s.n, done: s.n < stage, current: s.n === stage }));
         const currentIdx = stage - 1;
-        const missingPhotos = items.filter((i) => !i.pic1Url || !i.pic2Url);
         const doneDays = isCompleted && run.createdAt
           ? Math.max(0, Math.round((new Date(run.completedAt) - new Date(run.createdAt)) / 86400000))
           : null;
         return (
-          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-5 grid grid-cols-1 lg:grid-cols-5 gap-5">
-            <div className="lg:col-span-3">
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 md:p-5 mb-5 grid grid-cols-1 gap-5">
+            <div>
               <div className="text-xs font-bold text-slate-500 mb-3">ความคืบหน้าของรอบ</div>
-              <ol className="flex items-start">
-                {steps.map((s, i) => (
-                  <Fragment key={s.n}>
-                    {i > 0 && <li aria-hidden="true" className={`flex-1 h-0.5 mt-3.5 mx-1 rounded ${steps[i - 1].done ? 'bg-emerald-400' : 'bg-slate-200'}`} />}
-                    <li className="flex flex-col items-center text-center w-20 shrink-0" aria-current={s.current ? 'step' : undefined}>
-                      <button
-                        type="button"
-                        onClick={() => askSetStage(s)}
-                        disabled={!canEditRun || s.current || isCompleted}
-                        title={canEditRun ? `ขั้นที่ ${s.n}: ${s.label}${s.current ? ' (ขั้นปัจจุบัน)' : ' — กดเพื่อเปลี่ยนมาขั้นนี้'}` : `ขั้นที่ ${s.n}: ${s.label}`}
-                        className="flex flex-col items-center disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded-lg"
-                      >
-                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                          s.done ? 'bg-emerald-500 text-white'
-                            : s.current ? 'bg-white text-rose-600 ring-2 ring-rose-500'
-                              : 'bg-slate-100 text-slate-400'
-                        }`}>
-                          {s.done ? <CheckCircle2 size={14} /> : s.n}
-                        </span>
-                        <span className={`mt-1.5 text-[11px] font-semibold leading-tight ${s.done || s.current ? 'text-slate-800' : 'text-slate-400'}`}>{s.label}</span>
-                      </button>
-                    </li>
-                  </Fragment>
-                ))}
-              </ol>
+              {/* ขั้นตอนเป็นการ์ดไอคอน + ลูกศรเชื่อมระหว่างขั้น */}
+              <div className="overflow-x-auto pb-1">
+                <ol className="flex items-stretch gap-1 min-w-[640px]">
+                  {steps.map((s, i) => {
+                    const Icon = RUN_STAGE_ICONS[s.n - 1];
+                    const arrowOn = i > 0 && steps[i - 1].done;
+                    return (
+                      <Fragment key={s.n}>
+                        {i > 0 && (
+                          <li aria-hidden="true" className={`flex shrink-0 items-center self-center ${arrowOn ? 'text-emerald-500' : 'text-slate-300'}`}>
+                            <ArrowRight size={16} strokeWidth={2.5} />
+                          </li>
+                        )}
+                        <li className="flex min-w-0 flex-1" aria-current={s.current ? 'step' : undefined}>
+                          <button
+                            type="button"
+                            onClick={() => askSetStage(s)}
+                            disabled={!canEditRun || isCompleted || Math.abs(s.n - (Number(run.stage) || 1)) !== 1}
+                            title={canEditRun ? `ขั้นที่ ${s.n}: ${s.label}${s.current ? ' (ขั้นปัจจุบัน)' : ' — กดเพื่อเปลี่ยนมาขั้นนี้'}` : `ขั้นที่ ${s.n}: ${s.label}`}
+                            className={`w-full min-h-[118px] flex flex-col items-center gap-1.5 rounded-xl border-2 px-2 py-2.5 text-center transition disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${
+                              s.current ? 'border-rose-500 bg-rose-50 shadow-md shadow-rose-100'
+                                : s.done ? 'border-emerald-200 bg-emerald-50/60'
+                                  : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            <span className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                              s.done ? 'bg-emerald-500 text-white'
+                                : s.current ? 'bg-rose-600 text-white'
+                                  : 'bg-slate-100 text-slate-400'
+                            }`}>
+                              {s.done ? <CheckCircle2 size={20} /> : <Icon size={18} />}
+                            </span>
+                            <span className={`text-[10px] font-bold uppercase tracking-wide ${s.current ? 'text-rose-600' : s.done ? 'text-emerald-600' : 'text-slate-400'}`}>
+                              ขั้นที่ {s.n}
+                            </span>
+                            <span className={`text-xs leading-snug break-words ${s.current ? 'font-black text-rose-700' : s.done ? 'font-semibold text-slate-700' : 'font-medium text-slate-400'}`}>
+                              {s.label}
+                            </span>
+                          </button>
+                        </li>
+                      </Fragment>
+                    );
+                  })}
+                </ol>
+              </div>
+              <div className={`mt-2 text-xs ${canEditRun && !isCompleted && !stageGateReason((Number(run.stage) || 1) + 1) ? 'text-slate-500' : 'text-amber-700'}`}>
+                {!canEditRun
+                  ? 'ต้องมีสิทธิ์แก้ไขรอบจึงจะเปลี่ยนสถานะได้'
+                  : isCompleted
+                    ? 'รอบนี้เสร็จสิ้นแล้ว ต้องยกเลิกเสร็จสิ้นก่อนจึงจะเปลี่ยนขั้นได้'
+                    : (Number(run.stage) || 1) >= 6
+                      ? 'ทำทิ้งแล้ว'
+                      : stageGateReason((Number(run.stage) || 1) + 1)
+                        ? `ขั้นถัดไปยังไม่ได้: ${stageGateReason((Number(run.stage) || 1) + 1)}`
+                        : 'กดที่ขั้นถัดไปเพื่อเปลี่ยนสถานะ (ไปได้ทีละขั้น และระบบจะถามยืนยันก่อน)'}
+              </div>
               {doneDays !== null && (
                 <div className="mt-3 text-xs text-slate-500">ใช้เวลาจากเปิดรอบถึงเสร็จสิ้น <b className="text-slate-800">{doneDays} วัน</b></div>
               )}
@@ -1747,72 +2023,58 @@ const ITDisposalPage = () => {
               )}
             </div>
 
-            <div className="lg:col-span-2 space-y-2">
-              <div className="text-xs font-bold text-slate-500">สิ่งที่ต้องทำต่อ</div>
-              {run.status === 'Open' && (
-                <div className="text-sm text-slate-600 rounded-lg bg-slate-50 px-3 py-2">ปิดรอบเมื่อบันทึกรายการครบแล้ว</div>
-              )}
-              {run.status === 'Closed' && !hasAccountingDoc && !isCompleted && (
-                <button onClick={() => setDetailTab('docs')} className="w-full text-left text-sm rounded-lg bg-amber-50 text-amber-800 px-3 py-2 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
-                  แนบหลักฐาน บช. ว่าทิ้งแล้ว →
-                </button>
-              )}
-              {run.status === 'Closed' && hasAccountingDoc && !isCompleted && canEditRun && (
-                <button onClick={askComplete} className="w-full text-left text-sm rounded-lg bg-sky-50 text-sky-800 px-3 py-2 hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
-                  มีหลักฐาน บช. แล้ว ทำเป็นเสร็จสิ้น →
-                </button>
-              )}
-              {missingPhotos.length > 0 && (
-                <div className="rounded-lg bg-amber-50 px-3 py-2">
-                  <div className="text-sm text-amber-800 font-semibold">รายการที่รูปไม่ครบ {missingPhotos.length} รายการ</div>
-                  <ul className="mt-1 space-y-1">
-                    {missingPhotos.slice(0, 3).map((it) => (
-                      <li key={it.itemId} className="flex items-center justify-between gap-2 text-xs">
-                        <span className="font-semibold text-slate-700 truncate">{it.assetNo}</span>
-                        {canEdit && (
-                          <button onClick={() => setPhotoItem(it)} className="shrink-0 font-bold text-rose-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded">แนบรูป</button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                  {missingPhotos.length > 3 && <div className="text-[11px] text-slate-500 mt-1">และอีก {missingPhotos.length - 3} รายการ</div>}
-                </div>
-              )}
-              {missingPhotos.length === 0 && run.status !== 'Open' && hasAccountingDoc && isCompleted && (
-                <div className="text-sm text-emerald-700 rounded-lg bg-emerald-50 px-3 py-2">ครบทุกขั้นตอนแล้ว</div>
-              )}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 border-t border-slate-100 pt-4">
+              <MiniStat icon={Trash2} title="จำนวนรายการ" value={totals.count} color="from-rose-500 to-rose-600" />
+              <MiniStat icon={Coins} title="รวม COST" value={fmtMoney(totals.cost)} color="from-slate-500 to-slate-700" />
+              <MiniStat icon={Coins} title="รวม ACCUMDP" value={fmtMoney(totals.accum)} color="from-amber-400 to-amber-500" />
+              <MiniStat icon={Coins} title="รวม BKAMT" value={fmtMoney(totals.bk)} color="from-emerald-400 to-emerald-600" />
             </div>
           </section>
         );
       })()}
 
       {run && (canEditRun || run.accountingDocNo) && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
-          <div className="min-w-0 flex-1">
-            <label htmlFor="run-doc-input" className="text-xs font-bold text-slate-500 block mb-1">เลขเอกสารบัญชีของรอบ (พิมพ์บนป้าย)</label>
-            {canEditRun ? (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 mb-4 flex flex-wrap items-center gap-3">
+          <div className="text-xs font-bold text-slate-500">เลขเอกสารบัญชีของรอบ</div>
+          {docEditing && canEditRun && (Number(run.stage) || 1) < DOC_NO_LOCK_STAGE ? (
+            <>
               <input
                 id="run-doc-input"
                 key={`${selectedRunId}-${run.accountingDocNo || ''}`}
                 ref={runDocRef}
                 defaultValue={run.accountingDocNo || ''}
                 maxLength={50}
+                autoFocus
                 placeholder="เช่น JV-2026-0001"
-                onKeyDown={(e) => { if (e.key === 'Enter') saveRunDoc(); }}
-                className="w-full max-w-md px-2.5 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                onKeyDown={(e) => { if (e.key === 'Enter') saveRunDoc(); if (e.key === 'Escape') setDocEditing(false); }}
+                className="min-w-0 w-full sm:w-72 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
               />
-            ) : (
-              <div className="text-sm font-bold text-slate-800 break-all">{run.accountingDocNo}</div>
-            )}
-          </div>
-          {canEditRun && (
-            <button
-              type="button"
-              onClick={saveRunDoc}
-              className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
-            >
-              บันทึกเลขเอกสาร
-            </button>
+              <button type="button" onClick={saveRunDoc}
+                className="px-3.5 py-1.5 rounded-lg text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400">
+                บันทึก
+              </button>
+              <button type="button" onClick={() => setDocEditing(false)}
+                className="px-3 py-1.5 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400">
+                ยกเลิก
+              </button>
+            </>
+          ) : (
+            <>
+              <div className={`text-sm break-all ${run.accountingDocNo ? 'font-bold text-slate-800' : 'text-slate-400'}`}>
+                {run.accountingDocNo || 'ยังไม่ได้กรอก'}
+              </div>
+              {canEditRun && (Number(run.stage) || 1) >= DOC_NO_LOCK_STAGE && (
+                <span className="text-xs text-slate-500">ล็อกตั้งแต่ขั้นที่ {DOC_NO_LOCK_STAGE} (ย้อนขั้นตอนก่อนจึงแก้ได้)</span>
+              )}
+              {canEditRun && (Number(run.stage) || 1) < DOC_NO_LOCK_STAGE && (
+                <button type="button" onClick={() => setDocEditing(true)}
+                  className={`ml-auto px-3.5 py-1.5 rounded-lg text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 ${
+                    run.accountingDocNo ? 'border border-slate-200 text-slate-700 hover:bg-slate-50' : 'text-white bg-rose-600 hover:bg-rose-700'
+                  }`}>
+                  {run.accountingDocNo ? 'แก้ไข' : 'เพิ่ม'}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
@@ -1851,7 +2113,11 @@ const ITDisposalPage = () => {
             }`}>
               {isCompleted ? `เสร็จสิ้นเมื่อ ${fmtDate(run.completedAt)}` : isOpen ? 'ยังเปิดอยู่' : 'ยังไม่เสร็จสิ้น'}
             </span>
-            <button onClick={() => setDetailTab('docs')} className="ml-auto text-xs font-bold text-rose-600 hover:underline">
+            <button onClick={() => handlePrintReport()} disabled={!items.length}
+              className="ml-auto inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow">
+              <Printer size={14} /> พิมพ์รายงาน PDF
+            </button>
+            <button onClick={() => setDetailTab('docs')} className="text-xs font-bold text-rose-600 hover:underline">
               ไปที่เอกสารแนบ
             </button>
           </section>
@@ -1860,13 +2126,6 @@ const ITDisposalPage = () => {
         </>
       ) : (
         <>
-          <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 ${run ? '' : 'animate-pulse opacity-50'}`}>
-            <MiniStat icon={Trash2} title="จำนวนรายการ" value={totals.count} color="from-rose-500 to-rose-600" />
-            <MiniStat icon={Coins} title="รวม COST" value={fmtMoney(totals.cost)} color="from-slate-500 to-slate-700" />
-            <MiniStat icon={Coins} title="รวม ACCUMDP" value={fmtMoney(totals.accum)} color="from-amber-400 to-amber-500" />
-            <MiniStat icon={Coins} title="รวม BKAMT" value={fmtMoney(totals.bk)} color="from-emerald-400 to-emerald-600" />
-          </div>
-
           {/* ฟอร์มเพิ่มรายการ — แสดงเฉพาะรอบที่เปิดอยู่ */}
           {isOpen && canCreate && (
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-6">
@@ -1894,6 +2153,28 @@ const ITDisposalPage = () => {
               {searchWarn && (
                 <div className="mb-3 -mt-2 flex items-center gap-2 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl px-4 py-2.5 text-sm font-medium">
                   <AlertTriangle size={16} className="shrink-0" /> {searchWarn}
+                </div>
+              )}
+              <AlertModal
+                isOpen={ccWarning !== null}
+                type="danger"
+                title="บันทึกรายการไม่ได้"
+                message={ccWarning && (
+                  <span className="block text-left text-xs text-slate-700 bg-slate-50 rounded-lg px-3 py-2.5 space-y-1">
+                    <span className="block text-sm text-rose-700 font-bold text-center mb-1.5">COSTCENTER {ccWarning.costCenter} ไม่ใช่ {REQUIRED_COST_CENTER}</span>
+                    <span className="flex gap-2"><b className="w-16 shrink-0 text-slate-500">ASSET NO</b><span className="font-semibold">{ccWarning.assetNo || '-'}</span></span>
+                    <span className="flex gap-2"><b className="w-16 shrink-0 text-slate-500">NAME</b><span className="min-w-0 break-words">{ccWarning.assetName || '-'}</span></span>
+                    <span className="flex gap-2"><b className="w-16 shrink-0 text-slate-500">PLACE</b><span className="min-w-0 break-words">{ccWarning.place || '-'}</span></span>
+                    <span className="flex gap-2"><b className="w-16 shrink-0 text-slate-500">COST</b><span>{fmtMoney(ccWarning.cost)}</span></span>
+                  </span>
+                )}
+                confirmText="ตกลง"
+                onConfirm={() => { setCcWarning(null); resetForm(); }}
+              />
+              {found && String(form.costCenter ?? '').trim() !== REQUIRED_COST_CENTER && (
+                <div role="alert" className="mb-3 flex items-start gap-2 bg-rose-50 text-rose-700 border border-rose-300 rounded-xl px-4 py-2.5 text-sm font-semibold">
+                  <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                  <div>COSTCENTER ของรายการนี้คือ {form.costCenter || '-'} ไม่ใช่ {REQUIRED_COST_CENTER} จึงบันทึกไม่ได้</div>
                 </div>
               )}
               {found && dupes.length > 0 && (
@@ -1925,7 +2206,7 @@ const ITDisposalPage = () => {
                   </div>
 
                   <div className="flex justify-end">
-                    <button type="submit" disabled={saving || addLocked} title={addLocked ? ADD_LOCK_MSG : undefined} className={`px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 ${addLocked ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white shadow-lg shadow-rose-200'}`}>
+                    <button type="submit" disabled={saving || addLocked || ccMismatch} title={addLocked ? ADD_LOCK_MSG : ccMismatch ? `บันทึกได้เฉพาะ COSTCENTER ${REQUIRED_COST_CENTER}` : undefined} className={`px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 ${addLocked || ccMismatch ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white shadow-lg shadow-rose-200'}`}>
                       {saving && <Loader2 size={16} className="animate-spin" />} บันทึกรายการ
                     </button>
                   </div>
@@ -1961,7 +2242,7 @@ const ITDisposalPage = () => {
                       </button>
                     </div>
                     <div className="text-sm text-slate-700 break-words">{it.assetName || '-'}</div>
-                    <div className="text-xs text-slate-400 break-words">{it.place || '-'}</div>
+                    <div className="text-xs text-slate-400 break-words">{it.place || '-'} <span className="font-semibold text-red-600">(DISPOSAL)</span></div>
                   </div>
                   <div className="text-xs text-slate-400 shrink-0">#{(curPage - 1) * PAGE_SIZE + idx + 1}</div>
                 </div>
@@ -2148,7 +2429,7 @@ const ITDisposalPage = () => {
                       </td>
                       <td className="px-2 py-1 whitespace-nowrap">{fmtDate(it.assetDate)}</td>
                       <td className="px-2 py-1 break-words" title={it.assetName || ''}>{it.assetName}</td>
-                      <td className="px-2 py-1 break-words" title={it.place || ''}>{it.place}</td>
+                      <td className="px-2 py-1 break-words" title={it.place || ''}>{it.place} <span className="font-semibold text-red-600">(DISPOSAL)</span></td>
                       <td className="px-2 py-1 truncate">{it.costCenter}</td>
                       <td className="px-2 py-1 text-right tabular-nums">{fmtMoney(it.cost)}</td>
                       <td className="px-2 py-1 text-right tabular-nums">{fmtMoney(it.accumDP)}</td>
