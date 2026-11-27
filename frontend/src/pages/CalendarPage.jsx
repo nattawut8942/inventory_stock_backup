@@ -397,8 +397,8 @@ const openEdit = async (id) => {
                                         <input type="checkbox" checked={active}
                                             onChange={() => toggleFilter(t.type_key)} className="sr-only" />
                                         <div className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
-                                            style={{ background: active ? cfg.bg : '#f1f5f9' }}>
-                                            <Icon className="w-3.5 h-3.5" style={{ color: active ? '#fff' : '#94a3b8' }} />
+                                            style={{ background: active ? cfg.bg : 'var(--surface-2, #f1f5f9)' }}>
+                                            <Icon className="w-3.5 h-3.5" style={{ color: active ? '#fff' : 'var(--muted, #94a3b8)' }} />
                                         </div>
                                         <span className={`text-sm font-medium transition-colors ${active ? 'text-slate-700' : 'text-slate-400'}`}>
                                             {t.type_label}
@@ -628,13 +628,13 @@ const openEdit = async (id) => {
                                             <button key={key} type="button" aria-pressed={active}
                                                 onClick={() => setForm(f => ({ ...f, task_type: key }))}
                                                 className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl border-2 transition-all text-center"
-                                                style={{ borderColor: active ? cfg.bg : '#e2e8f0', background: active ? cfg.light : '#fff' }}>
+                                                style={{ borderColor: active ? cfg.bg : 'var(--border, #e2e8f0)', background: active ? cfg.light : 'var(--surface, #fff)' }}>
                                                 <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-                                                    style={{ background: active ? cfg.bg : '#f1f5f9' }}>
-                                                    <Icon className="w-3.5 h-3.5" style={{ color: active ? '#fff' : '#94a3b8' }} />
+                                                    style={{ background: active ? cfg.bg : 'var(--surface-2, #f1f5f9)' }}>
+                                                    <Icon className="w-3.5 h-3.5" style={{ color: active ? '#fff' : 'var(--muted, #94a3b8)' }} />
                                                 </div>
                                                 <span className="text-[10px] font-bold leading-tight"
-                                                    style={{ color: active ? cfg.bg : '#94a3b8' }}>
+                                                    style={{ color: active ? cfg.bg : 'var(--muted, #94a3b8)' }}>
                                                     {cfg.label.split('/')[0]}
                                                 </span>
                                             </button>

@@ -74,7 +74,7 @@ const NavItem = ({ item, active, collapsed, pinned, badgeCount, onNavigate, onTo
                 relative flex-1 min-w-0 flex items-center rounded-xl transition-all duration-200 ${FOCUS_RING}
                 ${collapsed ? 'justify-center p-2.5' : 'gap-3 py-2 pl-3 pr-2'}
                 ${active
-                    ? 'bg-white text-indigo-950 shadow-lg shadow-indigo-950/20'
+                    ? 'bg-[#ffffff] text-indigo-950 shadow-lg shadow-indigo-950/20'
                     : 'text-indigo-100/75 hover:bg-white/10 hover:text-white'}
             `}
         >

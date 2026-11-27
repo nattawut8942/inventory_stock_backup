@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { PermissionProvider } from './context/PermissionContext';
 import { DataProvider } from './context/DataContext';
 import { QuotaJobProvider } from './context/QuotaJobContext';
+import { ThemeProvider } from './context/ThemeContext';
 
 // Components
 import Layout from './components/Layout';
@@ -114,6 +115,7 @@ const AppRoutes = () => {
 const App = () => {
     return (
         <BrowserRouter basename={import.meta.env.BASE_URL}>
+            <ThemeProvider>
             <AuthProvider>
                 <PermissionProvider>
                 <DataProvider>
@@ -123,6 +125,7 @@ const App = () => {
                 </DataProvider>
                 </PermissionProvider>
             </AuthProvider>
+            </ThemeProvider>
         </BrowserRouter>
     );
 };
