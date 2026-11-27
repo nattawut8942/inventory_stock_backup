@@ -99,8 +99,8 @@ const LoginPage = () => {
 
     return (
         <div className="login-root relative min-h-screen flex items-center justify-center bg-slate-50 font-sans text-slate-800 overflow-hidden p-4 sm:p-8">
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-100/70 via-slate-50 to-sky-100/70" aria-hidden="true"></div>
-            <div className="absolute inset-0 bg-[radial-gradient(#c7d2fe_1px,transparent_1px)] [background-size:22px_22px] opacity-40" aria-hidden="true"></div>
+            <div className="login-wash absolute inset-0 bg-gradient-to-br from-indigo-100/70 via-slate-50 to-sky-100/70" aria-hidden="true"></div>
+            <div className="login-dots absolute inset-0 bg-[radial-gradient(#c7d2fe_1px,transparent_1px)] [background-size:22px_22px] opacity-40" aria-hidden="true"></div>
 
             <div className="relative z-10 w-full max-w-5xl grid lg:grid-cols-[1fr_1fr] rounded-3xl overflow-hidden lg:bg-white lg:border lg:border-white/70 lg:shadow-2xl lg:shadow-indigo-200/50">
 
@@ -193,8 +193,8 @@ const LoginPage = () => {
             {/* ===== Form panel ===== */}
             <main className="relative flex items-center justify-center p-4 sm:p-8 lg:p-10 py-10 overflow-hidden">
                 {/* Background for mobile / form side */}
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-sky-50" aria-hidden="true"></div>
-                <div className="absolute inset-0 bg-[radial-gradient(#c7d2fe_1px,transparent_1px)] [background-size:22px_22px] opacity-40" aria-hidden="true"></div>
+                <div className="login-wash absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-sky-50" aria-hidden="true"></div>
+                <div className="login-dots absolute inset-0 bg-[radial-gradient(#c7d2fe_1px,transparent_1px)] [background-size:22px_22px] opacity-40" aria-hidden="true"></div>
                 <div className="login-blob absolute -top-24 -left-20 w-[24rem] h-[24rem] bg-indigo-300/30 rounded-full blur-3xl lg:hidden" aria-hidden="true"></div>
                 <div className="login-blob absolute -bottom-32 -right-20 w-[26rem] h-[26rem] bg-sky-300/30 rounded-full blur-3xl [animation-delay:-6s] lg:hidden" aria-hidden="true"></div>
 

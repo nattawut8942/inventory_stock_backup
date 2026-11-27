@@ -375,3 +375,17 @@ body.modal-open {
 .dark .bg-slate-100\/80 { background-color: rgba(39, 52, 73, 0.8); }
 /* ตัวอักษรใน SVG ที่กำหนดสีเข้มด้วย fill */
 .dark svg text[fill="#0f172a"], .dark svg text[fill="#1e293b"], .dark svg text[fill="#334155"] { fill: #e2e8f0; }
+
+/* ---------- หน้า Login ในโหมดมืด ---------- */
+.dark .login-wash {
+  background-image: linear-gradient(to bottom right, #0f172a, #111c33, #0c2233);
+}
+.dark .login-dots {
+  background-image: radial-gradient(rgba(129, 140, 248, 0.25) 1px, transparent 1px);
+}
+/* ช่องกรอกเมื่อ focus: ไม่ให้กลายเป็นพื้นขาวในโหมดมืด */
+.dark .focus\:bg-white:focus { background-color: rgba(30, 41, 59, 0.9); }
+/* หน้า login บนจอใหญ่: กล่องฟอร์มต้องโปร่งใส ให้พื้นหลังเดียวกัน (กฎนี้ต้องอยู่หลังกฎ .dark .bg-white/80) */
+@media (min-width: 1024px) {
+  .dark .lg\:bg-transparent { background-color: transparent; }
+}
