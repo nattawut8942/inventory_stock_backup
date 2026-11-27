@@ -2541,6 +2541,7 @@ const STICKER_PAPERS = [
   { key: 'B5', label: 'B5 (176 × 250 มม.)', w: 176, h: 250 },
   { key: 'Letter', label: 'Letter (216 × 279 มม.)', w: 216, h: 279 },
   { key: 'Legal', label: 'Legal (216 × 356 มม.)', w: 216, h: 356 },
+  { key: 'Slip', label: 'สลิป 3 × 2 นิ้ว (1 ป้าย/หน้า)', w: 76.2, h: 50.8 },
   { key: 'Custom', label: 'กำหนดเอง', w: 210, h: 297 },
 ];
 
@@ -2554,17 +2555,23 @@ const barcodeSvg = (text, widthMm) => {
     JsBarcode(svg, String(text), { format: 'CODE128', displayValue: false, margin: 0, height: 40, width: w });
     return svg;
   };
-  const naturalPx = Number(make(1).getAttribute('width')) || 1;
+  // JsBarcode ใส่หน่วย px ต่อท้ายค่า width (เช่น "130px") จึงต้อง parseFloat ไม่ใช่ Number
+  const naturalPx = parseFloat(make(1).getAttribute('width')) || 1;
   const targetPx = (widthMm * 96) / 25.4;
-  const w = Math.max(1, Math.floor((targetPx / naturalPx) * 100) / 100);
+  // ไม่ปัดขึ้นเป็น 1 เด็ดขาด (ป้ายแคบจะทำให้แท่งบาร์โค้ดล้นและถูกตัดข้อมูล)
+  const w = Math.max(0.05, Math.floor((targetPx / naturalPx) * 100) / 100);
   const svg = make(w);
+  // viewBox ตามขนาดจริงของแท่ง ทำให้แท่งยืดตามกรอบเสมอ ไม่ถูกตัดเมื่อกรอบแคบกว่าความกว้างเดิม
+  const vw = parseFloat(svg.getAttribute('width')) || naturalPx;
+  const vh = parseFloat(svg.getAttribute('height')) || 40;
+  svg.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
   svg.setAttribute('preserveAspectRatio', 'none');
   return svg.outerHTML;
 };
 
 // สร้าง HTML สำหรับพิมพ์ป้าย ใช้ร่วมกันทั้งพิมพ์หลายรายการและพิมพ์ป้ายเดี่ยว
 // sheets = [[รายการหน้า 1], [รายการหน้า 2], ...] แต่ละหน้าจัดเป็น cols คอลัมน์
-const buildStickerHtml = async ({ sheets, pw, ph, cols, rows, lw, lh, gap, margin, showGuide, showBoxes, runCode, runDocNo }) => {
+const buildStickerHtml = async ({ sheets, pw, ph, cols, rows, lw, lh, gap, margin, showGuide, showBoxes, slip, runCode, runDocNo }) => {
   const flat = sheets.flat();
   // ขนาดฐานอ้างอิงป้าย 70×40 มม. เมื่อป้ายใหญ่ขึ้น (ลดคอลัมน์/แถว) ตัวอักษรและ QR/บาร์โค้ดจะขยายตาม
   const sc = Math.max(0.2, Math.min(lw / 70, lh / 40));
@@ -2591,7 +2598,7 @@ const buildStickerHtml = async ({ sheets, pw, ph, cols, rows, lw, lh, gap, margi
             <div class="name">${stickerEsc(i.assetName)}</div>
             <div class="place">${stickerEsc(i.place)}</div>
             <div class="meta">CC ${stickerEsc(i.costCenter)} · ${stickerEsc(fmtDate(i.assetDate))}</div>
-            <div class="meta">${stickerEsc(runCode)} · รูปภาพ ${(i.pic1Url ? 1 : 0) + (i.pic2Url ? 1 : 0)}/2</div>
+            <div class="meta">${stickerEsc(runCode)}${slip ? '' : ` · รูปภาพ ${(i.pic1Url ? 1 : 0) + (i.pic2Url ? 1 : 0)}/2`}</div>
             <div class="doc">เอกสารบัญชี: ${stickerEsc(runDocNo)}</div>
             <div class="meta">ผู้บันทึก: ${stickerEsc(i.createdByName || i.createdBy)}</div>
           </div>
@@ -2613,7 +2620,7 @@ const buildStickerHtml = async ({ sheets, pw, ph, cols, rows, lw, lh, gap, margi
   .qr { flex: 0 0 ${z(18)}mm; width: ${z(18)}mm; height: ${z(18)}mm; }
   .qr svg, .bc svg { display: block; width: 100%; height: 100%; }
   .bc { flex: 0 0 ${z(7)}mm; height: ${z(7)}mm; margin-top: ${z(1.5)}mm; }
-  .code { font-size: ${z(10)}pt; font-weight: 900; line-height: 1.05; word-break: break-all; }
+  .code { font-size: 15pt; font-weight: 900; line-height: 1.05; word-break: break-all; }
   .name { font-size: ${z(6.5)}pt; line-height: 1.15; margin-top: ${z(0.6)}mm; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .place { font-size: ${z(6)}pt; line-height: 1.15; color: #222; margin-top: ${z(0.5)}mm; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .meta { font-size: ${z(5.5)}pt; color: #333; margin-top: ${z(0.5)}mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2668,6 +2675,26 @@ const CountStepper = ({ label, value, onChange }) => (
   </div>
 );
 
+// หน้าตาป้าย 1 ใบสำหรับตัวอย่าง (ข้อมูลตรงกับที่พิมพ์) — ใช้หน่วย cqw เทียบกับ container ที่ครอบอยู่ จึงย่อขยายตามกรอบได้ทุกขนาดกระดาษ
+const fillSvg = (s) => String(s || '').replace('<svg ', '<svg style="display:block;width:100%;height:100%" ');
+const LabelFace = ({ item, qr, bc, w, h, runCode, runDocNo }) => (
+  <div className="bg-white text-black overflow-hidden" style={{ width: '100%', aspectRatio: `${w} / ${h}`, padding: '3cqw', display: 'flex', flexDirection: 'column', fontFamily: "'Sarabun', Tahoma, sans-serif" }}>
+    <div style={{ display: 'flex', gap: '2.5cqw', flex: 1, minHeight: 0 }}>
+      <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+        <div style={{ fontSize: '7cqw', fontWeight: 900, lineHeight: 1.05, wordBreak: 'break-all' }}>{item.assetNo}</div>
+        <div style={{ fontSize: '3.4cqw', lineHeight: 1.15, marginTop: '1cqw', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item.assetName || '-'}</div>
+        <div style={{ fontSize: '3cqw', lineHeight: 1.15, marginTop: '1cqw', color: '#222', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item.place || '-'}</div>
+        <div style={{ fontSize: '2.8cqw', marginTop: '1cqw', color: '#333', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>CC {item.costCenter || '-'} · {fmtDate(item.assetDate)}</div>
+        <div style={{ fontSize: '2.8cqw', marginTop: '0.5cqw', color: '#333', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{runCode}</div>
+        <div style={{ fontSize: '3cqw', fontWeight: 700, marginTop: '0.5cqw', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>เอกสารบัญชี: {runDocNo || '-'}</div>
+        <div style={{ fontSize: '2.8cqw', marginTop: '0.5cqw', color: '#333', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>ผู้บันทึก: {item.createdByName || item.createdBy || '-'}</div>
+      </div>
+      <div style={{ flex: '0 0 25.7cqw', width: '25.7cqw', height: '25.7cqw' }} dangerouslySetInnerHTML={{ __html: qr }} />
+    </div>
+    <div style={{ flex: '0 0 10cqw', height: '10cqw', marginTop: '1.5cqw' }} dangerouslySetInnerHTML={{ __html: bc }} />
+  </div>
+);
+
 const StickerSheetModal = ({ items, runCode, runDocNo, onClose }) => {
   const [paper, setPaper] = useState('A4');
   const [orient, setOrient] = useState('landscape');
@@ -2690,19 +2717,33 @@ const StickerSheetModal = ({ items, runCode, runDocNo, onClose }) => {
   }, [onClose]);
 
   const base = STICKER_PAPERS.find((p) => p.key === paper) || STICKER_PAPERS[1];
+  // โหมดสลิป: กระดาษ = ขนาดป้ายเอง 1 ใบต่อ 1 ป้าย ไม่มีขอบ ช่องว่าง หรือเส้นตัด
+  const isSlip = paper === 'Slip';
   const baseW = paper === 'Custom' ? Number(custom.w) : base.w;
   const baseH = paper === 'Custom' ? Number(custom.h) : base.h;
-  const pw = orient === 'landscape' ? Math.max(baseW, baseH) : Math.min(baseW, baseH);
-  const ph = orient === 'landscape' ? Math.min(baseW, baseH) : Math.max(baseW, baseH);
-  const g = Number(gap);
-  const m = Number(margin);
+  const pw = isSlip ? base.w : orient === 'landscape' ? Math.max(baseW, baseH) : Math.min(baseW, baseH);
+  const ph = isSlip ? base.h : orient === 'landscape' ? Math.min(baseW, baseH) : Math.max(baseW, baseH);
+  const g = isSlip ? 0 : Number(gap);
+  const m = isSlip ? 0 : Number(margin);
   // โหมดกำหนดแถว/คอลัมน์เอง: คำนวณขนาดป้ายให้พอดีกระดาษ (ปัดลง 0.1 มม.)
   const fitW = fitCols > 0 ? Math.max(0, Math.floor(((pw - 2 * m - (fitCols - 1) * g) / fitCols) * 10) / 10) : 0;
   const fitH = fitRows > 0 ? Math.max(0, Math.floor(((ph - 2 * m - (fitRows - 1) * g) / fitRows) * 10) / 10) : 0;
-  const lw = fit ? fitW : Number(label.w);
-  const lh = fit ? fitH : Number(label.h);
+  const lw = isSlip ? base.w : fit ? fitW : Number(label.w);
+  const lh = isSlip ? base.h : fit ? fitH : Number(label.h);
   const grid = calcStickerGrid({ pw, ph, lw, lh, gap: g, margin: m });
   const chosen = items.filter((i) => selected.has(i.itemId));
+  const sample = chosen[0] || items[0];
+  // ตัวอย่างในช่องพรีวิว: ใส่หน้าตาป้ายเมื่อจำนวนป้ายต่อหน้าไม่มาก (กันหน่วงจากการสร้าง QR หลายร้อยตัว)
+  const showFaces = !!sample && grid.perPage > 0 && grid.perPage <= 60;
+  const sampleNo = sample?.assetNo;
+  const [sampleQr, setSampleQr] = useState('');
+  useEffect(() => {
+    if (!showFaces || !sampleNo) { setSampleQr(''); return; }
+    let alive = true;
+    QRCode.toString(String(sampleNo), { type: 'svg', margin: 0, errorCorrectionLevel: 'M' }).then((s) => { if (alive) setSampleQr(fillSvg(s)); });
+    return () => { alive = false; };
+  }, [showFaces, sampleNo]);
+  const sampleBc = showFaces ? fillSvg(barcodeSvg(sampleNo, lw - 4)) : '';
   const pages = grid.perPage > 0 ? Math.ceil(chosen.length / grid.perPage) : 0;
   const canPrint = grid.perPage > 0 && chosen.length > 0;
 
@@ -2718,7 +2759,7 @@ const StickerSheetModal = ({ items, runCode, runDocNo, onClose }) => {
     if (!canPrint) return;
     const sheets = [];
     for (let p = 0; p < pages; p++) sheets.push(chosen.slice(p * grid.perPage, (p + 1) * grid.perPage));
-    printHtmlInFrame(await buildStickerHtml({ sheets, pw, ph, cols: grid.cols, rows: grid.rows, lw, lh, gap: g, margin: m, showGuide, showBoxes, runCode, runDocNo }));
+    printHtmlInFrame(await buildStickerHtml({ sheets, pw, ph, cols: grid.cols, rows: grid.rows, lw, lh, gap: g, margin: m, showGuide: showGuide && !isSlip, showBoxes: showBoxes && !isSlip, slip: isSlip, runCode, runDocNo }));
   };
 
   // ตัวอย่างตำแหน่งป้ายบนกระดาษ (หนึ่งหน้า)
@@ -2729,14 +2770,17 @@ const StickerSheetModal = ({ items, runCode, runDocNo, onClose }) => {
         previewCells.push(
           <div
             key={`${r}-${c}`}
-            className="absolute bg-sky-50 border border-sky-300"
+            className={`absolute ${showFaces ? '' : 'bg-sky-50 border border-sky-300'}`}
             style={{
               left: `${((m + c * (lw + g)) / pw) * 100}%`,
               top: `${((m + r * (lh + g)) / ph) * 100}%`,
               width: `${(lw / pw) * 100}%`,
               height: `${(lh / ph) * 100}%`,
+              containerType: 'inline-size',
             }}
-          />
+          >
+            {showFaces && sampleQr && <LabelFace item={sample} qr={sampleQr} bc={sampleBc} w={lw} h={lh} runCode={runCode} runDocNo={runDocNo} />}
+          </div>
         );
       }
     }
@@ -2786,6 +2830,7 @@ const StickerSheetModal = ({ items, runCode, runDocNo, onClose }) => {
               </div>
             )}
 
+            {!isSlip && (<>
             <div>
               <span className={lbl}>แนวกระดาษ</span>
               <div className="grid grid-cols-2 gap-2">
@@ -2832,6 +2877,13 @@ const StickerSheetModal = ({ items, runCode, runDocNo, onClose }) => {
                 <input id="stk-margin" type="number" min="0" value={margin} onChange={(e) => setMargin(e.target.value)} className={inp} />
               </div>
             </div>
+            </>)}
+            {isSlip && (
+              <p className="text-sm text-slate-600 bg-rose-50 border border-rose-100 rounded-lg p-3">
+                โหมดสลิป: ขนาดป้าย 76.2 × 50.8 มม. (3 × 2 นิ้ว) พิมพ์ 1 ป้ายต่อ 1 ใบ ไม่มีขอบและเส้นตัด
+                ตั้งค่าเครื่องพิมพ์ให้ใช้กระดาษขนาดนี้ และปิด Scale / Fit to page (ใช้ 100%)
+              </p>
+            )}
 
             <label className="flex items-center gap-2 text-sm text-slate-600">
               <input type="checkbox" checked={showGuide} onChange={(e) => setShowGuide(e.target.checked)} className="rounded border-slate-300" />
