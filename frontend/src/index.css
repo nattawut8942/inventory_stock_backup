@@ -150,6 +150,8 @@ body.modal-open {
 .dark .bg-slate-50 { background-color: #0b1120; }
 .dark .bg-slate-100 { background-color: #273449; }
 .dark .bg-slate-200 { background-color: #334155; }
+.dark .disabled\:bg-slate-200:disabled { background-color: #334155; }
+.dark .disabled\:text-slate-500:disabled { color: #94a3b8; }
 .dark .bg-slate-300 { background-color: #475569; }
 .dark .bg-white\/80 { background-color: rgba(30, 41, 59, 0.8); }
 .dark .bg-white\/60 { background-color: rgba(30, 41, 59, 0.6); }
@@ -162,6 +164,41 @@ body.modal-open {
 .dark .hover\:bg-white:hover { background-color: #273449; }
 .dark .from-slate-50 { --tw-gradient-from: #0b1120 var(--tw-gradient-from-position); }
 .dark .to-white { --tw-gradient-to: #1e293b var(--tw-gradient-to-position); }
+.dark .from-white { --tw-gradient-from: #1e293b var(--tw-gradient-from-position); }
+.dark .via-white { --tw-gradient-via: #1e293b var(--tw-gradient-via-position); }
+.dark .to-slate-50 { --tw-gradient-to: #0b1120 var(--tw-gradient-to-position); }
+/* gradient สีอ่อน (เช่น from-indigo-50, from-emerald-100) — ทำเป็นสีจางๆ บนพื้นมืด */
+.dark .from-indigo-50, .dark .from-indigo-100 { --tw-gradient-from: rgba(99, 102, 241, 0.16) var(--tw-gradient-from-position); }
+.dark .from-violet-50, .dark .from-violet-100 { --tw-gradient-from: rgba(139, 92, 246, 0.16) var(--tw-gradient-from-position); }
+.dark .from-emerald-50, .dark .from-emerald-100 { --tw-gradient-from: rgba(16, 185, 129, 0.16) var(--tw-gradient-from-position); }
+.dark .from-red-50, .dark .from-red-100 { --tw-gradient-from: rgba(239, 68, 68, 0.16) var(--tw-gradient-from-position); }
+.dark .from-rose-50, .dark .from-rose-100 { --tw-gradient-from: rgba(244, 63, 94, 0.16) var(--tw-gradient-from-position); }
+.dark .from-blue-50, .dark .from-blue-100 { --tw-gradient-from: rgba(59, 130, 246, 0.16) var(--tw-gradient-from-position); }
+.dark .from-sky-50, .dark .from-sky-100 { --tw-gradient-from: rgba(14, 165, 233, 0.16) var(--tw-gradient-from-position); }
+.dark .from-pink-50, .dark .from-pink-100 { --tw-gradient-from: rgba(236, 72, 153, 0.16) var(--tw-gradient-from-position); }
+.dark .from-amber-50, .dark .from-amber-100 { --tw-gradient-from: rgba(245, 158, 11, 0.16) var(--tw-gradient-from-position); }
+.dark .from-orange-50, .dark .from-orange-100 { --tw-gradient-from: rgba(249, 115, 22, 0.16) var(--tw-gradient-from-position); }
+.dark .from-cyan-50, .dark .from-cyan-100 { --tw-gradient-from: rgba(6, 182, 212, 0.16) var(--tw-gradient-from-position); }
+.dark .from-teal-50, .dark .from-teal-100 { --tw-gradient-from: rgba(20, 184, 166, 0.16) var(--tw-gradient-from-position); }
+.dark .to-indigo-50, .dark .to-indigo-100 { --tw-gradient-to: rgba(99, 102, 241, 0.16) var(--tw-gradient-to-position); }
+.dark .to-violet-50, .dark .to-violet-100 { --tw-gradient-to: rgba(139, 92, 246, 0.16) var(--tw-gradient-to-position); }
+.dark .to-emerald-50, .dark .to-emerald-100 { --tw-gradient-to: rgba(16, 185, 129, 0.16) var(--tw-gradient-to-position); }
+.dark .to-red-50, .dark .to-red-100 { --tw-gradient-to: rgba(239, 68, 68, 0.16) var(--tw-gradient-to-position); }
+.dark .to-rose-50, .dark .to-rose-100 { --tw-gradient-to: rgba(244, 63, 94, 0.16) var(--tw-gradient-to-position); }
+.dark .to-blue-50, .dark .to-blue-100 { --tw-gradient-to: rgba(59, 130, 246, 0.16) var(--tw-gradient-to-position); }
+.dark .to-pink-50, .dark .to-pink-100 { --tw-gradient-to: rgba(236, 72, 153, 0.16) var(--tw-gradient-to-position); }
+.dark .to-amber-50, .dark .to-amber-100 { --tw-gradient-to: rgba(245, 158, 11, 0.16) var(--tw-gradient-to-position); }
+.dark .to-orange-50, .dark .to-orange-100 { --tw-gradient-to: rgba(249, 115, 22, 0.16) var(--tw-gradient-to-position); }
+.dark .to-cyan-50, .dark .to-cyan-100 { --tw-gradient-to: rgba(6, 182, 212, 0.16) var(--tw-gradient-to-position); }
+.dark .from-slate-100 { --tw-gradient-from: #273449 var(--tw-gradient-from-position); }
+.dark .from-slate-200, .dark .from-slate-300 { --tw-gradient-from: #334155 var(--tw-gradient-from-position); }
+.dark .to-slate-200, .dark .to-slate-300 { --tw-gradient-to: #475569 var(--tw-gradient-to-position); }
+.dark .to-amber-50\/50 { --tw-gradient-to: rgba(245, 158, 11, 0.08) var(--tw-gradient-to-position); }
+.dark .from-amber-50\/50 { --tw-gradient-from: rgba(245, 158, 11, 0.08) var(--tw-gradient-from-position); }
+.dark .to-orange-50\/50 { --tw-gradient-to: rgba(249, 115, 22, 0.08) var(--tw-gradient-to-position); }
+.dark .from-orange-50\/50 { --tw-gradient-from: rgba(249, 115, 22, 0.08) var(--tw-gradient-from-position); }
+.dark .to-red-50\/50 { --tw-gradient-to: rgba(239, 68, 68, 0.08) var(--tw-gradient-to-position); }
+.dark .from-red-50\/50 { --tw-gradient-from: rgba(239, 68, 68, 0.08) var(--tw-gradient-from-position); }
 
 /* เส้นขอบ */
 .dark .border-slate-100 { border-color: #1e293b; }
@@ -336,6 +373,28 @@ body.modal-open {
   --fc-today-bg-color: rgba(99, 102, 241, 0.12);
 }
 .dark .fc .fc-toolbar-title { color: #f1f5f9; }
+.dark .fc {
+  --fc-button-bg-color: #273449;
+  --fc-button-border-color: #334155;
+  --fc-button-text-color: #e2e8f0;
+  --fc-button-hover-bg-color: #334155;
+  --fc-button-hover-border-color: #475569;
+  --fc-button-active-bg-color: #3b4a63;
+  --fc-button-active-border-color: #475569;
+}
+.dark .fc .fc-button-primary { background-color: #273449; border-color: #334155; color: #e2e8f0; }
+.dark .fc .fc-button-primary:hover { background-color: #334155; }
+.dark .fc .fc-button-primary:not(:disabled).fc-button-active, .dark .fc .fc-button-primary:not(:disabled):active { background-color: #3b4a63; }
+.dark .to-slate-100 { --tw-gradient-to: #273449 var(--tw-gradient-to-position); }
+/* CalendarPage มี <style> inline ที่ใส่ !important สีอ่อน — ต้องใช้ selector ที่ specificity สูงกว่า */
+.dark .fc .fc-button { background: #273449 !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+.dark .fc .fc-button:hover { background: #334155 !important; }
+.dark .fc-theme-standard th { background: #1e293b; color: #94a3b8; border-color: #334155; }
+.dark .fc-theme-standard td { border-color: #334155; }
+.dark .fc .fc-day-today { background: rgba(99, 102, 241, 0.12) !important; }
+.dark .fc .fc-daygrid-day-number { color: #94a3b8; }
+.dark .fc .fc-day-today .fc-daygrid-day-number { color: #a5b4fc; }
+.dark .fc .fc-list-event:hover td { background: #273449; }
 .dark [style*="rgb(240, 253, 244)"] { background: rgba(16, 185, 129, 0.15) !important; }
 .dark [style*="rgb(239, 246, 255)"] { background: rgba(59, 130, 246, 0.15) !important; }
 .dark [style*="rgb(255, 251, 235)"] { background: rgba(245, 158, 11, 0.15) !important; }
