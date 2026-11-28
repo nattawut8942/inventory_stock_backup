@@ -818,10 +818,10 @@ const runExtendJob = async (jobId, { username, newLimitMB, newWarningMB, allowOv
         let warnBytes = newWarningMB !== null ? newWarningMB * MB : limitBytes - Math.max(oldLimit - oldWarn, 0);
         if (warnBytes <= 0 || warnBytes > limitBytes) warnBytes = Math.floor(limitBytes * 0.9);
 
-        step(`กำลังปรับ ${fmtBytes(oldLimit)} → ${fmtBytes(limitBytes)}...`);
+        step(`กำลังปรับ ${fmtBytes(oldLimit)} → ${fmtBytes(limitBytes)} (เตือน ${fmtBytes(warnBytes)})...`);
         const r = await runSetQuota(username, limitBytes, warnBytes, true, cur.Path);
         const after = { used: Number(r.After.Used), limit: Number(r.After.Limit), warning: Number(r.After.Warning) };
-        if (after.limit !== limitBytes) throw new Error('ตั้งค่าแล้วแต่อ่านค่ากลับมาไม่ตรง กรุณา Sync เพื่อตรวจสอบ');
+        if (after.limit !== limitBytes || after.warning !== warnBytes) throw new Error('ตั้งค่าแล้วแต่อ่านค่ากลับมาไม่ตรง กรุณา Sync เพื่อตรวจสอบ');
         diskCache = { size: Number(r.DiskSize), free: Number(r.DiskFree), at: Date.now() };
 
         // อัปเดตตาราง cache ให้หน้าเว็บเห็นทันทีโดยไม่ต้อง Sync ทั้งหมด
@@ -848,7 +848,7 @@ const runExtendJob = async (jobId, { username, newLimitMB, newWarningMB, allowOv
         const overcommitted = increase > 0 && increase > cap.margin;
         await writeAuditEvent({
             user: actor, module: 'quota', path: '/quota/extend', recordId: username,
-            summary: `${username}: ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)}${overcommitted ? ' (ยืนยันเกินพื้นที่ดิสก์)' : ''}`,
+            summary: `${username}: ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)} (เตือน ${fmtBytes(oldWarn)} → ${fmtBytes(after.warning)})${overcommitted ? ' (ยืนยันเกินพื้นที่ดิสก์)' : ''}`,
             durationMs: Date.now() - started,
             changes: {
                 fields: [
@@ -859,7 +859,7 @@ const runExtendJob = async (jobId, { username, newLimitMB, newWarningMB, allowOv
         });
         console.log(`[Quota] ${actor?.username || '?'} set ${username} ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)} (warn ${fmtBytes(after.warning)})`);
         jobs[jobId] = {
-            ...jobs[jobId], status: 'done', step: `✅ ${username}: ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)}`,
+            ...jobs[jobId], status: 'done', step: `✅ ${username}: ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)} (เตือน ${fmtBytes(after.warning)})`,
             result: {
                 username, volume: r.Volume,
                 before: { used, limit: oldLimit, warning: oldWarn },
@@ -905,7 +905,7 @@ export const extendQuota = async (req, res) => {
     const jobId = `extend_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     jobs[jobId] = { status: 'running', type: 'extend', username, newLimitMB, step: 'เริ่มงาน...' };
     // log ของ request นี้ (ผู้ขอ + ขนาดที่ขอ) — ผลจริง (ค่าเดิม → ค่าใหม่) บันทึกแยกเมื่องานเสร็จ
-    res.locals.auditSummary = `${username}: ขอปรับเป็น ${newLimitMB} MB${allowOvercommit ? ' (ยืนยันเกินพื้นที่ดิสก์)' : ''}`;
+    res.locals.auditSummary = `${username}: ขอปรับเป็น ${newLimitMB} MB${newWarningMB !== null ? ` · เตือน ${newWarningMB} MB` : ''}${allowOvercommit ? ' (ยืนยันเกินพื้นที่ดิสก์)' : ''}`;
     res.json({ success: true, jobId });
 
     const actor = identifyActor(req);

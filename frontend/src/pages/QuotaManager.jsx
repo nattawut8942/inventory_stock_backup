@@ -519,8 +519,14 @@ const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, capacity, job, onCl
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState('');
     const [ackOvercommit, setAckOvercommit] = useState(false);
+    // ระดับเตือน: 'keep' = ห่างจากเพดานเท่าเดิม · ตัวเลข = % ของขนาดใหม่ · 'custom' = กรอก MB เอง
+    const [warnSel, setWarnSel] = useState('keep');
+    const [customWarnMB, setCustomWarnMB] = useState('');
 
-    useEffect(() => { setNewLimitMB(curLimitMB + 100); setError(''); setStarting(false); setAckOvercommit(false); }, [user?.username, curLimitMB]);
+    useEffect(() => {
+        setNewLimitMB(curLimitMB + 100); setError(''); setStarting(false); setAckOvercommit(false);
+        setWarnSel('keep'); setCustomWarnMB('');
+    }, [user?.username, curLimitMB]);
     if (!user) return null;
 
     const running = job?.status === 'running';
@@ -528,14 +534,24 @@ const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, capacity, job, onCl
     const jobError = job?.status === 'error' ? job.error : '';
 
     const n = Number(newLimitMB);
-    const warnMB = n - gapMB > 0 ? n - gapMB : Math.floor(n * 0.9);
-    const invalid = !Number.isInteger(n) ? 'กรอกเป็นจำนวนเต็ม (MB)'
+    const curWarnMB = Math.round((user?.warningLevel || 0) / MB);
+    const keepWarnMB = n - gapMB > 0 ? n - gapMB : Math.floor(n * 0.9);
+    const warnMB = warnSel === 'keep' ? keepWarnMB
+        : warnSel === 'custom' ? (customWarnMB === '' ? NaN : Number(customWarnMB))
+            : Math.floor(n * warnSel / 100);
+    const sizeInvalid = !Number.isInteger(n) ? 'กรอกขนาดเป็นจำนวนเต็ม (MB)'
         : n <= usedMB ? `ต้องมากกว่าที่ใช้อยู่ (${user.sizeUsedFmt})`
             : n < 100 ? 'ต่ำสุด 100 MB'
                 : n > maxLimitMB ? `เกินเพดานที่อนุญาต (${fmtMB(maxLimitMB)})`
-                    : n - curLimitMB > maxIncreaseMB ? `เพิ่มได้ไม่เกิน ${fmtMB(maxIncreaseMB)} ต่อครั้ง`
-                    : n === curLimitMB ? 'ขนาดเท่าเดิม' : '';
+                    : n - curLimitMB > maxIncreaseMB ? `เพิ่มได้ไม่เกิน ${fmtMB(maxIncreaseMB)} ต่อครั้ง` : '';
+    const warnInvalid = !Number.isInteger(warnMB) || warnMB < 1 ? 'กรอกระดับเตือนเป็นจำนวนเต็ม (MB)'
+        : warnMB > n ? 'ระดับเตือนต้องไม่เกินขนาดโควต้า' : '';
+    // ปรับแค่ระดับเตือนอย่างเดียวได้ (ขนาดเท่าเดิม)
+    const invalid = sizeInvalid || warnInvalid
+        || (n === curLimitMB && warnMB === curWarnMB ? 'ไม่มีค่าที่เปลี่ยน' : '');
     const newPct = n > 0 ? Math.min((usedMB / n) * 100, 100) : 0;
+    const warnPct = n > 0 && Number.isFinite(warnMB) ? (warnMB / n) * 100 : 0;
+    const alreadyOverWarn = !invalid && usedMB >= warnMB;
 
     // ส่วนเผื่อจริงของดิสก์ = พื้นที่ว่าง − โควต้าที่แจกแล้วแต่ยังไม่ถูกใช้
     const increaseBytes = Math.max((n - curLimitMB) * MB, 0);
@@ -545,7 +561,8 @@ const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, capacity, job, onCl
 
     const submit = async () => {
         setStarting(true); setError('');
-        const err = await onSubmit(user, n, needAck && ackOvercommit);
+        // 'keep' ส่ง null ให้ backend คำนวณจากค่าล่าสุดบน File Server
+        const err = await onSubmit(user, n, needAck && ackOvercommit, warnSel === 'keep' ? null : warnMB);
         if (err) setError(err);
         setStarting(false);
     };
@@ -578,7 +595,7 @@ const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, capacity, job, onCl
                         </div>
                         <div className="bg-emerald-50 rounded-xl py-2 border border-emerald-100">
                             <p className="text-[10px] font-bold uppercase text-emerald-500">โควต้าใหม่</p>
-                            <p className="text-sm font-black text-emerald-700">{invalid ? '—' : fmtMB(n)}</p>
+                            <p className="text-sm font-black text-emerald-700">{sizeInvalid ? '—' : fmtMB(n)}</p>
                         </div>
                     </div>
 
@@ -599,10 +616,42 @@ const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, capacity, job, onCl
                         onChange={e => { setNewLimitMB(e.target.value === '' ? '' : Number(e.target.value)); setAckOvercommit(false); }}
                         className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-200" />
 
-                    {!invalid && (
+                    {/* ระดับเตือน */}
+                    <div className="mt-4 flex items-baseline justify-between">
+                        <p className="text-xs font-bold text-slate-500">ระดับเตือน</p>
+                        <p className="text-[11px] text-slate-400">เดิม {user.warningFmt || fmtMB(curWarnMB)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-1.5">
+                        {[
+                            { key: 'keep', label: 'ห่างเท่าเดิม' },
+                            { key: 80, label: '80%' },
+                            { key: 90, label: '90%' },
+                            { key: 95, label: '95%' },
+                            { key: 'custom', label: 'กำหนดเอง' },
+                        ].map(o => (
+                            <button key={o.key} type="button" disabled={busy}
+                                onClick={() => {
+                                    setWarnSel(o.key);
+                                    if (o.key === 'custom' && customWarnMB === '' && Number.isFinite(warnMB)) setCustomWarnMB(warnMB);
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors disabled:opacity-50
+                                    ${warnSel === o.key ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                                {o.label}
+                            </button>
+                        ))}
+                    </div>
+                    {warnSel === 'custom' && (
+                        <input type="number" min={1} max={Number.isInteger(n) ? n : undefined} step={1} value={customWarnMB} disabled={busy}
+                            onChange={e => setCustomWarnMB(e.target.value === '' ? '' : Number(e.target.value))}
+                            placeholder="ระดับเตือน (MB)"
+                            className="mt-2 w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-200" />
+                    )}
+
+                    {!sizeInvalid && !warnInvalid && (
                         <div className="mt-3 text-[11px] text-slate-500 space-y-0.5">
-                            <p>ระดับเตือน: <b>{fmtMB(warnMB)}</b> (ห่างจากเพดานเท่าเดิม {fmtMB(gapMB)})</p>
+                            <p>เตือนเมื่อใช้ถึง <b>{fmtMB(warnMB)}</b> ({warnPct.toFixed(1)}% ของ {fmtMB(n)}){warnSel === 'keep' && <> · ห่างจากเพดาน {fmtMB(n - warnMB)}</>}</p>
                             <p>การใช้งานหลังปรับ: <b>{newPct.toFixed(1)}%</b></p>
+                            {alreadyOverWarn && <p className="text-amber-600 font-semibold">ใช้งานเกินระดับเตือนนี้อยู่แล้ว ผู้ใช้จะอยู่ในสถานะเตือนทันที</p>}
                         </div>
                     )}
 
@@ -817,11 +866,11 @@ const QuotaManager = () => {
         setExtendJobs(prev => ({ ...prev, [username]: patch && { ...(prev[username] || {}), ...patch } })), []);
 
     // ── ปรับขนาดโควต้า — เริ่มงาน background แล้ว poll สถานะ · คืนข้อความ error (ถ้าเริ่มไม่ได้)
-    const submitExtend = useCallback(async (u, newLimitMB, allowOvercommit = false) => {
+    const submitExtend = useCallback(async (u, newLimitMB, allowOvercommit = false, newWarningMB = null) => {
         try {
             const r = await fetch(`${API}/extend`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: u.username, newLimitMB, allowOvercommit }),
+                body: JSON.stringify({ username: u.username, newLimitMB, newWarningMB, allowOvercommit }),
             });
             const res = await r.json().catch(() => ({}));
             if (!r.ok || !res.success || !res.jobId) return res.error || `ปรับไม่สำเร็จ (HTTP ${r.status})`;
@@ -835,7 +884,7 @@ const QuotaManager = () => {
                     clearInterval(timer); extendPollRef.current.delete(timer);
                     if (j.status === 'done') {
                         const { before, after } = j.result || {};
-                        pushToast(`✅ ${u.username}: ${fmtBytesUI(before?.limit)} → ${fmtBytesUI(after?.limit)}`, 'success');
+                        pushToast(`✅ ${u.username}: ${fmtBytesUI(before?.limit)} → ${fmtBytesUI(after?.limit)} · เตือน ${fmtBytesUI(after?.warning)}`, 'success');
                         setExtendJob(u.username, null);
                         setExtendTarget(t => (t?.username === u.username ? null : t));
                         fetchUsers();
