@@ -1269,13 +1269,7 @@ const ITDisposalPage = () => {
         if (!/\.(jpe?g|png)$/i.test(a.fileName || '')) return { ...a, dataUrl: null };
         const res = await fetch(`${API_BASE}/disposal/attachments/${a.attachmentId}/file`, { headers: authHeaders() });
         if (!res.ok) return { ...a, dataUrl: null };
-        const blob = await res.blob();
-        const dataUrl = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => resolve(null);
-          reader.readAsDataURL(blob);
-        });
+        const dataUrl = await downscaleToDataUrl(await res.blob(), 1000);
         return { ...a, dataUrl };
       }));
     } catch (err) {
@@ -1325,7 +1319,9 @@ const ITDisposalPage = () => {
     }).join('');
 
     // รูป PIC 1 / PIC 2 ของแต่ละรายการ (ไฟล์ของรายการเป็นสาธารณะ จึงใส่ URL ตรงๆ ได้)
-    const picCell = (url) => `<td class="pic">${url ? `<img src="${esc(imgUrl(url))}" />` : '<span class="none">-</span>'}</td>`;
+    // รูปรายการย่อให้เล็กก่อนใส่ในหน้าพิมพ์ เพื่อให้พรีวิวการพิมพ์โหลดเร็วขึ้น
+    const itemPics = await Promise.all(items.map(async (i) => [await fetchPicDataUrl(i.pic1Url, 400), await fetchPicDataUrl(i.pic2Url, 400)]));
+    const picCell = (dataUrl) => `<td class="pic">${dataUrl ? `<img src="${dataUrl}" />` : '<span class="none">-</span>'}</td>`;
     const rowsHtml = items.map((i, idx) => `
       <tr>
         <td>${idx + 1}</td>
@@ -1337,15 +1333,14 @@ const ITDisposalPage = () => {
         <td class="r">${esc(fmtMoney(i.bkAmt))}</td>
         <td class="c">${i.isChecked ? '✓' : '—'}</td>
         <td class="c">${i.isKeyed ? '✓' : '—'}</td>
-        ${picCell(i.pic1Url)}
-        ${picCell(i.pic2Url)}
+        ${picCell(itemPics[idx][0])}
+        ${picCell(itemPics[idx][1])}
       </tr>`).join('');
 
     // ส่วนเดียวกับหน้ารายงานบนเว็บ: วิเคราะห์มูลค่า, ตารางสรุป, รายการยังไม่มีรูป, ประวัติ
     const ps = computePriceStats(items);
     const sumTotal = report?.summary?.totalCost || 0;
     const dayRows = report?.byDay || [];
-    const missRows = report?.missingPhotoItems || [];
     const tblHtml = (rows, labelHead) => (rows.length
       ? `<table class="items"><thead><tr><th>${esc(labelHead)}</th><th>จำนวน</th><th>COST</th><th>สัดส่วน</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.key)}</td><td class="c">${esc(r.count)}</td><td class="r">${esc(fmtMoney(r.cost))}</td><td class="r">${sumTotal > 0 ? ((r.cost / sumTotal) * 100).toFixed(1) : '0.0'}%</td></tr>`).join('')}</tbody></table>`
       : '<div class="none">ไม่มีข้อมูล</div>');
@@ -1380,11 +1375,6 @@ const ITDisposalPage = () => {
   </div>
   <h2>สรุปตามวันที่บันทึก</h2>
   ${tblHtml(dayRows, 'วันที่บันทึก')}` : '';
-    const missingHtml = report ? `
-  <h2>รายการที่ยังไม่มีรูปครบ (${missRows.length})</h2>
-  ${missRows.length
-    ? `<table class="items"><thead><tr><th>ASSET NO</th><th>ASSET NAME</th><th>PIC 1</th><th>PIC 2</th></tr></thead><tbody>${missRows.map((m) => `<tr><td class="b">${esc(m.assetNo)}</td><td>${esc(m.assetName)}</td><td class="c">${m.hasPic1 ? '✓' : '—'}</td><td class="c">${m.hasPic2 ? '✓' : '—'}</td></tr>`).join('')}</tbody></table>`
-    : '<div class="none">ทุกรายการมีรูปครบแล้ว</div>'}` : '';
     const statusText = run.completedAt ? `เสร็จสิ้นเมื่อ ${fmtDate(run.completedAt)}` : run.status === 'Open' ? 'เปิดอยู่' : 'ปิดแล้ว';
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(run.runCode)} · รายงาน</title>
 <style>
@@ -1477,7 +1467,6 @@ const ITDisposalPage = () => {
 
   ${priceHtml}
   ${reportTablesHtml}
-  ${missingHtml}
 
   <h2>เอกสารแนบและรูปหลักฐาน (${docs.length} ไฟล์)</h2>
   ${docsHtml}
@@ -2695,6 +2684,34 @@ const buildStickerHtml = async ({ sheets, pw, ph, cols, rows, lw, lh, gap, margi
 };
 
 // พิมพ์ HTML ผ่าน iframe ที่ซ่อนอยู่ (ไม่เปิดแท็บใหม่ และไม่โดนบล็อกป๊อปอัป)
+// ย่อรูปให้ด้านยาวไม่เกิน maxSide แล้วแปลงเป็น data URL (ใช้ฝังในหน้าพิมพ์ให้เบา)
+const downscaleToDataUrl = async (blob, maxSide = 800) => {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const s = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bmp.width * s));
+    canvas.height = Math.max(1, Math.round(bmp.height * s));
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    bmp.close?.();
+    return canvas.toDataURL('image/jpeg', 0.85);
+  } catch {
+    return null;
+  }
+};
+
+// รูปของรายการเป็นไฟล์สาธารณะ จึงดึงตรงๆ แล้วย่อ
+const fetchPicDataUrl = async (url, maxSide) => {
+  if (!url) return null;
+  try {
+    const res = await fetch(imgUrl(url));
+    if (!res.ok) return null;
+    return await downscaleToDataUrl(await res.blob(), maxSide);
+  } catch {
+    return null;
+  }
+};
+
 const printHtmlInFrame = (html) => {
   const frame = document.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
