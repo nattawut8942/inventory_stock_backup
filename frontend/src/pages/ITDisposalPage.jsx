@@ -1324,6 +1324,8 @@ const ITDisposalPage = () => {
       return `<div class="group"><div class="gh">${esc(DOC_TYPE_LABEL[t])} <span>· ${list.length} ไฟล์</span></div><div class="${t === 'DISPOSED_PHOTO' ? 'grid3' : 'grid2'}">${body}</div></div>`;
     }).join('');
 
+    // รูป PIC 1 / PIC 2 ของแต่ละรายการ (ไฟล์ของรายการเป็นสาธารณะ จึงใส่ URL ตรงๆ ได้)
+    const picCell = (url) => `<td class="pic">${url ? `<img src="${esc(imgUrl(url))}" />` : '<span class="none">-</span>'}</td>`;
     const rowsHtml = items.map((i, idx) => `
       <tr>
         <td>${idx + 1}</td>
@@ -1335,8 +1337,54 @@ const ITDisposalPage = () => {
         <td class="r">${esc(fmtMoney(i.bkAmt))}</td>
         <td class="c">${i.isChecked ? '✓' : '—'}</td>
         <td class="c">${i.isKeyed ? '✓' : '—'}</td>
+        ${picCell(i.pic1Url)}
+        ${picCell(i.pic2Url)}
       </tr>`).join('');
 
+    // ส่วนเดียวกับหน้ารายงานบนเว็บ: วิเคราะห์มูลค่า, ตารางสรุป, รายการยังไม่มีรูป, ประวัติ
+    const ps = computePriceStats(items);
+    const sumTotal = report?.summary?.totalCost || 0;
+    const dayRows = report?.byDay || [];
+    const missRows = report?.missingPhotoItems || [];
+    const tblHtml = (rows, labelHead) => (rows.length
+      ? `<table class="items"><thead><tr><th>${esc(labelHead)}</th><th>จำนวน</th><th>COST</th><th>สัดส่วน</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.key)}</td><td class="c">${esc(r.count)}</td><td class="r">${esc(fmtMoney(r.cost))}</td><td class="r">${sumTotal > 0 ? ((r.cost / sumTotal) * 100).toFixed(1) : '0.0'}%</td></tr>`).join('')}</tbody></table>`
+      : '<div class="none">ไม่มีข้อมูล</div>');
+    const summaryHtml = report ? `<div class="sub strip">ASSET DATE: ${esc(fmtDate(report.summary.firstAssetDate))} – ${esc(fmtDate(report.summary.lastAssetDate))} · บันทึกแล้ว ${dayRows.length} วัน · COST เฉลี่ยต่อรายการ ${esc(fmtMoney(items.length ? sumTotal / items.length : 0))}</div>` : '';
+    const priceHtml = items.length ? `
+  <h2>วิเคราะห์มูลค่า (${items.length} รายการ)</h2>
+  <div class="cards">
+    <div class="card"><div class="k">มูลค่ารวม (COST)</div><div class="v">${esc(fmtMoney(ps.total))}</div></div>
+    <div class="card"><div class="k">Book value คงเหลือ (COST − ค่าเสื่อมสะสม)</div><div class="v">${esc(fmtMoney(ps.nbv))}</div><div class="k">${ps.pct(ps.nbv)}% · BKAMT ${esc(fmtMoney(ps.bk))}</div></div>
+    <div class="card"><div class="k">ค่าเสื่อมสะสม (ACCUMDP)</div><div class="v">${esc(fmtMoney(ps.accum))}</div><div class="k">${ps.pct(ps.accum)}% ของมูลค่ารวม</div></div>
+    <div class="card"><div class="k">เฉลี่ยต่อชิ้น</div><div class="v">${esc(fmtMoney(ps.total / items.length))}</div><div class="k">${ps.avgAge !== null ? `อายุเฉลี่ย ${ps.avgAge.toFixed(1)} ปี` : '-'}</div></div>
+  </div>
+  <div class="note ${ps.mismatch.length ? 'warn' : 'ok'}">${ps.mismatch.length
+    ? `<b>BKAMT ไม่ตรงกับ COST − ค่าเสื่อมสะสม ${ps.mismatch.length} รายการ:</b> ${esc(ps.mismatch.slice(0, 5).map((i) => `${i.assetNo} (คำนวณ ${fmtMoney(ps.nbvOf(i))} / บันทึก ${fmtMoney(i.bkAmt)})`).join(' · '))}`
+    : 'ตรวจแล้ว: Book value (COST − ค่าเสื่อมสะสม) ตรงกับ BKAMT ที่บันทึกทุกรายการ'}</div>
+  <div class="two">
+    <div>
+      <div class="gh">รายการมูลค่าสูงสุด 5 อันดับ</div>
+      <table class="items"><thead><tr><th>#</th><th>ASSET NO</th><th>ASSET NAME</th><th>COST</th><th>สัดส่วน</th></tr></thead>
+      <tbody>${ps.top.map((i, idx) => `<tr><td class="c">${idx + 1}</td><td class="b">${esc(i.assetNo)}</td><td>${esc(i.assetName)}</td><td class="r">${esc(fmtMoney(i.cost))}</td><td class="r">${ps.pct(ps.num(i.cost))}%</td></tr>`).join('')}</tbody></table>
+      <div class="sub">5 รายการแรกคิดเป็น ${ps.topShare.toFixed(1)}% ของมูลค่ารวม</div>
+    </div>
+    <div>
+      <div class="gh">กระจายตามช่วงราคา (COST)</div>
+      ${ps.bands.map((b) => `<div class="band"><div class="bl"><span>${esc(b.l)}</span><span>${b.count} รายการ · ${esc(fmtMoney(b.sum))}</span></div><div class="bt"><div class="bf" style="width:${(b.count / ps.maxBand) * 100}%"></div></div></div>`).join('')}
+    </div>
+  </div>` : '';
+    const reportTablesHtml = report ? `
+  <div class="two">
+    <div><div class="gh">สรุปตาม COSTCENTER</div>${tblHtml(report.byCostCenter || [], 'COSTCENTER')}</div>
+    <div><div class="gh">สรุปตามผู้บันทึก</div>${tblHtml(report.byRecorder || [], 'ผู้บันทึก')}</div>
+  </div>
+  <h2>สรุปตามวันที่บันทึก</h2>
+  ${tblHtml(dayRows, 'วันที่บันทึก')}` : '';
+    const missingHtml = report ? `
+  <h2>รายการที่ยังไม่มีรูปครบ (${missRows.length})</h2>
+  ${missRows.length
+    ? `<table class="items"><thead><tr><th>ASSET NO</th><th>ASSET NAME</th><th>PIC 1</th><th>PIC 2</th></tr></thead><tbody>${missRows.map((m) => `<tr><td class="b">${esc(m.assetNo)}</td><td>${esc(m.assetName)}</td><td class="c">${m.hasPic1 ? '✓' : '—'}</td><td class="c">${m.hasPic2 ? '✓' : '—'}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="none">ทุกรายการมีรูปครบแล้ว</div>'}` : '';
     const statusText = run.completedAt ? `เสร็จสิ้นเมื่อ ${fmtDate(run.completedAt)}` : run.status === 'Open' ? 'เปิดอยู่' : 'ปิดแล้ว';
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(run.runCode)} · รายงาน</title>
 <style>
@@ -1375,7 +1423,7 @@ const ITDisposalPage = () => {
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
   figure { margin: 0; border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px; break-inside: avoid; }
-  figure img { width: 100%; height: 150px; object-fit: contain; background: #f8fafc; }
+  figure img { width: 100%; height: 150px; object-fit: cover; background: #f8fafc; }
   figcaption { font-size: 8px; color: #64748b; margin-top: 3px; }
   .file { border: 1px dashed #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 10px; }
   .file span { display: block; color: #64748b; font-size: 8px; margin-top: 2px; }
@@ -1388,9 +1436,20 @@ const ITDisposalPage = () => {
   table.items thead { display: table-header-group; }
   table.items tr { page-break-inside: avoid; }
   table.items tfoot td { font-weight: 800; background: #f8fafc; }
+  table.items td.pic { width: 24mm; padding: 2px; text-align: center; }
+  table.items td.pic img { display: block; width: 22mm; height: 16mm; object-fit: cover; margin: 0 auto; }
   .sign { display: flex; gap: 12px; margin-top: 18px; break-inside: avoid; }
   .sign div { flex: 1; text-align: center; font-size: 10px; }
   .sign .line { border-bottom: 1px solid #334155; height: 28px; margin: 0 14px 4px; }
+  .strip { margin: 0 0 8px; }
+  .note { font-size: 10px; border-radius: 6px; padding: 5px 8px; margin: 0 0 8px; }
+  .note.ok { background: #ecfdf5; color: #065f46; }
+  .note.warn { background: #fffbeb; color: #92400e; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; }
+  .band { margin-bottom: 6px; }
+  .bl { display: flex; justify-content: space-between; font-size: 9.5px; color: #475569; margin-bottom: 2px; }
+  .bt { height: 8px; border-radius: 4px; background: #f1f5f9; overflow: hidden; }
+  .bf { height: 8px; background: #e11d48; }
 </style></head><body>
   <div class="hero">
     <div class="sub">IT ASSET DISPOSAL · รายงานการทำลายครุภัณฑ์</div>
@@ -1412,8 +1471,13 @@ const ITDisposalPage = () => {
     <div class="card"><div class="k">ลงบัญชีแล้ว</div><div class="v">${keyedCount} / ${items.length}</div></div>
   </div>
 
+  ${summaryHtml}
   <h2>ความคืบหน้าตามขั้นตอน</h2>
   <table class="flow"><tr>${stepsHtml}</tr></table>
+
+  ${priceHtml}
+  ${reportTablesHtml}
+  ${missingHtml}
 
   <h2>เอกสารแนบและรูปหลักฐาน (${docs.length} ไฟล์)</h2>
   ${docsHtml}
@@ -1421,14 +1485,14 @@ const ITDisposalPage = () => {
   <h2>รายการครุภัณฑ์ (${items.length} รายการ)</h2>
   <table class="items">
     <thead><tr>
-      <th>#</th><th>ASSET NO</th><th>ASSET NAME</th><th>PLACE</th><th>COSTCENTER</th><th>COST</th><th>BKAMT</th><th>ตรวจนับ</th><th>ลงบัญชี</th>
+      <th>#</th><th>ASSET NO</th><th>ASSET NAME</th><th>PLACE</th><th>COSTCENTER</th><th>COST</th><th>BKAMT</th><th>ตรวจนับ</th><th>ลงบัญชี</th><th>PIC 1</th><th>PIC 2</th>
     </tr></thead>
-    <tbody>${rowsHtml || '<tr><td colspan="9" class="c">ไม่มีรายการ</td></tr>'}</tbody>
+    <tbody>${rowsHtml || '<tr><td colspan="11" class="c">ไม่มีรายการ</td></tr>'}</tbody>
     <tfoot><tr>
       <td colspan="5" class="r">รวม</td>
       <td class="r">${esc(fmtMoney(totals.cost))}</td>
       <td class="r">${esc(fmtMoney(totals.bk))}</td>
-      <td colspan="2"></td>
+      <td colspan="4"></td>
     </tr></tfoot>
   </table>
 
@@ -2122,7 +2186,7 @@ const ITDisposalPage = () => {
             </button>
           </section>
           <PriceReport items={items} />
-          <ReportView report={report} events={events} onAttachPhoto={(item) => setPhotoItem(item)} canEdit={canEdit} />
+          <ReportView report={report} events={events} attachments={attachments} onOpenDoc={viewDoc} onAttachPhoto={(item) => setPhotoItem(item)} canEdit={canEdit} />
         </>
       ) : (
         <>
@@ -3316,7 +3380,27 @@ const ReportTable = ({ title, rows, labelHead, totalCost }) => {
   );
 };
 
-const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
+const DOC_ORDER = ['DOC_ACCOUNTING', 'DOC_APPROVED', 'DOC_SENT_ACCOUNTING', 'DISPOSED_PHOTO', 'ACCOUNTING_DONE', 'APPROVAL', 'OTHER'];
+const isImageFile = (name) => /\.(jpe?g|png)$/i.test(name || '');
+
+// รูปแนบโหลดด้วย token จึงดึงเป็น blob แล้วแสดง (ปล่อย URL เมื่อออกจากหน้า)
+const AttachmentThumb = ({ attachment }) => {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    let url = null;
+    fetch(`${API_BASE}/disposal/attachments/${attachment.attachmentId}/file`, { headers: authHeaders() })
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((b) => { if (b && alive) { url = URL.createObjectURL(b); setSrc(url); } })
+      .catch(() => {});
+    return () => { alive = false; if (url) URL.revokeObjectURL(url); };
+  }, [attachment.attachmentId]);
+  return src
+    ? <img src={src} alt={attachment.fileName} className="h-40 w-full object-cover rounded-lg bg-slate-50" />
+    : <div className="h-40 flex items-center justify-center rounded-lg bg-slate-50 text-xs text-slate-400">กำลังโหลดรูป...</div>;
+};
+
+const ReportView = ({ report, events = [], attachments = [], onOpenDoc, onAttachPhoto, canEdit }) => {
   const [missPage, setMissPage] = useState(1);
   const [evPage, setEvPage] = useState(1);
   if (!report) {
@@ -3381,6 +3465,44 @@ const ReportView = ({ report, events = [], onAttachPhoto, canEdit }) => {
         )}
         {missingPhotoItems.length > REPORT_PAGE_SIZE && (
           <Pagination currentPage={missCur} totalPages={missTotalPages} onPageChange={setMissPage} itemsPerPage={REPORT_PAGE_SIZE} totalItems={missingPhotoItems.length} />
+        )}
+      </section>
+
+      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-100 font-bold text-slate-800">เอกสารแนบ ({attachments.length})</div>
+        {attachments.length === 0 ? (
+          <div className="px-5 py-6 text-center text-slate-400 text-sm">ยังไม่มีเอกสารแนบในรอบนี้</div>
+        ) : (
+          <div className="p-5 space-y-5">
+            {DOC_ORDER.map((t) => {
+              const list = attachments.filter((a) => a.docType === t);
+              if (!list.length) return null;
+              return (
+                <div key={t}>
+                  <div className="text-xs font-bold text-slate-500 mb-2">{DOC_TYPE_LABEL[t]} · {list.length} ไฟล์</div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {list.map((a) => (isImageFile(a.fileName) ? (
+                      <figure key={a.attachmentId} className="rounded-xl border border-slate-200 p-2 m-0">
+                        <AttachmentThumb attachment={a} />
+                        <figcaption className="mt-1.5 text-[11px] text-slate-500 break-words">
+                          {a.fileName}<br />{a.uploadedByName || '-'} · {fmtDateTime(a.uploadedAt)}
+                        </figcaption>
+                      </figure>
+                    ) : (
+                      <button key={a.attachmentId} type="button" onClick={() => onOpenDoc && onOpenDoc(a)}
+                        className="flex items-center gap-3 rounded-xl border border-dashed border-slate-300 p-3 text-left hover:bg-slate-50">
+                        <FileText size={20} className="shrink-0 text-rose-500" />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-slate-700 break-words">{a.fileName}</span>
+                          <span className="block text-[11px] text-slate-400">{(a.fileSize / 1024).toFixed(0)} KB · {a.uploadedByName || '-'} · {fmtDateTime(a.uploadedAt)} · กดเพื่อเปิด</span>
+                        </span>
+                      </button>
+                    )))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </section>
 
@@ -3523,8 +3645,8 @@ const PicPicker = ({ label, file, preview, onChange }) => {
 };
 
 // รายงานราคา: มูลค่ารวม, มูลค่าทางบัญชีคงเหลือ (BKAMT), ค่าเสื่อมสะสม, รายการมูลค่าสูงสุด, ช่วงราคา, อายุเฉลี่ย
-const PriceReport = ({ items }) => {
-  if (!items.length) return null;
+// คำนวณตัวเลขวิเคราะห์มูลค่า ใช้ร่วมกันทั้งหน้ารายงานและไฟล์ PDF (ให้ตัวเลขตรงกัน)
+const computePriceStats = (items) => {
   const num = (v) => Number(v) || 0;
   const total = items.reduce((s, i) => s + num(i.cost), 0);
   const accum = items.reduce((s, i) => s + num(i.accumDP), 0);
@@ -3550,6 +3672,12 @@ const PriceReport = ({ items }) => {
     .filter((y) => y >= 0);
   const avgAge = ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null;
   const pct = (v) => (total ? ((v / total) * 100).toFixed(1) : '0.0');
+  return { num, total, accum, bk, nbv, nbvOf, mismatch, top, topShare, bands, maxBand, avgAge, pct };
+};
+
+const PriceReport = ({ items }) => {
+  if (!items.length) return null;
+  const { num, total, accum, bk, nbv, nbvOf, mismatch, top, topShare, bands, maxBand, avgAge, pct } = computePriceStats(items);
 
   return (
     <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-4 space-y-5">
