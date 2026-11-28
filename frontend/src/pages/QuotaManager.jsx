@@ -673,6 +673,9 @@ const QuotaManager = () => {
     const [extendTarget, setExtendTarget] = useState(null);
     const [maxLimitMB, setMaxLimitMB] = useState(102400);
     const [maxIncreaseMB, setMaxIncreaseMB] = useState(10240);
+    const [capacity, setCapacity] = useState(null);
+    const [extendJobs, setExtendJobs] = useState({}); // { [username]: { jobId, status, step, error, code } }
+    const extendPollRef = useRef(new Set());
     const { user: authUser } = useAuth();
     const [tab, setTab] = useState('quota');
     const [users, setUsers] = useState([]);
@@ -792,34 +795,66 @@ const QuotaManager = () => {
 
     useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
-    useEffect(() => {
-        if (!canExtendQuota) return;
-        fetch(`${API}/capacity`).then(r => r.json())
-            .then(r => {
-                if (r.data?.maxLimitMB) setMaxLimitMB(r.data.maxLimitMB);
-                if (r.data?.maxIncreaseMB) setMaxIncreaseMB(r.data.maxIncreaseMB);
-            })
-            .catch(() => { });
-    }, [API, canExtendQuota]);
+    // พื้นที่ดิสก์จริง + เพดาน — โหลดเมื่อเปิดหน้าต่างปรับโควต้า (backend cache ค่าดิสก์ไว้ 10 นาที)
+    const fetchCapacity = useCallback(async (refresh = false) => {
+        try {
+            const r = await fetch(`${API}/capacity${refresh ? '?refresh=1' : ''}`).then(x => x.json());
+            if (r.data) {
+                setCapacity(r.data);
+                if (r.data.maxLimitMB) setMaxLimitMB(r.data.maxLimitMB);
+                if (r.data.maxIncreaseMB) setMaxIncreaseMB(r.data.maxIncreaseMB);
+            }
+        } catch { }
+    }, [API]);
 
-    // ── ปรับขนาดโควต้า — คืนข้อความ error (ถ้ามี) ให้ modal แสดง
-    const submitExtend = useCallback(async (u, newLimitMB) => {
+    useEffect(() => {
+        if (canExtendQuota && extendTarget) { setCapacity(null); fetchCapacity(); }
+    }, [canExtendQuota, extendTarget?.username, fetchCapacity]); // eslint-disable-line
+
+    useEffect(() => () => { extendPollRef.current.forEach(clearInterval); }, []);
+
+    const setExtendJob = useCallback((username, patch) =>
+        setExtendJobs(prev => ({ ...prev, [username]: patch && { ...(prev[username] || {}), ...patch } })), []);
+
+    // ── ปรับขนาดโควต้า — เริ่มงาน background แล้ว poll สถานะ · คืนข้อความ error (ถ้าเริ่มไม่ได้)
+    const submitExtend = useCallback(async (u, newLimitMB, allowOvercommit = false) => {
         try {
             const r = await fetch(`${API}/extend`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: u.username, newLimitMB }),
+                body: JSON.stringify({ username: u.username, newLimitMB, allowOvercommit }),
             });
             const res = await r.json().catch(() => ({}));
-            if (!r.ok || !res.success) return res.error || `ปรับไม่สำเร็จ (HTTP ${r.status})`;
-            const fmt = (b) => b >= 1024 * MB ? `${parseFloat((b / 1024 / MB).toFixed(2))} GB` : `${parseFloat((b / MB).toFixed(2))} MB`;
-            pushToast(`✅ ${u.username}: ${fmt(res.before.limit)} → ${fmt(res.after.limit)}`, 'success');
-            setExtendTarget(null);
-            fetchUsers();
+            if (!r.ok || !res.success || !res.jobId) return res.error || `ปรับไม่สำเร็จ (HTTP ${r.status})`;
+
+            setExtendJob(u.username, { jobId: res.jobId, status: 'running', step: 'เริ่มงาน…', error: null, code: null });
+            const timer = setInterval(async () => {
+                try {
+                    const j = await fetch(`${API}/job/${res.jobId}`).then(x => x.json());
+                    if (!j.success) throw new Error(j.error || 'ไม่พบงาน (server อาจ restart)');
+                    if (j.status === 'running') { setExtendJob(u.username, { step: j.step }); return; }
+                    clearInterval(timer); extendPollRef.current.delete(timer);
+                    if (j.status === 'done') {
+                        const { before, after } = j.result || {};
+                        pushToast(`✅ ${u.username}: ${fmtBytesUI(before?.limit)} → ${fmtBytesUI(after?.limit)}`, 'success');
+                        setExtendJob(u.username, null);
+                        setExtendTarget(t => (t?.username === u.username ? null : t));
+                        fetchUsers();
+                    } else {
+                        setExtendJob(u.username, { status: 'error', error: j.error, code: j.code || null });
+                        pushToast(`❌ ${u.username}: ${j.error}`, 'error');
+                        if (j.code === 'OVERCOMMIT') fetchCapacity(true);
+                    }
+                } catch (e) {
+                    clearInterval(timer); extendPollRef.current.delete(timer);
+                    setExtendJob(u.username, { status: 'error', error: `${e.message} — กด Sync เพื่อตรวจค่าจริง`, code: null });
+                }
+            }, 3000);
+            extendPollRef.current.add(timer);
             return null;
         } catch (e) {
             return e.message || 'เชื่อมต่อไม่สำเร็จ';
         }
-    }, [API, pushToast, fetchUsers]);
+    }, [API, pushToast, fetchUsers, fetchCapacity, setExtendJob]);
 
     // ── restore polling เมื่อกลับมาหน้านี้ ──────────────────
     useEffect(() => {
@@ -1270,7 +1305,13 @@ const QuotaManager = () => {
             )}
             <Toast toasts={toasts} />
             <ExtendQuotaModal user={extendTarget} maxLimitMB={maxLimitMB} maxIncreaseMB={maxIncreaseMB}
-                onClose={() => setExtendTarget(null)} onSubmit={submitExtend} />
+                capacity={capacity} job={extendTarget ? extendJobs[extendTarget.username] : null}
+                onClose={() => {
+                    // ปิดหลังงานล้มเหลว = ล้างข้อความ error · งานที่ยังทำอยู่ปล่อยให้ทำต่อ
+                    if (extendTarget && extendJobs[extendTarget.username]?.status === 'error') setExtendJob(extendTarget.username, null);
+                    setExtendTarget(null);
+                }}
+                onSubmit={submitExtend} />
             <DeleteConfirmModal
                 item={deleteConfirm}
                 onConfirm={() => { deleteLog(deleteConfirm.id); setDeleteConfirm(null); }}
@@ -1649,7 +1690,9 @@ const QuotaManager = () => {
                                                     {canExtendQuota && (
                                                         <button onClick={() => setExtendTarget(u)} title="ปรับขนาดโควต้า"
                                                             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 transition-all">
-                                                            <Expand size={11} /> ขยาย
+                                                            {extendJobs[u.username]?.status === 'running'
+                                                                ? <><Loader2 size={11} className="animate-spin" /> กำลังปรับ</>
+                                                                : <><Expand size={11} /> ขยาย</>}
                                                         </button>
                                                     )}
                                                     {u.email && (
