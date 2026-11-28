@@ -6,6 +6,7 @@ import {
     sendWarningSingle, sendWarningEmails,
     sendReportEmail, getJobStatus,
     cancelJob, getEmailLog, deleteEmailLog, clearEmailLogs, resetStaleLogs,
+    extendQuota, getQuotaCapacity,
 } from '../controllers/quotaController.js';
 
 const router = express.Router();
@@ -25,5 +26,8 @@ router.delete('/quota/log/:id', requirePerm('quota-manager', 'delete'),         
 router.delete('/quota/logs', requirePerm('quota-manager', 'delete'),                clearEmailLogs);
 router.post  ('/quota/reset-stale', requirePerm('quota-manager', 'delete'),         resetStaleLogs);
 router.get('/quota/sync-logs', getSyncLogs);
+router.get   ('/quota/capacity',            getQuotaCapacity);
+// แก้โควต้าบน File Server จริง → strict: บังคับสิทธิ์เสมอ แม้ระบบสิทธิ์อยู่โหมด log
+router.post  ('/quota/extend', requirePerm('quota-manager', 'extend', { strict: true }), extendQuota);
 
 export default router;

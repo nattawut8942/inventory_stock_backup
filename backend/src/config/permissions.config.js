@@ -23,6 +23,7 @@ export const ACTION_LABELS = {
     adjust: 'ปรับสต็อก',
     manage: 'จัดการ subnet / สั่งสแกน',
     send: 'ส่งแจ้งเตือน / รายงาน',
+    extend: 'ปรับขนาดโควต้าพื้นที่',
 };
 
 const CRUD = ['view', 'create', 'edit', 'delete'];
@@ -50,7 +51,7 @@ export const PAGES = [
     { key: 'ip-management',   group: 'Infrastructure & Network', label: 'IP Management', route: '/ip-management', actions: ['view', 'edit', 'manage'] },
     { key: 'ad-explorer',     group: 'Infrastructure & Network', label: 'AD Explorer',   route: '/ad-explorer',   actions: ['view'] },
     // ── System Administration ──
-    { key: 'quota-manager',   group: 'System Administration', label: 'Quota Manager',     route: '/quota-manager', actions: ['view', 'send', 'delete'] },
+    { key: 'quota-manager',   group: 'System Administration', label: 'Quota Manager',     route: '/quota-manager', actions: ['view', 'send', 'delete', 'extend'] },
     { key: 'calendar',        group: 'System Administration', label: 'Calendar',          route: '/calendar',      actions: CRUD },
     { key: 'sound-layout',    group: 'System Administration', label: 'Sound Engineering', route: '/sound-layout',  actions: CRUD },
     // ── Operations & Knowledge ──

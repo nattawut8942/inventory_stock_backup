@@ -636,6 +636,191 @@ export const clearEmailLogs = async (req, res) => {
     }
 };
 
+// ════════════════════════════════════════════════════════════
+//  ปรับขนาดโควต้า (NTFS Disk Quota ผ่าน WinRM)
+// ════════════════════════════════════════════════════════════
+const MB = 1024 * 1024;
+// เพดานสูงสุดที่ตั้งได้จากหน้าเว็บ (กันกดพลาด) — ปรับได้ใน .env
+// ขนาดสูงสุดต่อคน (ปัจจุบันมีผู้ใช้ที่ได้ 70 GB อยู่แล้ว) และเพิ่มได้ไม่เกินเท่านี้ต่อครั้ง (กันพิมพ์เลขเกิน)
+const QUOTA_MAX_LIMIT_MB = Number(process.env.QUOTA_MAX_LIMIT_MB) || 100 * 1024;
+const QUOTA_MAX_INCREASE_MB = Number(process.env.QUOTA_MAX_INCREASE_MB) || 10 * 1024;
+const QUOTA_MIN_LIMIT_MB = 100;
+const USERNAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
+
+// ค่าทุกตัว (รหัสผ่าน, username, ตัวเลข) ส่งผ่าน environment / argument
+// ไม่ต่อสตริงเข้าไปในสคริปต์ — กัน PowerShell injection
+const SET_QUOTA_PS = [
+    'param([string]$Server, [string]$User, [string]$Username, [string]$LimitBytes, [string]$WarnBytes, [string]$Apply, [string]$QuotaPath)',
+    '$ErrorActionPreference = "Stop"',
+    '$pass = ConvertTo-SecureString $env:QUOTA_WINRM_PASS -AsPlainText -Force',
+    '$cred = New-Object System.Management.Automation.PSCredential($User, $pass)',
+    '$out = Invoke-Command -ComputerName $Server -Credential $cred -ArgumentList $Username, $LimitBytes, $WarnBytes, $Apply, $QuotaPath -ScriptBlock {',
+    '    param($u, $lim, $warn, $apply, $qpath)',
+    '    $ErrorActionPreference = "Stop"',
+    // ไล่อ่าน Win32_DiskQuota ทั้งหมดช้ามาก (ผู้ใช้หลายร้อยคน) → ทำครั้งเดียวตอนอ่าน
+    // ตอนแก้ใช้ __PATH ที่ได้จากการอ่าน เปิด object ตรง ๆ
+    '    if ($qpath) {',
+    '        $q = [wmi]$qpath',
+    '        if (-not $q -or $q.User -notlike (\'*Name="\' + $u + \'"\')) { throw "PATH_MISMATCH" }',
+    '    } else {',
+    '        $rows = @(Get-WmiObject -Class Win32_DiskQuota | Where-Object { $_.User -like (\'*Name="\' + $u + \'"\') -and $_.Limit -gt 0 })',
+    '        if ($rows.Count -eq 0) { throw "NOT_FOUND" }',
+    '        if ($rows.Count -gt 1) { throw "MULTI_VOLUME" }',
+    '        $q = $rows[0]',
+    '    }',
+    '    $path = $q.__PATH',
+    '    $before = [pscustomobject]@{ Volume = $q.QuotaVolume; Used = [int64]$q.DiskSpaceUsed; Limit = [int64]$q.Limit; Warning = [int64]$q.WarningLimit }',
+    '    if ($apply -eq "1") {',
+    '        $q.Limit = [uint64]$lim',
+    '        $q.WarningLimit = [uint64]$warn',
+    '        [void]$q.Put()',
+    '        $q = [wmi]$path',
+    '    }',
+    '    $vol = ($before.Volume -replace \'.*DeviceID="([^"]+)".*\', \'$1\')',
+    '    $disk = Get-WmiObject Win32_LogicalDisk -Filter ("DeviceID=\'" + $vol + "\'")',
+    '    [pscustomobject]@{',
+    '        Volume = $vol; Path = $path',
+    '        Before = $before',
+    '        After  = [pscustomobject]@{ Used = [int64]$q.DiskSpaceUsed; Limit = [int64]$q.Limit; Warning = [int64]$q.WarningLimit }',
+    '        DiskSize = [int64]$disk.Size; DiskFree = [int64]$disk.FreeSpace',
+    '    }',
+    '}',
+    '$out | Select-Object Volume, Path, Before, After, DiskSize, DiskFree | ConvertTo-Json -Depth 4 -Compress',
+].join('\r\n');
+
+const runSetQuota = async (username, limitBytes, warnBytes, apply, quotaPath = '') => {
+    const psFile = join(tmpdir(), `quota_set_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.ps1`);
+    try {
+        writeFileSync(psFile, SET_QUOTA_PS, 'utf8');
+        const { stdout } = await execFileAsync('powershell', [
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', psFile,
+            '-Server', FSRM_SERVER, '-User', FSRM_USER, '-Username', username,
+            '-LimitBytes', String(limitBytes), '-WarnBytes', String(warnBytes), '-Apply', apply ? '1' : '0',
+            '-QuotaPath', quotaPath || '',
+        ], {
+            // อ่านครั้งแรกต้องไล่ทุก quota (ช้าเท่าตอน Sync) · ตอนแก้เปิดตรงด้วย path จึงเร็ว
+            timeout: quotaPath ? 120000 : 300000, windowsHide: true, maxBuffer: 1024 * 1024,
+            env: { ...process.env, QUOTA_WINRM_PASS: FSRM_PASS },
+        });
+        return JSON.parse(stdout.trim());
+    } catch (err) {
+        const msg = String(err.stderr || err.message || '');
+        if (msg.includes('NOT_FOUND')) throw Object.assign(new Error(`ไม่พบโควต้าของ ${username} บน File Server`), { status: 404 });
+        if (err.killed) throw new Error('File Server ตอบช้าเกินกำหนด กรุณา Sync เพื่อตรวจว่าค่าเปลี่ยนแล้วหรือไม่');
+        if (msg.includes('PATH_MISMATCH')) throw new Error('ข้อมูลโควต้าไม่ตรงกับผู้ใช้ ยกเลิกการแก้ไข');
+        if (msg.includes('MULTI_VOLUME')) throw Object.assign(new Error(`${username} มีโควต้ามากกว่า 1 ไดรฟ์ ยังไม่รองรับ`), { status: 409 });
+        throw new Error(`แก้โควต้าไม่สำเร็จ: ${msg.split('\n').find(l => l.trim()) || 'unknown error'}`);
+    } finally {
+        try { if (existsSync(psFile)) unlinkSync(psFile); } catch { }
+    }
+};
+
+const quotaEditLocks = new Set();
+
+// POST /quota/extend  { username, newLimitMB, newWarningMB?, dryRun? }
+export const extendQuota = async (req, res) => {
+    const username = String(req.body?.username || '').trim();
+    const newLimitMB = Number(req.body?.newLimitMB);
+    const dryRun = req.body?.dryRun === true;
+
+    if (!USERNAME_RE.test(username)) return res.status(400).json({ success: false, error: 'username ไม่ถูกต้อง' });
+    if (!Number.isInteger(newLimitMB) || newLimitMB < QUOTA_MIN_LIMIT_MB || newLimitMB > QUOTA_MAX_LIMIT_MB) {
+        return res.status(400).json({ success: false, error: `ขนาดใหม่ต้องเป็นจำนวนเต็ม ${QUOTA_MIN_LIMIT_MB}–${QUOTA_MAX_LIMIT_MB} MB` });
+    }
+    let newWarningMB = req.body?.newWarningMB;
+    if (newWarningMB !== undefined && newWarningMB !== null && newWarningMB !== '') {
+        newWarningMB = Number(newWarningMB);
+        if (!Number.isInteger(newWarningMB) || newWarningMB < 1 || newWarningMB > newLimitMB) {
+            return res.status(400).json({ success: false, error: 'ระดับเตือนต้องเป็นจำนวนเต็ม และไม่เกินขนาดใหม่' });
+        }
+    } else newWarningMB = null;
+
+    if (quotaEditLocks.has(username)) return res.status(409).json({ success: false, error: `${username} กำลังถูกแก้โควต้าอยู่` });
+    quotaEditLocks.add(username);
+    try {
+        // อ่านค่าปัจจุบันก่อน เพื่อตรวจว่าไม่ตั้งต่ำกว่าที่ใช้อยู่ และคำนวณระดับเตือน
+        const cur = await runSetQuota(username, 0, 0, false);
+        const used = Number(cur.Before.Used);
+        const oldLimit = Number(cur.Before.Limit);
+        const oldWarn = Number(cur.Before.Warning);
+        const limitBytes = newLimitMB * MB;
+        if (limitBytes <= used) {
+            return res.status(400).json({ success: false, error: `ขนาดใหม่ต้องมากกว่าที่ใช้อยู่ (${fmtBytes(used)})` });
+        }
+        if (limitBytes - oldLimit > QUOTA_MAX_INCREASE_MB * MB) {
+            return res.status(400).json({ success: false, error: `เพิ่มได้ไม่เกิน ${fmtBytes(QUOTA_MAX_INCREASE_MB * MB)} ต่อครั้ง` });
+        }
+        // ไม่ระบุระดับเตือน = รักษาระยะห่างเดิมจากเพดาน (ค่าเริ่มต้นของเซิร์ฟเวอร์คือ 400 MB / เตือน 390 MB)
+        let warnBytes = newWarningMB !== null ? newWarningMB * MB : limitBytes - Math.max(oldLimit - oldWarn, 0);
+        if (warnBytes <= 0 || warnBytes > limitBytes) warnBytes = Math.floor(limitBytes * 0.9);
+
+        if (dryRun) {
+            return res.json({
+                success: true, dryRun: true, username, volume: cur.Volume,
+                before: { used, limit: oldLimit, warning: oldWarn },
+                after: { used, limit: limitBytes, warning: warnBytes },
+                disk: { size: Number(cur.DiskSize), free: Number(cur.DiskFree) },
+            });
+        }
+
+        const r = await runSetQuota(username, limitBytes, warnBytes, true, cur.Path);
+        const after = { used: Number(r.After.Used), limit: Number(r.After.Limit), warning: Number(r.After.Warning) };
+        if (after.limit !== limitBytes) throw new Error('ตั้งค่าแล้วแต่อ่านค่ากลับมาไม่ตรง กรุณา Sync เพื่อตรวจสอบ');
+
+        // อัปเดตตาราง cache ให้หน้าเว็บเห็นทันทีโดยไม่ต้อง Sync ทั้งหมด
+        const pct = Math.round((after.used / after.limit) * 1000) / 10;
+        try {
+            const pool = await connectDB();
+            await pool.request()
+                .input('Username', sql.NVarChar, username)
+                .input('SizeUsed', sql.BigInt, after.used)
+                .input('SizeLimit', sql.BigInt, after.limit)
+                .input('WarningLevel', sql.BigInt, after.warning)
+                .input('PctUsed', sql.Decimal(5, 1), pct)
+                .input('Status', sql.NVarChar, pctStatus(pct))
+                .input('SizeUsedFmt', sql.NVarChar, fmtBytes(after.used))
+                .input('SizeLimitFmt', sql.NVarChar, fmtBytes(after.limit))
+                .input('WarningFmt', sql.NVarChar, fmtBytes(after.warning))
+                .query(`UPDATE Quota_Users SET SizeUsed=@SizeUsed, SizeLimit=@SizeLimit, WarningLevel=@WarningLevel,
+                        PctUsed=@PctUsed, [Status]=@Status, SizeUsedFmt=@SizeUsedFmt, SizeLimitFmt=@SizeLimitFmt,
+                        WarningFmt=@WarningFmt, LastSynced=GETDATE() WHERE Username=@Username`);
+        } catch (err) {
+            console.warn('[DB] extendQuota cache update error:', err.message);
+        }
+
+        res.locals.auditSummary = `${username}: ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)}`;
+        res.locals.auditChanges = {
+            fields: [
+                { field: 'Limit', from: fmtBytes(oldLimit), to: fmtBytes(after.limit) },
+                { field: 'WarningLimit', from: fmtBytes(oldWarn), to: fmtBytes(after.warning) },
+            ],
+        };
+        console.log(`[Quota] ${req.user?.username || '?'} set ${username} ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)} (warn ${fmtBytes(after.warning)})`);
+        res.json({
+            success: true, username, volume: r.Volume,
+            before: { used, limit: oldLimit, warning: oldWarn },
+            after,
+            disk: { size: Number(r.DiskSize), free: Number(r.DiskFree) },
+        });
+    } catch (err) {
+        res.status(err.status || 500).json({ success: false, error: err.message });
+    } finally {
+        quotaEditLocks.delete(username);
+    }
+};
+
+// GET /quota/capacity — ภาพรวมพื้นที่จริงของไดรฟ์เทียบกับโควต้าที่แจกไปแล้ว
+export const getQuotaCapacity = async (_req, res) => {
+    try {
+        const pool = await connectDB();
+        const r = await pool.request().query(`SELECT COUNT(*) AS users, SUM(SizeLimit) AS allocated, SUM(SizeUsed) AS used FROM Quota_Users`);
+        const s = r.recordset[0] || {};
+        res.json({ success: true, data: { users: s.users || 0, allocated: Number(s.allocated || 0), used: Number(s.used || 0), maxLimitMB: QUOTA_MAX_LIMIT_MB, maxIncreaseMB: QUOTA_MAX_INCREASE_MB } });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
 export const getSyncLogs = async (_req, res) => {
     try {
         const pool = await connectDB();

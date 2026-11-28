@@ -5,7 +5,7 @@ import {
     CheckCircle2, XCircle, Search, X, ChevronUp, ChevronDown,
     ArrowUpDown, Bell, Filter, Settings, Clock, FileText,
     Database, Users, BarChart3, Loader2, Lock, History,
-    AlertOctagon, ShieldCheck, FileWarning, Info, Play
+    AlertOctagon, ShieldCheck, FileWarning, Info, Play, Expand
 } from 'lucide-react';
 import Pagination from '../components/Pagination';
 import { API_BASE } from '../config/api';
@@ -499,12 +499,126 @@ const DeleteConfirmModal = ({ item, onConfirm, onClose }) => {
     );
 };
 
+// ── Extend Quota Modal ───────────────────────────────────────
+const MB = 1024 * 1024;
+const fmtMB = (mb) => mb >= 1024 ? `${parseFloat((mb / 1024).toFixed(2))} GB` : `${mb} MB`;
+const EXTEND_STEPS_MB = [100, 500, 1024, 2048];
+
+const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, onClose, onSubmit }) => {
+    const curLimitMB = Math.round((user?.sizeLimit || 0) / MB);
+    const usedMB = (user?.sizeUsed || 0) / MB;
+    const gapMB = Math.max(Math.round(((user?.sizeLimit || 0) - (user?.warningLevel || 0)) / MB), 0);
+    const [newLimitMB, setNewLimitMB] = useState(curLimitMB + 100);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => { setNewLimitMB(curLimitMB + 100); setError(''); setBusy(false); }, [user?.username, curLimitMB]);
+    if (!user) return null;
+
+    const n = Number(newLimitMB);
+    const warnMB = n - gapMB > 0 ? n - gapMB : Math.floor(n * 0.9);
+    const invalid = !Number.isInteger(n) ? 'กรอกเป็นจำนวนเต็ม (MB)'
+        : n <= usedMB ? `ต้องมากกว่าที่ใช้อยู่ (${user.sizeUsedFmt})`
+            : n < 100 ? 'ต่ำสุด 100 MB'
+                : n > maxLimitMB ? `เกินเพดานที่อนุญาต (${fmtMB(maxLimitMB)})`
+                    : n - curLimitMB > maxIncreaseMB ? `เพิ่มได้ไม่เกิน ${fmtMB(maxIncreaseMB)} ต่อครั้ง`
+                    : n === curLimitMB ? 'ขนาดเท่าเดิม' : '';
+    const newPct = n > 0 ? Math.min((usedMB / n) * 100, 100) : 0;
+
+    const submit = async () => {
+        setBusy(true); setError('');
+        const err = await onSubmit(user, n);
+        if (err) { setError(err); setBusy(false); }
+    };
+
+    return (
+        <Portal>
+            <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+                <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                    className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
+                    <div className="flex items-start gap-3 mb-4">
+                        <div className="w-11 h-11 rounded-2xl bg-emerald-50 flex items-center justify-center flex-shrink-0 text-emerald-600">
+                            <Expand size={22} />
+                        </div>
+                        <div className="min-w-0">
+                            <h3 className="text-lg font-black text-slate-800">ปรับขนาดโควต้า</h3>
+                            <p className="text-sm text-slate-500 mt-0.5 truncate">
+                                <span className="font-mono font-bold text-indigo-600">{user.username}</span> · {user.name}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 mb-4 text-center">
+                        <div className="bg-slate-50 rounded-xl py-2 border border-slate-100">
+                            <p className="text-[10px] font-bold uppercase text-slate-400">ใช้ไป</p>
+                            <p className="text-sm font-black text-slate-700">{user.sizeUsedFmt}</p>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl py-2 border border-slate-100">
+                            <p className="text-[10px] font-bold uppercase text-slate-400">โควต้าเดิม</p>
+                            <p className="text-sm font-black text-slate-700">{user.sizeLimitFmt}</p>
+                        </div>
+                        <div className="bg-emerald-50 rounded-xl py-2 border border-emerald-100">
+                            <p className="text-[10px] font-bold uppercase text-emerald-500">โควต้าใหม่</p>
+                            <p className="text-sm font-black text-emerald-700">{invalid ? '—' : fmtMB(n)}</p>
+                        </div>
+                    </div>
+
+                    <p className="text-xs font-bold text-slate-500 mb-1.5">เพิ่มจากเดิม</p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                        {EXTEND_STEPS_MB.map(s => (
+                            <button key={s} type="button" disabled={busy}
+                                onClick={() => setNewLimitMB(curLimitMB + s)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors
+                                    ${n === curLimitMB + s ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                                +{fmtMB(s)}
+                            </button>
+                        ))}
+                    </div>
+
+                    <label className="text-xs font-bold text-slate-500">หรือกำหนดขนาดใหม่ (MB)</label>
+                    <input type="number" min={100} max={maxLimitMB} step={1} value={newLimitMB} disabled={busy}
+                        onChange={e => setNewLimitMB(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+
+                    {!invalid && (
+                        <div className="mt-3 text-[11px] text-slate-500 space-y-0.5">
+                            <p>ระดับเตือน: <b>{fmtMB(warnMB)}</b> (ห่างจากเพดานเท่าเดิม {fmtMB(gapMB)})</p>
+                            <p>การใช้งานหลังปรับ: <b>{newPct.toFixed(1)}%</b></p>
+                        </div>
+                    )}
+                    {(invalid || error) && (
+                        <p className="mt-3 text-xs font-bold text-red-500">{error || invalid}</p>
+                    )}
+                    <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-[11px] text-amber-800 leading-relaxed">
+                        ⚠️ แก้ค่าบน File Server จริงทันที ระบบจะบันทึกลงประวัติการทำงาน · อาจใช้เวลา 1–3 นาที
+                    </div>
+
+                    <div className="flex gap-3 mt-4">
+                        <button onClick={onClose} disabled={busy}
+                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50">
+                            ยกเลิก
+                        </button>
+                        <button onClick={submit} disabled={busy || !!invalid}
+                            className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                            {busy ? <><Loader2 size={14} className="animate-spin" /> กำลังปรับ...</> : <><Expand size={14} /> ยืนยัน</>}
+                        </button>
+                    </div>
+                </motion.div>
+            </div>
+        </Portal>
+    );
+};
+
 // ════════════════════════════════════════════════════════════
 //  MAIN COMPONENT
 // ════════════════════════════════════════════════════════════
 const QuotaManager = () => {
     const canSendQuota = useCanAct('quota-manager', 'send');
     const canDeleteQuota = useCanAct('quota-manager', 'delete');
+    const canExtendQuota = useCanAct('quota-manager', 'extend');
+    const [extendTarget, setExtendTarget] = useState(null);
+    const [maxLimitMB, setMaxLimitMB] = useState(102400);
+    const [maxIncreaseMB, setMaxIncreaseMB] = useState(10240);
     const { user: authUser } = useAuth();
     const [tab, setTab] = useState('quota');
     const [users, setUsers] = useState([]);
@@ -623,6 +737,35 @@ const QuotaManager = () => {
     }, [API]);
 
     useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+    useEffect(() => {
+        if (!canExtendQuota) return;
+        fetch(`${API}/capacity`).then(r => r.json())
+            .then(r => {
+                if (r.data?.maxLimitMB) setMaxLimitMB(r.data.maxLimitMB);
+                if (r.data?.maxIncreaseMB) setMaxIncreaseMB(r.data.maxIncreaseMB);
+            })
+            .catch(() => { });
+    }, [API, canExtendQuota]);
+
+    // ── ปรับขนาดโควต้า — คืนข้อความ error (ถ้ามี) ให้ modal แสดง
+    const submitExtend = useCallback(async (u, newLimitMB) => {
+        try {
+            const r = await fetch(`${API}/extend`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: u.username, newLimitMB }),
+            });
+            const res = await r.json().catch(() => ({}));
+            if (!r.ok || !res.success) return res.error || `ปรับไม่สำเร็จ (HTTP ${r.status})`;
+            const fmt = (b) => b >= 1024 * MB ? `${parseFloat((b / 1024 / MB).toFixed(2))} GB` : `${parseFloat((b / MB).toFixed(2))} MB`;
+            pushToast(`✅ ${u.username}: ${fmt(res.before.limit)} → ${fmt(res.after.limit)}`, 'success');
+            setExtendTarget(null);
+            fetchUsers();
+            return null;
+        } catch (e) {
+            return e.message || 'เชื่อมต่อไม่สำเร็จ';
+        }
+    }, [API, pushToast, fetchUsers]);
 
     // ── restore polling เมื่อกลับมาหน้านี้ ──────────────────
     useEffect(() => {
@@ -1072,6 +1215,8 @@ const QuotaManager = () => {
                 </div></Portal>
             )}
             <Toast toasts={toasts} />
+            <ExtendQuotaModal user={extendTarget} maxLimitMB={maxLimitMB} maxIncreaseMB={maxIncreaseMB}
+                onClose={() => setExtendTarget(null)} onSubmit={submitExtend} />
             <DeleteConfirmModal
                 item={deleteConfirm}
                 onConfirm={() => { deleteLog(deleteConfirm.id); setDeleteConfirm(null); }}
@@ -1446,6 +1591,13 @@ const QuotaManager = () => {
                                                 </td>
                                                 <td className="px-4 py-3 whitespace-nowrap"><Badge status={u.status} /></td>
                                                 <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-1.5">
+                                                    {canExtendQuota && (
+                                                        <button onClick={() => setExtendTarget(u)} title="ปรับขนาดโควต้า"
+                                                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 transition-all">
+                                                            <Expand size={11} /> ขยาย
+                                                        </button>
+                                                    )}
                                                     {u.email && (
                                                         <div className="relative group/btn">
                                                             {canSendQuota && <button
@@ -1474,6 +1626,7 @@ const QuotaManager = () => {
                                                             )}
                                                         </div>
                                                     )}
+                                                    </div>
                                                 </td>
                                             </motion.tr>
                                         );
