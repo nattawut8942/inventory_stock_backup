@@ -377,11 +377,27 @@ export const getEmailLogs = async (req, res) => {
     }
 };
 
-// GET /quota/fsrm-status — เช็ค FSRM lock
+// ── ล็อคการส่งแจ้งเตือนทั้งระบบ: ส่งได้ทีละคน ต้องรอคนก่อนหน้าเสร็จ ──
+// userLocks = งานส่งรายคน · bulkActive = งานส่งหลายคน (ทยอยทีละคน)
+let bulkActive = null; // { jobId, current }
+const currentSend = () => {
+    if (userLocks.size > 0) return { username: [...userLocks][0], bulk: false };
+    if (bulkActive) return { username: bulkActive.current || null, bulk: true };
+    return null;
+};
+const sendBusyMessage = (cur) => cur.bulk
+    ? `กำลังส่งแจ้งเตือนแบบหลายคนอยู่${cur.username ? ` (ตอนนี้: ${cur.username})` : ''} กรุณารอให้เสร็จก่อน`
+    : `กำลังส่งแจ้งเตือนให้ ${cur.username} อยู่ กรุณารอให้เสร็จก่อน`;
+
+// GET /quota/fsrm-status — เช็ค FSRM lock + การส่งแจ้งเตือนที่กำลังทำ
 export const getFsrmStatus = (_req, res) => {
+    const cur = currentSend();
     res.json({
         busy: isFsrmBusy(),
         queueSize: getFsrmQueueLength(),
+        sendBusy: !!cur,
+        sendUser: cur?.username || null,
+        sendBulk: !!cur?.bulk,
     });
 };
 
@@ -409,13 +425,10 @@ export const sendWarningSingle = async (req, res) => {
     console.log('[Debug] sentBy:', sentBy);  // ← เพิ่มบรรทัดนี้
     if (!user?.email) return res.status(400).json({ success: false, error: 'user.email required' });
 
-    // ถ้า user นี้กำลัง run อยู่แล้ว reject ทันที
-    if (userLocks.has(user.username)) {
-        return res.status(409).json({
-            success: false,
-            error: `${user.username} กำลัง run report อยู่ กรุณารอให้เสร็จก่อน`,
-            locked: true,
-        });
+    // ส่งได้ทีละคน — มีงานส่งค้างอยู่ (คนนี้หรือคนอื่น) reject ทันที
+    const cur = currentSend();
+    if (cur) {
+        return res.status(409).json({ success: false, error: sendBusyMessage(cur), locked: true, sendUser: cur.username });
     }
 
     const jobId = `job_${Date.now()}`;
@@ -467,13 +480,23 @@ export const sendWarningEmails = async (req, res) => {
 
     if (!users?.length) return res.status(400).json({ success: false, error: 'users required' });
 
+    const cur = currentSend();
+    if (cur) {
+        return res.status(409).json({ success: false, error: sendBusyMessage(cur), locked: true, sendUser: cur.username });
+    }
+
     const jobId = `bulk_${Date.now()}`;
     jobs[jobId] = { status: 'running', total: users.length, sent: 0, failed: 0, current: '', results: [], step: '' };
+    bulkActive = { jobId, current: null };
     res.json({ success: true, jobId, total: users.length });
 
     // ทำงาน sequential — ทีละคน FSRM queue จัดการให้อัตโนมัติ
     (async () => {
+      try {
         for (const u of users) {
+            // ถูกยกเลิก → หยุดคิวที่เหลือ
+            if (jobs[jobId].status === 'cancelled') break;
+            bulkActive.current = u.username;
             if (!u.email) {
                 jobs[jobId].failed++;
                 jobs[jobId].results.push({ username: u.username, status: 'no_email' });
@@ -509,8 +532,13 @@ export const sendWarningEmails = async (req, res) => {
                 jobs[jobId].results.push({ username: u.username, status: 'error', error: err.message, logId });
             }
         }
-        jobs[jobId].status = 'done';
-        jobs[jobId].step = `✅ เสร็จสิ้น ${jobs[jobId].sent}/${users.length} คน`;
+        if (jobs[jobId].status !== 'cancelled') {
+            jobs[jobId].status = 'done';
+            jobs[jobId].step = `✅ เสร็จสิ้น ${jobs[jobId].sent}/${users.length} คน`;
+        }
+      } finally {
+        if (bulkActive?.jobId === jobId) bulkActive = null;
+      }
     })();
 };
 

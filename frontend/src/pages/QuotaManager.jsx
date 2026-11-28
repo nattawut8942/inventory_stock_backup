@@ -906,6 +906,7 @@ const QuotaManager = () => {
     const toastRef = useRef(0);
     const [fsrmBusy, setFsrmBusy] = useState(false);
     const [fsrmQueue, setFsrmQueue] = useState(0);
+    const [serverSend, setServerSend] = useState({ busy: false, user: null, bulk: false });
 
     const API = `${API_BASE}/quota`;
 
@@ -1071,21 +1072,34 @@ const QuotaManager = () => {
     // fetch extra เมื่อสลับมา tab logs
     useEffect(() => { if (tab === 'logs') fetchLogs(); }, [tab, fetchLogs]);
 
-    // ── poll FSRM status (graceful — ถ้า 404 ยังใช้งานได้ปกติ) ──
-    useEffect(() => {
-        const checkFsrm = async () => {
-            try {
-                const r = await fetch(`${API}/fsrm-status`);
-                if (!r.ok) return; // route ยังไม่มี ข้ามไป
-                const res = await r.json();
-                setFsrmBusy(res.busy || false);
-                setFsrmQueue(res.queueSize || 0);
-            } catch { }
-        };
-        checkFsrm();
-        const iv = setInterval(checkFsrm, 10000); // ลด frequency เป็น 10s
-        return () => clearInterval(iv);
+    // ── poll FSRM status + งานส่งแจ้งเตือนบน server (graceful — ถ้า 404 ยังใช้งานได้ปกติ) ──
+    const checkFsrm = useCallback(async () => {
+        try {
+            const r = await fetch(`${API}/fsrm-status`);
+            if (!r.ok) return; // route ยังไม่มี ข้ามไป
+            const res = await r.json();
+            setFsrmBusy(res.busy || false);
+            setFsrmQueue(res.queueSize || 0);
+            setServerSend({ busy: !!res.sendBusy, user: res.sendUser || null, bulk: !!res.sendBulk });
+        } catch { }
     }, [API]);
+
+    // ── ส่งแจ้งเตือนได้ทีละคน: มีงานส่งอยู่ (ในหน้านี้ หรือจากเครื่อง/ผู้ใช้อื่นบน server) → ล็อคทุกปุ่มส่ง
+    const localSendUser = Object.keys(activeJobs)[0] || null;
+    const bulkSending = sending && sendMode === 'warning';
+    const sendLocked = !!localSendUser || bulkSending || serverSend.busy;
+    const sendLockUser = localSendUser || serverSend.user;
+    const sendLockMsg = !sendLocked ? ''
+        : (bulkSending || serverSend.bulk)
+            ? `กำลังส่งแจ้งเตือนแบบหลายคน${sendLockUser ? ` (ตอนนี้: ${sendLockUser})` : ''} — รอให้เสร็จก่อนจึงส่งได้อีก`
+            : `กำลังส่งแจ้งเตือนให้ ${sendLockUser || 'ผู้ใช้'} — รอให้เสร็จก่อนจึงส่งคนถัดไปได้`;
+
+    useEffect(() => {
+        checkFsrm();
+        // ระหว่างล็อค เช็คถี่ขึ้น เพื่อปลดล็อคปุ่มเร็วเมื่อคนก่อนหน้าส่งเสร็จ
+        const iv = setInterval(checkFsrm, sendLocked ? 3000 : 10000);
+        return () => clearInterval(iv);
+    }, [checkFsrm, sendLocked]);
 
     // ── poll log เมื่ออยู่ที่ tab logs ───────────────────────
     useEffect(() => {
@@ -1193,6 +1207,8 @@ const QuotaManager = () => {
         const u = users.find(x => x.username === username);
         if (!u?.email) { pushToast('ไม่มี email', 'error'); return; }
 
+        if (sendLocked) { pushToast(`🔒 ${sendLockMsg}`, 'warning'); return; }
+
         // เช็ค activeJobs ก่อน (real-time ที่สุด)
         if (Object.keys(activeJobs).includes(username)) {
             pushToast(`⏳ ${username} กำลัง run อยู่ กรุณารอให้เสร็จก่อน`, 'warning');
@@ -1216,7 +1232,8 @@ const QuotaManager = () => {
             // backend lock — user กำลัง run อยู่
             if (r.status === 409 || res.locked) {
                 finishJob(tempId, username, 'error', { step: `🔒 ${res.error}` });
-                pushToast(`🔒 ${username}: ${res.error}`, 'warning');
+                pushToast(`🔒 ${res.error}`, 'warning');
+                checkFsrm(); // อัปเดตสถานะล็อคจาก server ทันที
                 await fetchLogs(); // refresh log เพื่ออัปเดต lock state
                 return;
             }
@@ -1233,7 +1250,7 @@ const QuotaManager = () => {
             finishJob(tempId, username, 'error', { step: e.message });
             pushToast('ส่งล้มเหลว', 'error');
         }
-    }, [users, isUserBusy, API, addJob, finishJob, startPollJob, pushToast]);
+    }, [users, isUserBusy, API, addJob, finishJob, startPollJob, pushToast, sendLocked, sendLockMsg, checkFsrm]);
 
     // ── Cancel job (wrapper ใช้ context) ─────────────────────
     const cancelJobById = useCallback((jobId, username) =>
@@ -1275,6 +1292,7 @@ const QuotaManager = () => {
 
     // ── handleSendClick — เช็ค lock ก่อนเปิด modal ───────────
     const handleSendClick = useCallback((username) => {
+        if (sendLocked) { pushToast(`🔒 ${sendLockMsg}`, 'warning'); return; }
         // เช็คจาก activeJobs ก่อน (real-time) แล้วค่อยเช็ค log
         const inActive = Object.keys(activeJobs).includes(username);
         if (inActive || isUserBusy(username)) {
@@ -1284,7 +1302,7 @@ const QuotaManager = () => {
         setConfirmTarget(username);
         setSendMode('single');
         setConfirmOpen(true);
-    }, [activeJobs, isUserBusy, pushToast]);
+    }, [activeJobs, isUserBusy, pushToast, sendLocked, sendLockMsg]);
 
     // ── Confirm & Send ────────────────────────────────────────
     const getTargets = useCallback(() =>
@@ -1303,6 +1321,7 @@ const QuotaManager = () => {
         }
 
         if (sendMode === 'warning') {
+            if (sendLocked) { pushToast(`🔒 ${sendLockMsg}`, 'warning'); return; }
             const targets = getTargets().filter(u => u.email);
             const busyUsers = targets.filter(u => isUserBusy(u.username));
             if (busyUsers.length > 0) {
@@ -1380,7 +1399,10 @@ const QuotaManager = () => {
                 setTimeout(() => clearInterval(iv), 1800000);
             } else {
                 setSending(false);
-                pushToast('ส่งคำขอล้มเหลว', 'error');
+                // ยกเลิก job items ที่เพิ่งเพิ่ม (server ไม่ได้รับงาน)
+                freTargets.forEach(u => finishJob(`q_${u.username}`, u.username, 'error', { step: `🔒 ${res?.error || 'ส่งคำขอล้มเหลว'}` }));
+                pushToast(res?.locked ? `🔒 ${res.error}` : (res?.error || 'ส่งคำขอล้มเหลว'), res?.locked ? 'warning' : 'error');
+                checkFsrm();
             }
         }
 
@@ -1759,8 +1781,8 @@ const QuotaManager = () => {
                             }} title={`เลือก checkbox ทุกคนที่ใช้พื้นที่เกิน ${threshold}% อัตโนมัติ`} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50">
                                 <Filter size={12} /> เลือกที่เกิน {threshold}%
                             </button>
-                            {canSendQuota && <button disabled={sending} onClick={() => { setSendMode('warning'); setConfirmOpen(true); }}
-                                title="ส่งอีเมลแจ้งเตือนพร้อมรายการไฟล์ให้ user ที่เลือก (ทีละคนตามคิว)"
+                            {canSendQuota && <button disabled={sending || sendLocked} onClick={() => { setSendMode('warning'); setConfirmOpen(true); }}
+                                title={sendLocked ? sendLockMsg : 'ส่งอีเมลแจ้งเตือนพร้อมรายการไฟล์ให้ user ที่เลือก (ทีละคนตามคิว)'}
                                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold disabled:opacity-50 transition-all">
                                 <Bell size={12} /> ส่ง Warning Email
                             </button>}
@@ -1771,6 +1793,14 @@ const QuotaManager = () => {
                             </button>}
                         </div>
                     </div>
+
+                    {canSendQuota && sendLocked && (
+                        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-xs font-semibold text-amber-800">
+                            <Lock size={13} className="flex-shrink-0" />
+                            <span>{sendLockMsg} · ปุ่มส่งแจ้งเตือนทุกปุ่มล็อคไว้ชั่วคราว</span>
+                            <Loader2 size={12} className="animate-spin ml-auto flex-shrink-0" />
+                        </div>
+                    )}
 
                     {/* Table */}
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
@@ -1888,15 +1918,20 @@ const QuotaManager = () => {
                                                         <div className="relative group/btn">
                                                             {canSendQuota && <button
                                                                 onClick={() => handleSendClick(u.username)}
-                                                                disabled={busy}
+                                                                disabled={busy || sendLocked}
+                                                                title={!busy && sendLocked ? sendLockMsg : undefined}
                                                                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all select-none
                                                                     ${busy
                                                                         ? 'bg-amber-50 text-amber-600 border border-amber-300 cursor-not-allowed'
-                                                                        : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-100 cursor-pointer'}`}
+                                                                        : sendLocked
+                                                                            ? 'bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed'
+                                                                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-100 cursor-pointer'}`}
                                                             >
                                                                 {busy
                                                                     ? <><Loader2 size={11} className="animate-spin" /> กำลัง run...</>
-                                                                    : <><Mail size={11} /> ส่งแจ้ง</>}
+                                                                    : sendLocked
+                                                                        ? <><Lock size={11} /> รอคิว</>
+                                                                        : <><Mail size={11} /> ส่งแจ้ง</>}
                                                             </button>}
                                                             {busy && (
                                                                 <div className="absolute bottom-full right-0 mb-2 w-56 px-3 py-2.5 bg-slate-900 text-white text-[11px] rounded-xl opacity-0 group-hover/btn:opacity-100 transition-all pointer-events-none z-20 shadow-2xl border border-slate-700">
