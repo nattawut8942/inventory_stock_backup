@@ -1,10 +1,19 @@
+import { Link } from 'react-router-dom';
 import React, { useState, useEffect } from 'react';
 import { useCanAct } from '../context/PermissionContext';
-import { Printer, AlertTriangle, Wifi, WifiOff, RefreshCw, Droplet, Plus, X, History, Clock, Pencil, Factory as FactoryIcon, LayoutGrid, List as ListIcon, Search } from 'lucide-react';
+import { Printer, AlertTriangle, Wifi, WifiOff, RefreshCw, Droplet, Plus, X, History, Clock, Pencil, Factory as FactoryIcon, LayoutGrid, List as ListIcon, Search, Usb, Network } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { API_BASE } from '../config/api';
+import { API_BASE, API_URL } from '../config/api';
 import Portal from '../components/Portal';
-import AlertModal from '../components/AlertModal';
+import PhotoSlot from '../components/PhotoSlot';
+import ConnectionBadge from '../components/ConnectionBadge';
+import PrinterThumb from '../components/PrinterThumb';
+import CopyButton from '../components/CopyButton';
+import StatusBadge from '../components/StatusBadge';
+import { PageSkeleton } from '../components/Skeleton';
+import { toast } from '../components/Toast';
+import { confirmDialog } from '../components/ConfirmDialog';
+import { getTonerType, tonerGradient, tonerIconColor } from '../utils/tonerColor';
 import { formatThaiDate } from '../utils/formatDate';
 
 // backend เก็บเวลาเป็น UTC (SYSUTCDATETIME) แต่บางจุด driver คืนมาเป็น string ดิบ
@@ -30,6 +39,8 @@ const AddPrinterModal = ({ printer, onClose, onSaved }) => {
         Model: printer?.Model || '',
         Location: printer?.Location || '',
         Factory: printer?.Factory || '',
+        ConnectionType: printer?.ConnectionType === 'usb' ? 'usb' : 'ethernet',
+        UsbHost: printer?.UsbHost || '',
     });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -52,6 +63,10 @@ const AddPrinterModal = ({ printer, onClose, onSaved }) => {
             setError('กรุณากรอก IP และชื่อเครื่อง');
             return;
         }
+        if (form.ConnectionType === 'usb' && !form.UsbHost.trim()) {
+            setError('เลือก USB ต้องระบุชื่อคอมพิวเตอร์ที่เครื่องพรินเตอร์ต่ออยู่');
+            return;
+        }
 
         setSaving(true);
         try {
@@ -66,8 +81,10 @@ const AddPrinterModal = ({ printer, onClose, onSaved }) => {
             if (!res.ok || !json.success) {
                 throw new Error(json.error || 'บันทึกไม่สำเร็จ');
             }
+            toast.success(isEdit ? 'บันทึกการแก้ไขข้อมูลเครื่องแล้ว' : 'เพิ่มเครื่องพรินเตอร์แล้ว');
             onSaved();
         } catch (err) {
+            toast.error(err.message); // ข้อผิดพลาดจากเซิร์ฟเวอร์แสดงเป็น toast (ข้อผิดพลาดของฟิลด์ยังแสดงในฟอร์ม)
             setError(err.message);
         } finally {
             setSaving(false);
@@ -133,6 +150,40 @@ const AddPrinterModal = ({ printer, onClose, onSaved }) => {
                             </div>
                         </div>
 
+                        <div>
+                            <label className="text-xs font-bold text-slate-600 block mb-1">การเชื่อมต่อ</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { value: 'ethernet', label: 'Ethernet (LAN)' },
+                                    { value: 'usb', label: 'USB' },
+                                ].map((opt) => (
+                                    <button
+                                        key={opt.value}
+                                        type="button"
+                                        onClick={() => setForm({ ...form, ConnectionType: opt.value })}
+                                        className={`rounded-lg border px-3 py-2 text-sm font-bold transition-colors ${
+                                            form.ConnectionType === opt.value
+                                                ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
+                                                : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+                            {form.ConnectionType === 'usb' && (
+                                <div className="mt-2">
+                                    <label className="text-xs font-bold text-slate-600 block mb-1">ต่อ USB กับคอมพิวเตอร์</label>
+                                    <input
+                                        name="UsbHost" value={form.UsbHost} onChange={handleChange}
+                                        placeholder="เช่น DCI-PC-1234"
+                                        maxLength={100}
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                                    />
+                                </div>
+                            )}
+                        </div>
+
                         {error && <p className="text-xs text-red-600 font-bold">{error}</p>}
 
                         <div className="flex gap-3 pt-2">
@@ -159,34 +210,63 @@ const inkBarColor = {
     Yellow: '#eab308',
 };
 
-// แถวเดียวใน history: วันที่ + แท่ง % ของทั้ง 4 สี เรียงกัน (แบบ sparkline row)
+const LOG_PAGE_SIZE = 7;
+
+// แถวหนึ่งใน log สถานะ: วันที่ · วิธี · ออนไลน์/ออฟไลน์ · % หมึกแต่ละสี (ตัวเลข + แท่ง)
 const HistoryRow = ({ reading }) => {
     const date = formatThaiDate(toUtcIso(reading.CheckedAt));
     const colors = [
         ['Black', reading.BlackPct], ['Cyan', reading.CyanPct],
         ['Magenta', reading.MagentaPct], ['Yellow', reading.YellowPct],
-    ];
+    ].filter(([, pct]) => pct != null);
     return (
-        <div className="flex items-center gap-3 py-2 border-b border-slate-50 last:border-0">
-            <span className="text-[10px] text-slate-400 w-24 shrink-0">{date}</span>
-            <span className="text-[9px] font-bold text-slate-400 w-10 shrink-0">{reading.Method || '-'}</span>
-            <div className="flex-1 flex items-center gap-2">
-                {colors.map(([name, pct]) => (
-                    <div key={name} className="flex-1">
-                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${pct ?? 0}%`, background: inkBarColor[name] }} />
-                        </div>
-                    </div>
-                ))}
+        <div className="py-2.5 border-b border-slate-100 last:border-0">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-[11px] text-slate-600 font-medium">{date}</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[9px] font-bold text-slate-400">{reading.Method || '-'}</span>
+                    {reading.Online === false || reading.Online === 0
+                        ? <span className="text-[9px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">ออฟไลน์</span>
+                        : <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">ออนไลน์</span>}
+                </div>
             </div>
+            {colors.length > 0 && (
+                <div className="grid grid-cols-4 gap-2">
+                    {colors.map(([name, pct]) => (
+                        <div key={name}>
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 mb-0.5">
+                                <span>{name}</span>
+                                <span className="font-bold text-slate-700">{pct ?? 0}%</span>
+                            </div>
+                            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${pct ?? 0}%`, background: inkBarColor[name] }} />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };
 
-const PrinterDetailModal = ({ printer, onClose }) => {
+const PrinterDetailModal = ({ printer, onClose, inkLinks = [], canEdit = false, onChanged }) => {
     const [history, setHistory] = useState([]);
     const [errors, setErrors] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [logPage, setLogPage] = useState(1);
+    // Spect ของหมึกแต่ละรหัส (ใช้เลือกสีไอคอน)
+    const [inkSpect, setInkSpect] = useState({});
+
+    useEffect(() => {
+        fetch(`${API_BASE}/ink-toner`)
+            .then(res => (res.ok ? res.json() : []))
+            .then(rows => {
+                const map = {};
+                rows.forEach(r => { map[r.Prt_Code] = r.Spect; });
+                setInkSpect(map);
+            })
+            .catch(() => setInkSpect({}));
+    }, []);
 
     useEffect(() => {
         const load = async () => {
@@ -207,14 +287,21 @@ const PrinterDetailModal = ({ printer, onClose }) => {
         load();
     }, [printer.PrinterId]);
 
+    const orderedHistory = history.slice().reverse();
+    const logPages = Math.max(1, Math.ceil(orderedHistory.length / LOG_PAGE_SIZE));
+    const safeLogPage = Math.min(logPage, logPages);
+    const logRows = orderedHistory.slice((safeLogPage - 1) * LOG_PAGE_SIZE, safeLogPage * LOG_PAGE_SIZE);
+
     return (
         <Portal>
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-                <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-white rounded-2xl shadow-2xl p-6">
+                <div className="w-full max-w-4xl max-h-[85vh] overflow-y-auto bg-white rounded-2xl shadow-2xl p-6">
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h3 className="font-black text-lg text-slate-800">{printer.Name}</h3>
+                            {printer.Model && <p className="text-sm font-semibold text-indigo-600">{printer.Model}</p>}
                             <p className="text-xs text-slate-400">{printer.IpAddress} · {printer.Location}</p>
+                            <div className="mt-1.5"><ConnectionBadge type={printer.ConnectionType} host={printer.UsbHost} /></div>
                         </div>
                         <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
                             <X size={20} />
@@ -230,18 +317,85 @@ const PrinterDetailModal = ({ printer, onClose }) => {
                             />
                         </div>
                     ) : (
-                        <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                        <div>
+                            <PhotoSlot printer={printer} field="PhotoUrl" endpoint="photo" label="รูปเครื่อง" canEdit={canEdit} onChanged={onChanged} enablePaste />
+                            <div className="mt-4">
+                                <PhotoSlot printer={printer} field="SitePhotoUrl" endpoint="site-photo" label="รูปหน้างานที่ติดตั้ง" canEdit={canEdit} onChanged={onChanged} />
+                            </div>
+
+                            <div className="mb-6">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Droplet size={14} className="text-cyan-600" />
+                                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">หมึกที่ใช้ได้ ({inkLinks.length})</h4>
+                                </div>
+                                {inkLinks.length === 0 ? (
+                                    <p className="text-xs text-slate-400 py-3 text-center">ยังไม่ได้ผูกหมึกกับเครื่องนี้ (ตั้งค่าได้ที่หน้า Ink & Toner)</p>
+                                ) : (
+                                    <div className="space-y-1.5">
+                                        {inkLinks.map(l => {
+                                            const type = getTonerType(inkSpect[l.Prt_Code]);
+                                            return (
+                                                <Link
+                                                    key={l.Prt_Code}
+                                                    to={`/ink-toner?q=${encodeURIComponent(l.Prt_Code)}`}
+                                                    className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 hover:shadow-sm px-3 py-2.5 transition-all"
+                                                >
+                                                    <span className={`w-9 h-9 rounded-full bg-gradient-to-br ${tonerGradient(type)} flex items-center justify-center shrink-0 shadow-sm ring-2 ring-white`}>
+                                                        <Droplet size={14} className={tonerIconColor(type)} />
+                                                    </span>
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="flex items-center gap-1">
+                                                            <span className="font-mono text-xs font-bold text-slate-800">{l.Prt_Code}</span>
+                                                            <CopyButton text={l.Prt_Code} title="คัดลอกรหัส" />
+                                                        </span>
+                                                        <span className="block text-[11px] text-slate-500 truncate">{inkSpect[l.Prt_Code] || '-'}</span>
+                                                        {l.Remark && <span className="block text-[10px] text-amber-700 mt-0.5">เงื่อนไข: {l.Remark}</span>}
+                                                    </span>
+                                                    <span className="text-[10px] font-bold text-indigo-600 shrink-0">ดูหมึก →</span>
+                                                </Link>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                        </div>
+                        <div>
                             <div className="mb-6">
                                 <div className="flex items-center gap-2 mb-2">
                                     <History size={14} className="text-indigo-500" />
-                                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">เทรนด์ 14 วันล่าสุด</h4>
+                                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">Log สถานะ 14 วันล่าสุด ({history.length})</h4>
                                 </div>
                                 {history.length === 0 ? (
                                     <p className="text-xs text-slate-400 py-4 text-center">ยังไม่มีข้อมูลย้อนหลัง</p>
                                 ) : (
-                                    <div className="bg-slate-50 rounded-xl px-3 py-1">
-                                        {history.slice().reverse().map((r, i) => <HistoryRow key={i} reading={r} />)}
-                                    </div>
+                                    <>
+                                        <div className="bg-slate-50 rounded-xl px-3 py-1">
+                                            {logRows.map((r, i) => <HistoryRow key={`${safeLogPage}-${i}`} reading={r} />)}
+                                        </div>
+                                        {logPages > 1 && (
+                                            <div className="flex items-center justify-between mt-2 text-xs">
+                                                <button
+                                                    type="button"
+                                                    disabled={safeLogPage <= 1}
+                                                    onClick={() => setLogPage(safeLogPage - 1)}
+                                                    className="px-3 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                                >
+                                                    ก่อนหน้า
+                                                </button>
+                                                <span className="text-slate-400">หน้า {safeLogPage} / {logPages}</span>
+                                                <button
+                                                    type="button"
+                                                    disabled={safeLogPage >= logPages}
+                                                    onClick={() => setLogPage(safeLogPage + 1)}
+                                                    className="px-3 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                                >
+                                                    ถัดไป
+                                                </button>
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                             </div>
 
@@ -272,7 +426,8 @@ const PrinterDetailModal = ({ printer, onClose }) => {
                                     </div>
                                 )}
                             </div>
-                        </>
+                        </div>
+                        </div>
                     )}
                 </div>
             </div>
@@ -280,20 +435,55 @@ const PrinterDetailModal = ({ printer, onClose }) => {
     );
 };
 
-const PrinterListRow = ({ printer, onOpen, onEdit, onScan, scanning }) => (
-    <div
-        onClick={() => onOpen(printer)}
-        className={`flex items-center gap-4 bg-white border-b border-slate-100 px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors ${!printer.Online ? 'bg-red-50/40' : ''}`}
-    >
-        <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
-            <Printer size={16} className="text-indigo-600" />
+// ป้ายรหัสหมึกที่เครื่องนี้ใช้ได้ คลิกแล้วไปหน้า Ink & Toner ค้นหารหัสนั้นทันที
+const InkChips = ({ links, max = 2 }) => {
+    if (!links || links.length === 0) {
+        return <span className="text-[10px] text-slate-300">ยังไม่ผูกหมึก</span>;
+    }
+    const shown = links.slice(0, max);
+    const rest = links.length - shown.length;
+    return (
+        <div className="flex flex-wrap items-center gap-1" title={links.map(l => l.Prt_Code).join('\n')}>
+            <Droplet size={10} className="text-cyan-600 shrink-0" />
+            {shown.map(l => (
+                <Link
+                    key={l.Prt_Code}
+                    to={`/ink-toner?q=${encodeURIComponent(l.Prt_Code)}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="font-mono text-[10px] font-bold text-cyan-700 bg-cyan-50 hover:bg-cyan-100 px-1.5 py-0.5 rounded"
+                >
+                    {l.Prt_Code}
+                </Link>
+            ))}
+            {rest > 0 && <span className="text-[10px] font-bold text-slate-500">+{rest}</span>}
         </div>
+    );
+};
+
+const PrinterListRow = ({ printer, onOpen, onEdit, onScan, scanning, inkLinks, canScan = true }) => (
+    <div
+        role="button"
+        tabIndex={0}
+        aria-label={`ดูรายละเอียด ${printer.Name}`}
+        onClick={() => onOpen(printer)}
+        onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen(printer); } }}
+        className={`flex items-center gap-4 bg-white border-b border-slate-100 px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-inset ${!printer.Online ? 'bg-red-50/40' : ''}`}
+    >
+        <PrinterThumb
+            src={printer.PhotoUrl ? `${API_URL}${printer.PhotoUrl}` : null}
+            name={printer.Name}
+            caption={`${printer.Name} · ${printer.IpAddress}`}
+        />
 
         <div className="flex-1 min-w-0">
-            <p className="font-bold text-slate-800 text-sm truncate">{printer.Name}</p>
+            <p className="font-bold text-slate-800 text-sm truncate">
+                {printer.Name}
+                {printer.Model && <span className="ml-2 text-xs font-semibold text-indigo-600">{printer.Model}</span>}
+            </p>
             <p className="text-xs text-slate-400 truncate">
                 {printer.IpAddress}{printer.Location ? ` · ${printer.Location}` : ''}{printer.Factory ? ` · ${printer.Factory}` : ''}
             </p>
+            <div className="mt-1"><ConnectionBadge type={printer.ConnectionType} host={printer.UsbHost} /></div>
         </div>
 
         <div className="hidden md:flex items-center gap-4 shrink-0">
@@ -308,15 +498,22 @@ const PrinterListRow = ({ printer, onOpen, onEdit, onScan, scanning }) => (
             ))}
         </div>
 
+        <div className="hidden lg:block shrink-0 max-w-[220px]">
+            <InkChips links={inkLinks} />
+        </div>
+
         <div className="flex items-center gap-2 shrink-0">
             {printer.OpenErrorCount > 0 && (
                 <span className="flex items-center gap-1 text-[10px] font-bold text-red-500 bg-red-100 px-2 py-0.5 rounded-full">
                     <AlertTriangle size={10} /> {printer.OpenErrorCount}
                 </span>
             )}
-            {printer.Online
-                ? <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">ออนไลน์</span>
-                : <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">ออฟไลน์</span>}
+            <StatusBadge tone={printer.Online ? 'emerald' : 'rose'} title={`สแกนล่าสุด ${scanAgeLabel(scannedAt(printer))}`}>
+                {printer.Online ? 'ออนไลน์' : 'ออฟไลน์'}
+            </StatusBadge>
+            <span className={`hidden xl:inline text-[10px] whitespace-nowrap ${isScanStale(scannedAt(printer)) ? 'text-amber-600 font-bold' : 'text-slate-400'}`}>
+                {scanAgeLabel(scannedAt(printer))}
+            </span>
 
             <button
                 onClick={(e) => { e.stopPropagation(); onEdit(printer); }}
@@ -327,7 +524,8 @@ const PrinterListRow = ({ printer, onOpen, onEdit, onScan, scanning }) => (
             </button>
             <button
                 onClick={(e) => { e.stopPropagation(); onScan(printer.PrinterId); }}
-                disabled={scanning}
+                disabled={scanning || !canScan}
+                title={canScan ? 'ดึงข้อมูลเครื่องนี้' : 'ไม่มีสิทธิ์ดึงข้อมูลจากเครื่อง'}
                 className="flex items-center gap-1 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1.5 rounded-lg transition-colors"
             >
                 <RefreshCw size={12} className={scanning ? 'animate-spin' : ''} />
@@ -363,6 +561,36 @@ const tonerColor = (pct) => {
     return 'bg-emerald-500';
 };
 
+// คำอธิบายสีแท่งหมึกและเกณฑ์ (ตรงกับ tonerColor และป้ายแจ้งเตือนในเมนู: หมึกต่ำกว่าหรือเท่ากับ 20%)
+const TonerLegend = () => (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+        <span className="font-bold text-slate-600">ระดับหมึก:</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-full bg-emerald-500" />มากกว่า 20% ปกติ</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-full bg-amber-400" />11–20% ใกล้หมด</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-full bg-red-500" />10% หรือต่ำกว่า เร่งเปลี่ยน</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-full bg-slate-200" />ไม่มีข้อมูล</span>
+    </div>
+);
+
+// เวลาสแกนล่าสุด: ข้อความแบบ "15 นาทีที่แล้ว" และเตือนถ้าเก่าเกิน 24 ชั่วโมง
+const scannedAt = (p) => (p.CheckedAt ? new Date(toUtcIso(p.CheckedAt)) : null);
+const scanAgeLabel = (d) => {
+    if (!d || Number.isNaN(d.getTime())) return 'ยังไม่เคยสแกน';
+    const mins = Math.round((Date.now() - d.getTime()) / 60000);
+    if (mins < 1) return 'เมื่อสักครู่';
+    if (mins < 60) return `${mins} นาทีที่แล้ว`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours} ชม.ที่แล้ว`;
+    return `${Math.round(hours / 24)} วันที่แล้ว`;
+};
+const isScanStale = (d) => !d || Number.isNaN(d.getTime()) || Date.now() - d.getTime() > 24 * 3600 * 1000;
+
+// หมึกที่เหลือน้อยที่สุดของเครื่อง (ใช้เรียงลำดับ) — ไม่มีข้อมูลเลยให้ไปอยู่ท้ายสุด
+const lowestToner = (p) => {
+    const vals = [p.BlackPct, p.CyanPct, p.MagentaPct, p.YellowPct].filter((v) => v !== null && v !== undefined);
+    return vals.length ? Math.min(...vals) : Infinity;
+};
+
 // สีไอคอนตามสีหมึกจริง (ไม่ใช่ตามระดับ %)
 const inkIconColor = {
     Black: '#1e293b',
@@ -392,12 +620,40 @@ const PrinterHealthPage = () => {
     const [modalMode, setModalMode] = useState(null); // null=ปิด, 'add', หรือ printer object (แก้ไข)
     const canCreatePrinter = useCanAct('printer-health', 'create');
     const canEditPrinter = useCanAct('printer-health', 'edit');
+    const canScanPrinter = useCanAct('printer-health', 'scan');
     const [selectedPrinter, setSelectedPrinter] = useState(null);
     const [selectedFactory, setSelectedFactory] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const ITEMS_PER_PAGE = 20;
     const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+    const [compatByPrinter, setCompatByPrinter] = useState({}); // { [PrinterId]: [{ Prt_Code, Remark }] }
+    const [connFilter, setConnFilter] = useState('all'); // 'all' | 'ethernet' | 'usb'
+    const [usbHostFilter, setUsbHostFilter] = useState(''); // ชื่อคอมพิวเตอร์ที่ต่อ USB
+    const [colorFilter, setColorFilter] = useState('all'); // 'all' | 'color' | 'mono' (ใช้ IsColor จากการสแกน; ยังไม่เคยสแกนจะอยู่เฉพาะตอน 'all')
+    const [sortKey, setSortKey] = useState('default'); // 'default' | 'toner' | 'scan'
+    const [groupByHost, setGroupByHost] = useState(false); // จัดกลุ่มรายการ (list) ตาม Ethernet / ชื่อคอมพิวเตอร์ USB
+    const [scanningAll, setScanningAll] = useState(false);
+
+    // หมึกที่ผูกกับแต่ละเครื่อง (ดึงจากตารางความสัมพันธ์ ไม่ต้องรอ fetch ของเครื่องแต่ละตัว)
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            try {
+                const res = await fetch(`${API_BASE}/ink-toner/compat`);
+                if (!res.ok) return;
+                const json = await res.json();
+                const map = {};
+                (json.data || []).forEach(row => {
+                    (map[row.PrinterId] ||= []).push({ Prt_Code: row.Prt_Code, Remark: row.Remark });
+                });
+                if (alive) setCompatByPrinter(map);
+            } catch (err) {
+                console.error('Error fetching ink-toner compat:', err);
+            }
+        })();
+        return () => { alive = false; };
+    }, []);
 
     const fetchData = async () => {
         setLoading(true);
@@ -417,19 +673,43 @@ const PrinterHealthPage = () => {
 
     useEffect(() => { fetchData(); }, []);
 
-    const [scanError, setScanError] = useState('');
-
     const scanPrinter = async (printerId) => {
         setScanningId(printerId);
         try {
             const res = await fetch(`${API_BASE}/printer-health/${printerId}/scan`, { method: 'POST' });
             if (!res.ok) throw new Error('Scan failed');
+            toast.success('ดึงข้อมูลเครื่องนี้แล้ว');
             await fetchData(); // ดึงข้อมูลล่าสุดมาแสดงหลังสแกนเสร็จ
         } catch (err) {
             console.error('Error scanning printer:', err);
-            setScanError('ดึงข้อมูลเครื่องนี้ไม่สำเร็จ ลองใหม่อีกครั้ง');
+            toast.error('ดึงข้อมูลเครื่องนี้ไม่สำเร็จ ลองใหม่อีกครั้ง');
         } finally {
             setScanningId(null);
+        }
+    };
+
+    // ดึงข้อมูลทุกเครื่องพร้อมกัน (ฝั่งเซิร์ฟเวอร์ทีละ 4 เครื่อง) — ยืนยันก่อนเพราะใช้เวลานาน
+    const scanAll = async () => {
+        const ok = await confirmDialog({
+            title: 'ดึงข้อมูลทุกเครื่อง',
+            message: `จะดึงข้อมูล ${data.length} เครื่อง อาจใช้เวลาหลายนาที ระหว่างนี้ยังใช้หน้านี้ได้`,
+            confirmText: 'ดึงข้อมูลทั้งหมด',
+        });
+        if (!ok) return;
+        setScanningAll(true);
+        try {
+            const res = await fetch(`${API_BASE}/printer-health/scan-all`, { method: 'POST' });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok || !json.success) throw new Error(json.error || 'ดึงข้อมูลทุกเครื่องไม่สำเร็จ');
+            const okCount = json.total - json.failed;
+            const skippedNote = json.skipped ? ` · ข้าม ${json.skipped} เครื่องที่ไม่มี IP (เช่น USB)` : '';
+            if (json.failed) toast.error(`ดึงข้อมูลแล้ว ${okCount}/${json.total} เครื่อง · ล้มเหลว ${json.failed} เครื่อง${skippedNote}`, 6000);
+            else toast.success(`ดึงข้อมูลครบทั้ง ${json.total} เครื่อง${skippedNote}`);
+            await fetchData();
+        } catch (err) {
+            toast.error(err.message);
+        } finally {
+            setScanningAll(false);
         }
     };
 
@@ -441,6 +721,9 @@ const PrinterHealthPage = () => {
     const uniqueFactoryNames = [...new Set(data.map(p => p.Factory).filter(Boolean))].sort();
     const filteredData = data
         .filter(p => !selectedFactory || p.Factory === selectedFactory)
+        .filter(p => connFilter === 'all' || (connFilter === 'usb' ? p.ConnectionType === 'usb' : p.ConnectionType !== 'usb'))
+        .filter(p => !usbHostFilter || (p.ConnectionType === 'usb' && p.UsbHost === usbHostFilter))
+        .filter(p => colorFilter === 'all' || (colorFilter === 'color' ? p.IsColor === true : p.IsColor === false))
         .filter(p => {
             if (!searchTerm.trim()) return true;
             const q = searchTerm.trim().toLowerCase();
@@ -448,25 +731,35 @@ const PrinterHealthPage = () => {
                 p.Name?.toLowerCase().includes(q) ||
                 p.IpAddress?.toLowerCase().includes(q) ||
                 p.Location?.toLowerCase().includes(q) ||
-                p.Model?.toLowerCase().includes(q)
+                p.Model?.toLowerCase().includes(q) ||
+                (compatByPrinter[p.PrinterId] || []).some(c => c.Prt_Code?.toLowerCase().includes(q))
             );
         });
-    const totalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE));
-    const paginatedData = filteredData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+    const usbHostNames = [...new Set(data.filter(p => p.ConnectionType === 'usb' && p.UsbHost).map(p => p.UsbHost))].sort();
+    const hostKey = (p) => (p.ConnectionType === 'usb' ? `USB · ${p.UsbHost || 'ไม่ระบุเครื่อง'}` : 'Ethernet');
+    // เรียงตามที่เลือก: หมึกต่ำสุดก่อน / สแกนเก่าสุดก่อน (ออฟไลน์ขึ้นก่อนเสมอในโหมดสแกนเก่า) / ค่าเริ่มต้น = ชื่อ
+    const sortedData = [...filteredData].sort((a, b) => {
+        if (groupByHost) {
+            const ka = hostKey(a), kb = hostKey(b);
+            if (ka !== kb) return ka.localeCompare(kb, 'th');
+        }
+        if (sortKey === 'toner') return lowestToner(a) - lowestToner(b) || (a.Name || '').localeCompare(b.Name || '', 'th');
+        if (sortKey === 'scan') {
+            if (a.Online !== b.Online) return a.Online ? 1 : -1;
+            const ta = scannedAt(a)?.getTime() ?? 0, tb = scannedAt(b)?.getTime() ?? 0;
+            return ta - tb;
+        }
+        return (a.Name || '').localeCompare(b.Name || '', 'th');
+    });
+    const totalPages = Math.max(1, Math.ceil(sortedData.length / ITEMS_PER_PAGE));
+    const paginatedData = sortedData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
-        useEffect(() => { setCurrentPage(1); }, [selectedFactory, searchTerm]);
+        useEffect(() => { setCurrentPage(1); }, [selectedFactory, searchTerm, connFilter, usbHostFilter, colorFilter, sortKey, groupByHost]);
     useEffect(() => { if (currentPage > totalPages) setCurrentPage(totalPages); }, [totalPages, currentPage]);
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full"
-                />
-            </div>
-        );
+    // โหลดครั้งแรกแสดงโครงหน้า (skeleton) — ตอนรีเฟรชให้คงของเดิมไว้
+    if (loading && data.length === 0) {
+        return <PageSkeleton variant="grid" cards={10} />;
     }
 
     if (error) {
@@ -486,14 +779,6 @@ const PrinterHealthPage = () => {
 
     return (
         <div className="space-y-6">
-            <AlertModal
-                isOpen={!!scanError}
-                type="error"
-                title="ผิดพลาด"
-                message={scanError}
-                confirmText="ตกลง"
-                onConfirm={() => setScanError("")}
-            />
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
                 <StatCard icon={Printer} title="พรินเตอร์ทั้งหมด" value={totalPrinters} color="from-blue-500 to-blue-600" />
                 <StatCard icon={Wifi} title="ออนไลน์" value={onlineCount} color="from-emerald-500 to-emerald-600" />
@@ -563,6 +848,55 @@ const PrinterHealthPage = () => {
                 </div>
             </div>
 
+            {/* แถบตัวกรอง/เรียง + คำอธิบายระดับหมึก + ดึงข้อมูลทั้งหมด */}
+            <div className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                    <div role="group" aria-label="ประเภทการเชื่อมต่อ" className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                        {[['all', 'ทั้งหมด'], ['ethernet', 'Ethernet'], ['usb', 'USB']].map(([key, label]) => (
+                            <button key={key} type="button" aria-pressed={connFilter === key}
+                                onClick={() => { setConnFilter(key); if (key !== 'usb') setUsbHostFilter(''); }}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${connFilter === key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    {connFilter === 'usb' && (
+                        <select value={usbHostFilter} onChange={(e) => setUsbHostFilter(e.target.value)} aria-label="เลือกคอมพิวเตอร์ที่ต่อ USB"
+                            className="border border-slate-200 rounded-xl px-3 h-[34px] text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100">
+                            <option value="">ทุกคอมพิวเตอร์</option>
+                            {usbHostNames.map((h) => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                    )}
+                    <select value={colorFilter} onChange={(e) => setColorFilter(e.target.value)} aria-label="กรองตามประเภทสี"
+                        className="border border-slate-200 rounded-xl px-3 h-[34px] text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100">
+                        <option value="all">ทุกประเภทสี</option>
+                        <option value="mono">ขาวดำ (Black/White)</option>
+                        <option value="color">สี (Color)</option>
+                    </select>
+                    <select value={sortKey} onChange={(e) => setSortKey(e.target.value)} aria-label="เรียงลำดับ"
+                        className="border border-slate-200 rounded-xl px-3 h-[34px] text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100">
+                        <option value="default">เรียงตามชื่อ</option>
+                        <option value="toner">หมึกต่ำสุดก่อน</option>
+                        <option value="scan">ออฟไลน์/สแกนเก่าสุดก่อน</option>
+                    </select>
+                    {viewMode === 'list' && (
+                        <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer">
+                            <input type="checkbox" checked={groupByHost} onChange={(e) => setGroupByHost(e.target.checked)} className="h-3.5 w-3.5 accent-indigo-600" />
+                            จัดกลุ่มตาม Ethernet / USB
+                        </label>
+                    )}
+                    <div className="ml-auto flex items-center gap-2">
+                        <button type="button" onClick={scanAll} disabled={scanningAll || data.length === 0 || !canScanPrinter}
+                            title={canScanPrinter ? 'ดึงข้อมูลทุกเครื่อง' : 'ไม่มีสิทธิ์ดึงข้อมูลจากเครื่อง'}
+                            className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2 rounded-xl shadow-sm">
+                            <RefreshCw size={13} className={scanningAll ? 'animate-spin' : ''} />
+                            {scanningAll ? 'กำลังดึงข้อมูลทุกเครื่อง...' : 'ดึงข้อมูลทั้งหมด'}
+                        </button>
+                    </div>
+                </div>
+                <TonerLegend />
+            </div>
+
             {viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                     {paginatedData.map((printer) => (
@@ -570,8 +904,12 @@ const PrinterHealthPage = () => {
                             key={printer.PrinterId}
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`ดูรายละเอียด ${printer.Name}`}
                             onClick={() => setSelectedPrinter(printer)}
-                            className={`bg-white rounded-2xl border p-4 shadow-md cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all ${printer.Online ? 'border-slate-100' : 'border-red-200 bg-red-50'}`}
+                            onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSelectedPrinter(printer); } }}
+                            className={`bg-white rounded-3xl border p-4 shadow-sm cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all duration-300 ${printer.Online ? 'border-slate-100' : 'border-red-200 bg-red-50'}`}
                         >
                             <div className="flex items-center justify-between mb-3">
                                 <div className="flex items-center gap-2">
@@ -580,13 +918,15 @@ const PrinterHealthPage = () => {
                                     </div>
                                     <div>
                                         <p className="font-bold text-slate-800 text-sm">{printer.Name}</p>
+                                        {printer.Model && <p className="text-[11px] font-semibold text-indigo-600 truncate">{printer.Model}</p>}
                                         <p className="text-xs text-slate-400">{printer.IpAddress} · {printer.Location}</p>
+                                        <div className="mt-1"><ConnectionBadge type={printer.ConnectionType} host={printer.UsbHost} /></div>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-1.5">
-                                    {printer.Online
-                                        ? <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">ออนไลน์</span>
-                                        : <span className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">ออฟไลน์</span>}
+                                    <StatusBadge tone={printer.Online ? 'emerald' : 'rose'} title={`สแกนล่าสุด ${scanAgeLabel(scannedAt(printer))}`}>
+                                        {printer.Online ? 'ออนไลน์' : 'ออฟไลน์'}
+                                    </StatusBadge>
                                     {canEditPrinter && <button
                                         onClick={(e) => { e.stopPropagation(); setModalMode(printer); }}
                                         className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 p-1 rounded-md transition-colors"
@@ -596,6 +936,15 @@ const PrinterHealthPage = () => {
                                     </button>}
                                 </div>
                             </div>
+
+                            {printer.PhotoUrl && (
+                                <img
+                                    src={`${API_URL}${printer.PhotoUrl}`}
+                                    alt={printer.Name}
+                                    loading="lazy"
+                                    className="w-full h-24 object-contain rounded-2xl bg-white border border-slate-100 p-1.5 mb-2.5 shadow-inner"
+                                />
+                            )}
 
                             <div className={printer.IsColor === false ? 'mb-2' : 'grid grid-cols-2 gap-x-4 gap-y-2 mb-2'}>
                                 <TonerBar label="Black" pct={printer.BlackPct} />
@@ -611,9 +960,16 @@ const PrinterHealthPage = () => {
                                 <p className="text-[10px] text-slate-400 -mt-1 mb-2">เครื่องขาวดำ</p>
                             )}
 
+                            <div className="mb-2" onClick={(e) => e.stopPropagation()}>
+                                <InkChips links={compatByPrinter[printer.PrinterId]} />
+                            </div>
+
                             <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                                 <div className="text-xs text-slate-400">
                                     <span>วิธี: {printer.Method || '-'}</span>
+                                    <span className={`block text-[10px] mt-0.5 ${isScanStale(scannedAt(printer)) ? 'text-amber-600 font-bold' : 'text-slate-400'}`}>
+                                        สแกน {scanAgeLabel(scannedAt(printer))}
+                                    </span>
                                     {printer.OpenErrorCount > 0 && (
                                         <span className="flex items-center gap-1 text-red-500 font-bold mt-0.5">
                                             <AlertTriangle size={11} /> {printer.OpenErrorCount} error
@@ -622,7 +978,8 @@ const PrinterHealthPage = () => {
                                 </div>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); scanPrinter(printer.PrinterId); }}
-                                    disabled={scanningId === printer.PrinterId}
+                                    disabled={!canScanPrinter || scanningId === printer.PrinterId}
+                                    title={canScanPrinter ? 'ดึงข้อมูลเครื่องนี้' : 'ไม่มีสิทธิ์ดึงข้อมูลจากเครื่อง'}
                                     className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1.5 rounded-lg transition-colors"
                                 >
                                     <RefreshCw size={12} className={scanningId === printer.PrinterId ? 'animate-spin' : ''} />
@@ -634,16 +991,26 @@ const PrinterHealthPage = () => {
                 </div>
             ) : (
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-md overflow-hidden">
-                    {paginatedData.map((printer) => (
-                        <PrinterListRow
-                            key={printer.PrinterId}
-                            printer={printer}
-                            onOpen={setSelectedPrinter}
-                            onEdit={setModalMode}
-                            onScan={scanPrinter}
-                            scanning={scanningId === printer.PrinterId}
-                        />
-                    ))}
+                    {paginatedData.map((printer, idx) => {
+                        const key = hostKey(printer);
+                        const showHeader = groupByHost && (idx === 0 || hostKey(paginatedData[idx - 1]) !== key);
+                        return (
+                            <React.Fragment key={printer.PrinterId}>
+                                {showHeader && (
+                                    <div className="px-4 py-2 bg-slate-50 text-[11px] font-bold text-slate-500 border-b border-slate-100">{key}</div>
+                                )}
+                                <PrinterListRow
+                                    printer={printer}
+                                    onOpen={setSelectedPrinter}
+                                    onEdit={setModalMode}
+                                    onScan={scanPrinter}
+                                    scanning={scanningId === printer.PrinterId}
+                                    inkLinks={compatByPrinter[printer.PrinterId]}
+                                    canScan={canScanPrinter}
+                                />
+                            </React.Fragment>
+                        );
+                    })}
                 </div>
             )}
 
@@ -697,6 +1064,9 @@ const PrinterHealthPage = () => {
             {selectedPrinter && (
                 <PrinterDetailModal
                     printer={selectedPrinter}
+                    inkLinks={compatByPrinter[selectedPrinter.PrinterId] || []}
+                    canEdit={canEditPrinter}
+                    onChanged={fetchData}
                     onClose={() => setSelectedPrinter(null)}
                 />
             )}

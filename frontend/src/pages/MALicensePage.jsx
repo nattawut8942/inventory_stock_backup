@@ -1315,13 +1315,13 @@ const MALicensePage = () => {
             {/* LIST VIEW */}
             {viewMode === 'list' ? (
                 <motion.div key={`list-${activeTab}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                    <div className="overflow-x-auto max-h-[60vh] 2xl:max-h-[70vh] custom-scrollbar relative">
+                    <div className="overflow-x-auto relative">
                         <table className="w-full text-left min-w-max">
                             <thead className="bg-slate-50 text-slate-600 uppercase text-[11px] font-bold tracking-wider border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                                 <tr>
-                                    <th className="px-3 py-3 w-8 bg-slate-50 text-center">#</th>
+                                    <th className="px-3 py-2 w-8 bg-slate-50 text-center">#</th>
                                     {getColumns(activeTab).map(col => (
-                                        <th key={col.key} className={`px-3 py-3 ${col.width} bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors group select-none`} onClick={() => handleSort(col.key)}>
+                                        <th key={col.key} className={`px-3 py-2 ${col.width} bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors group select-none`} onClick={() => handleSort(col.key)}>
                                             <div className="flex items-center gap-1">
                                                 {col.label}
                                                 {sortConfig?.key === col.key ? (
@@ -1358,13 +1358,13 @@ const MALicensePage = () => {
                                         <motion.tr key={item.ItemID} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.02 }}
                                             className={`transition-colors cursor-pointer align-middle ${rowBgColor}`}
                                             onClick={() => setDetailItem(item)}>
-                                            <td className="px-3 py-2.5 text-slate-400 font-mono text-[11px] text-center">{globalIdx + 1}</td>
+                                            <td className="px-3 py-1.5 text-slate-400 font-mono text-[11px] text-center">{globalIdx + 1}</td>
                                             {getColumns(activeTab).map(col => (
-                                                <td key={col.key} className={`px-3 py-2.5 text-slate-600 text-xs ${col.key === 'ItemName' || col.key === 'EndDate' || col.key === '_duration' ? 'font-bold text-sm text-slate-800' : ''} ${col.width}`}>
+                                                <td key={col.key} className={`px-3 py-1.5 text-slate-600 text-[11px] leading-tight ${col.key === 'ItemName' || col.key === 'EndDate' || col.key === '_duration' ? 'font-bold text-xs text-slate-800' : ''} ${col.width}`}>
                                                     {renderCellValue(item, col)}
                                                 </td>
                                             ))}
-                                            <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                            <td className="px-3 py-1.5 text-center whitespace-nowrap">
                                                 <button onClick={(e) => { e.stopPropagation(); setDetailItem(item); }} title="ดูรายละเอียด" aria-label="ดูรายละเอียด" className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-white rounded transition-colors">
                                                     <Eye size={14} />
                                                 </button>
@@ -2427,24 +2427,34 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
     return (
         <Portal>
             <div className="fixed inset-0 z-[70] overflow-y-auto bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4">
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-3xl bg-white rounded-2xl shadow-xl overflow-hidden">
-                    <div className={`p-4 bg-gradient-to-r ${catInfo?.color || 'from-slate-700 to-slate-800'} text-white`}>
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-2xl max-h-[92vh] flex flex-col bg-white rounded-2xl shadow-xl overflow-hidden">
+                    <div className={`p-3 shrink-0 bg-gradient-to-r ${catInfo?.color || 'from-slate-700 to-slate-800'} text-white`}>
                         <div className="flex justify-between items-center">
                             <h3 className="font-black text-lg">{isEdit ? 'แก้ไขรายการ' : `เพิ่ม ${catInfo?.label || ''} ใหม่`}</h3>
                             <button onClick={onClose} className="p-1.5 hover:bg-white/20 rounded-full transition-colors"><X size={18} /></button>
                         </div>
                     </div>
-                    <form id="ma-form" onSubmit={handleSubmit} className="p-4 space-y-3 max-h-[72vh] overflow-y-auto custom-scrollbar">
+                    <form id="ma-form" onSubmit={handleSubmit} className="p-3 grid grid-cols-1 md:grid-cols-2 gap-2.5 items-start flex-1 min-h-0 overflow-y-auto custom-scrollbar">
 
+                        {/* คอลัมน์ซ้าย: 1 · 3 */}
+                        <div className="space-y-3 min-w-0">
                         {/* 1 · ข้อมูลรายการ */}
                         <FormSection n={1} title="ข้อมูลรายการ">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 gap-3">
+                                <div className={`grid gap-3 ${cat !== 'SOFTWARE' ? 'grid-cols-2' : 'grid-cols-1'}`}>
                                 <FormField label="ประเภทย่อย" required error={errors.SubType}>
                                     <select value={form.SubType} onChange={(e) => handleChange('SubType', e.target.value)} className={`w-full p-2 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 ${errors.SubType ? 'border-red-400' : 'border-slate-200'}`}>
                                         <option value="">เลือกประเภท...</option>
                                         {subtypeOptions.map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
                                 </FormField>
+                                {cat !== 'SOFTWARE' && (
+                                    <FormField label={cat === 'SERVICE' ? 'สถานที่ให้บริการ' : 'สถานที่ติดตั้ง'}>
+                                        <SideSelect value={form.LocationName} onChange={(v) => handleChange('LocationName', v)}
+                                            options={locations.map(l => ({ value: l.Name, label: l.Name }))} placeholder="เลือกสถานที่..." />
+                                    </FormField>
+                                )}
+                                </div>
                                 <FormField label={cat === 'SOFTWARE' ? 'ชื่อ Software / License' : cat === 'SERVICE' ? 'ชื่อบริการ' : cat === 'RENTAL' ? 'ชื่อรายการเช่า' : 'ชื่ออุปกรณ์'} error={errors.ItemName}>
                                     <input type="text" value={form.ItemName} onChange={(e) => handleChange('ItemName', e.target.value)} className={`w-full p-2 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100 ${errors.ItemName ? 'border-red-400' : 'border-slate-200'}`} placeholder="ระบุชื่อ..." />
                                 </FormField>
@@ -2464,24 +2474,8 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                                 {cat === 'SERVICE' && (
                                     <FormField label="เลขสัญญา"><input type="text" value={form.ServiceNumber} onChange={(e) => handleChange('ServiceNumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="Contract No." /></FormField>
                                 )}
-                                {cat === 'SERVICE' && (
-                                    <FormField label="สถานที่ให้บริการ">
-                                        <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
-                                            <option value="">เลือกสถานที่...</option>
-                                            {locations.map(l => <option key={l.LocationID} value={l.Name}>{l.Name}</option>)}
-                                        </select>
-                                    </FormField>
-                                )}
                                 {cat === 'RENTAL' && (
                                     <FormField label="จำนวน"><input type="number" min="0" value={form.LicenseQty} onChange={(e) => handleChange('LicenseQty', parseInt(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
-                                )}
-                                {(cat === 'HARDWARE' || cat === 'RENTAL') && (
-                                    <FormField label="สถานที่ติดตั้ง">
-                                        <select value={form.LocationName} onChange={(e) => handleChange('LocationName', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
-                                            <option value="">เลือกสถานที่...</option>
-                                            {locations.map(l => <option key={l.LocationID} value={l.Name}>{l.Name}</option>)}
-                                        </select>
-                                    </FormField>
                                 )}
                                 <FormField label="IP Address (ถ้ามี)">
                                     <input type="text" value={form.IpAddress} maxLength={15} onChange={(e) => handleChange('IpAddress', e.target.value)}
@@ -2496,33 +2490,11 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                             </div>
                         </FormSection>
 
-                        {/* 2 · Vendor, ราคา, PO, สถานะ */}
-                        <FormSection n={2} title="Vendor, ราคา และ PO">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <FormField label="Vendor">
-                                    <select value={form.VendorID} onChange={(e) => handleChange('VendorID', e.target.value ? parseInt(e.target.value) : '')} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
-                                        <option value="">เลือก Vendor...</option>
-                                        {vendors.map(v => <option key={v.VendorID} value={v.VendorID}>{v.VendorName}</option>)}
-                                    </select>
-                                </FormField>
-                                <FormField label="ราคา (฿)"><input type="number" min="0" step="0.01" value={form.Price} onChange={(e) => handleChange('Price', parseFloat(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
-                                {(cat !== 'SERVICE') && (
-                                    <FormField label="PO / เลขสัญญา"><input type="text" value={form.PONumber} onChange={(e) => handleChange('PONumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="PO Number" /></FormField>
-                                )}
-                                <FormField label="สถานะ">
-                                    <select value={form.Status} onChange={(e) => handleChange('Status', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
-                                        {MANUAL_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                    <p className="text-[10px] text-slate-400 mt-0.5">Expiring / Expired คำนวณจากวันหมดอายุอัตโนมัติ</p>
-                                </FormField>
-                            </div>
-                        </FormSection>
-
                         {/* 3 · ระยะเวลา */}
                         <FormSection n={3} title={isRental ? 'ระยะเวลาสัญญา Rental' : 'วันที่เริ่มและหมดอายุ'}>
                             {isRental ? (
                                 <div className="space-y-3">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="grid grid-cols-1 gap-3">
                                         <FormField label="วันที่เริ่มสัญญา">
                                             <input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="w-full p-2 border border-amber-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-100" />
                                         </FormField>
@@ -2552,11 +2524,36 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                                     )}
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 gap-3">
                                     <FormField label="วันที่เริ่ม/ต่อประกัน"><input type="date" value={form.StartDate} onChange={(e) => handleChange('StartDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
                                     <FormField label="วันที่หมดอายุ"><input type="date" value={form.EndDate} onChange={(e) => handleChange('EndDate', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
                                 </div>
                             )}
+                        </FormSection>
+
+                        </div>
+                        {/* คอลัมน์ขวา: 2 · 4 · 5 */}
+                        <div className="space-y-3 min-w-0">
+                        {/* 2 · Vendor, ราคา, PO, สถานะ */}
+                        <FormSection n={2} title="Vendor, ราคา และ PO">
+                            <div className="grid grid-cols-1 gap-3">
+                                <FormField label="Vendor">
+                                    <select value={form.VendorID} onChange={(e) => handleChange('VendorID', e.target.value ? parseInt(e.target.value) : '')} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
+                                        <option value="">เลือก Vendor...</option>
+                                        {vendors.map(v => <option key={v.VendorID} value={v.VendorID}>{v.VendorName}</option>)}
+                                    </select>
+                                </FormField>
+                                <FormField label="ราคา (฿)"><input type="number" min="0" step="0.01" value={form.Price} onChange={(e) => handleChange('Price', parseFloat(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" /></FormField>
+                                {(cat !== 'SERVICE') && (
+                                    <FormField label="PO / เลขสัญญา"><input type="text" value={form.PONumber} onChange={(e) => handleChange('PONumber', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100" placeholder="PO Number" /></FormField>
+                                )}
+                                <FormField label="สถานะ">
+                                    <select value={form.Status} onChange={(e) => handleChange('Status', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100">
+                                        {MANUAL_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">Expiring / Expired คำนวณจากวันหมดอายุอัตโนมัติ</p>
+                                </FormField>
+                            </div>
                         </FormSection>
 
                         {/* 4 · การต่ออายุ / จัดซื้อ (พับได้) */}
@@ -2570,7 +2567,7 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                                 </span>
                             </button>
                             {showRenewal && (<>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div className="grid grid-cols-1 gap-3">
                                 <FormField label="สถานะต่ออายุ">
                                     <select value={form.RenewalStatus} onChange={(e) => handleChange('RenewalStatus', e.target.value)} className="w-full p-2 border border-violet-200 bg-white rounded-lg text-xs outline-none focus:ring-2 focus:ring-violet-100">
                                         <option value="">ยังไม่ดำเนินการ</option>
@@ -2610,8 +2607,9 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                                 </div>
                             </div>
                         </FormSection>
+                        </div>
                     </form>
-                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex gap-2">
+                    <div className="p-3 shrink-0 bg-slate-50 border-t border-slate-100 flex gap-2">
                         <button type="button" onClick={onClose} className="flex-1 py-2 bg-white text-slate-600 rounded-lg text-xs font-bold border border-slate-200 hover:bg-slate-100 transition-colors">ยกเลิก</button>
                         <button type="submit" form="ma-form" className={`flex-1 py-2 text-white rounded-lg text-xs font-bold bg-gradient-to-r ${catInfo?.color || 'from-slate-700 to-slate-800'} hover:shadow-lg transition-all`}>
                             {isEdit ? 'บันทึกการแก้ไข' : 'เพิ่มรายการ'}
@@ -2642,6 +2640,71 @@ const FormModal = ({ item, category, vendors, locations, maTypes, onSave, onClos
                 )}
             </AnimatePresence>
         </Portal>
+    );
+};
+
+// Dropdown ที่เปิดไปทางขวาของปุ่ม (วาดผ่าน Portal ไม่ถูกตัดจากการเลื่อนในฟอร์ม)
+const SideSelect = ({ value, onChange, options, placeholder = 'เลือก...' }) => {
+    const [open, setOpen] = useState(false);
+    const [pos, setPos] = useState(null);
+    const btnRef = useRef(null);
+    const panelRef = useRef(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const onDown = (e) => {
+            if (btnRef.current?.contains(e.target) || panelRef.current?.contains(e.target)) return;
+            setOpen(false);
+        };
+        // ปิดเมื่อเลื่อน/ปรับขนาดหน้า แต่ไม่ปิดเมื่อเลื่อนรายการในกล่องเอง
+        const onMove = () => setOpen(false);
+        const onScroll = (e) => { if (panelRef.current?.contains(e.target)) return; setOpen(false); };
+        document.addEventListener('mousedown', onDown);
+        window.addEventListener('resize', onMove);
+        window.addEventListener('scroll', onScroll, true);
+        return () => {
+            document.removeEventListener('mousedown', onDown);
+            window.removeEventListener('resize', onMove);
+            window.removeEventListener('scroll', onScroll, true);
+        };
+    }, [open]);
+
+    const toggle = () => {
+        if (!open && btnRef.current) {
+            const r = btnRef.current.getBoundingClientRect();
+            const top = Math.max(8, Math.min(r.top, window.innerHeight - 340));
+            setPos({ top, left: r.right + 8 });
+        }
+        setOpen(o => !o);
+    };
+
+    const pick = (v) => { onChange(v); setOpen(false); };
+
+    return (
+        <>
+            <button ref={btnRef} type="button" onClick={toggle} aria-haspopup="listbox" aria-expanded={open}
+                className="w-full p-2 border border-slate-200 bg-white rounded-lg text-xs text-left flex items-center justify-between gap-2 outline-none focus:ring-2 focus:ring-indigo-100">
+                <span className={`truncate ${value ? 'text-slate-700' : 'text-slate-400'}`}>{value || placeholder}</span>
+                <ChevronDown size={12} className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open && pos && (
+                <Portal>
+                    <div ref={panelRef} role="listbox" style={{ position: 'fixed', top: pos.top, left: pos.left, width: 260, maxHeight: '320px' }}
+                        className="z-[80] bg-white rounded-xl shadow-2xl border border-slate-200 overflow-y-auto py-1 custom-scrollbar">
+                        <button type="button" onClick={() => pick('')} className="w-full text-left px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-50">{placeholder}</button>
+                        {options.map(o => {
+                            const selected = value === o.value;
+                            return (
+                                <button key={o.value} type="button" role="option" aria-selected={selected} onClick={() => pick(o.value)}
+                                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${selected ? 'bg-indigo-600 text-white font-bold' : 'text-slate-700 hover:bg-indigo-50'}`}>
+                                    {o.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </Portal>
+            )}
+        </>
     );
 };
 

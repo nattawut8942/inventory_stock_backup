@@ -22,6 +22,7 @@ import { RackCameraPicker } from '../components/cctv/RackCameraPicker';
 import { MaintenanceDetailModal } from '../components/cctv/MaintenanceDetailModal';
 import { TooltipPortal } from '../components/cctv/TooltipPortal';
 import { GlobalSearchModal } from '../components/cctv/GlobalSearchModal';
+import LayoutMegaMenu from '../components/LayoutMegaMenu';
 
 
 
@@ -1078,37 +1079,18 @@ const [globalSearchOpen, setGlobalSearchOpen] = useState(false); // ← เพ�
                 ))}
             </div>
 
-            {/* ── Camera count per Factory ───────────────────────────────── */}
+            {/* ── เลือกโรง: mega menu (แสดงจำนวนกล้อง + online ของแต่ละโรง) ── */}
             {layouts.length > 0 && (
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
-                    <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">กล้องแต่ละโรง</div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-4 gap-y-1.5">
-                        {layouts.map(l => {
-                            const count = allCameras.filter(c => c.factory_layout_id === l.id).length;
-                            const onlineC = allCameras.filter(c => c.factory_layout_id === l.id && c.status === 'online').length;
-                            const isSel = selectedLayout === l.id;
-                            return (
-                                <button key={l.id}
-                                    onClick={() => { setSelectedLayout(l.id); setLayoutDropOpen(false); }}
-                                    className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all
-                                            ${isSel ? 'bg-blue-600 border border-blue-600 shadow-sm' : 'hover:bg-slate-50 border border-transparent'}`}>
-                                    <span className={`text-xs truncate ${isSel ? 'text-white font-semibold' : 'text-slate-600'}`}>{l.name}</span>
-                                    <div className="flex items-center gap-1 flex-shrink-0">
-                                        <span className={`text-xs font-bold ${isSel ? 'text-white' : 'text-slate-700'}`}>{count}</span>
-                                        {count > 0 && (
-                                            <span className={`text-[10px] px-1 rounded-full font-medium
-                                                ${onlineC === count ? 'bg-green-100 text-green-600'
-                                                    : onlineC === 0 ? 'bg-red-100 text-red-600'
-                                                        : 'bg-amber-100 text-amber-600'}`}>
-                                                {onlineC}/{count}
-                                            </span>
-                                        )}
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
+                <LayoutMegaMenu
+                    layouts={layouts}
+                    selectedId={selectedLayout}
+                    onSelect={setSelectedLayout}
+                    accent="blue"
+                    getStats={(l) => ({
+                        total: allCameras.filter(c => c.factory_layout_id === l.id).length,
+                        online: allCameras.filter(c => c.factory_layout_id === l.id && c.status === 'online').length,
+                    })}
+                />
             )}
 
             {/* ── Toolbar ────────────────────────────────────────────────── */}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LayoutGrid, Monitor, Laptop2, Printer, X, Loader2, MapPin, Search } from 'lucide-react';
+import LayoutMegaMenu from '../components/LayoutMegaMenu';
 import { API_BASE, API_URL } from '../config/api';
 import Portal from '../components/Portal';
 import { useAuth } from '../context/AuthContext';
@@ -693,33 +694,21 @@ const PCControlPage = () => {
         </button>
       </div>
 
-      {/* ── เลือก Layout — ตัวหนังสือล้วน ไม่มีรูป ── */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-        <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3">เลือกแผนผัง</div>
-        {layoutsLoading ? (
-          <div className="flex items-center gap-2 text-slate-400 text-sm py-2">
-            <Loader2 size={16} className="animate-spin" /> กำลังโหลด...
-          </div>
-        ) : layouts.length === 0 ? (
-          <div className="text-sm text-slate-400 py-2">ยังไม่มีแผนผังในระบบ</div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {layouts.map((l) => (
-              <button
-                key={l.id}
-                onClick={() => setSelectedLayoutId(l.id)}
-                className={`px-4 py-2 rounded-xl text-[13px] font-bold border transition-all ${
-                  l.id === selectedLayoutId
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                {l.name}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* ── เลือกแผนผัง: mega menu ── */}
+      {layoutsLoading ? (
+        <div className="flex items-center gap-2 text-slate-400 text-sm py-2">
+          <Loader2 size={16} className="animate-spin" /> กำลังโหลด...
+        </div>
+      ) : layouts.length === 0 ? (
+        <div className="text-sm text-slate-400 py-2">ยังไม่มีแผนผังในระบบ</div>
+      ) : (
+        <LayoutMegaMenu
+          layouts={layouts}
+          selectedId={selectedLayoutId}
+          onSelect={setSelectedLayoutId}
+          accent="indigo"
+        />
+      )}
 
       {/* ── Filter + Search ── */}
       <div className="flex flex-wrap items-center gap-2.5">

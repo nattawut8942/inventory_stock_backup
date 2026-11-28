@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks , ShieldCheck, ClipboardList, Crown, Activity, Moon, Sparkles } from 'lucide-react';
+import { Users, Settings, Truck, Plus, Trash2, Edit2, Search, Check, X, Shield, AlertTriangle, Archive, MessageSquare, FileKey, DollarSign, Map, Camera, Server, History, RefreshCw, KeyRound, ListChecks , ShieldCheck, ClipboardList, Crown, Activity, Moon, Sparkles, Network } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../context/PermissionContext';
@@ -13,6 +13,8 @@ import { getBadgeStyle, getDeviceTypeColor, getChartColor } from '../utils/style
 import DeviceTypeManagementTab from '../components/DeviceTypeManagementTab';
 import { MgmtSection, MgmtTable, RowActions, PrimaryButton, SecondaryButton } from '../components/management/MgmtTable';
 import AuditLogTab from '../components/management/AuditLogTab';
+import NetAtlasLayoutsTab from '../components/netatlas/NetAtlasLayoutsTab';
+import NetAtlasDeviceTypesTab from '../components/netatlas/NetAtlasDeviceTypesTab';
 
 // Employee photo: URL saved from AD at login, else the standard DCI picture path by EmpCode.
 // Falls back to initials if the image can't load (no photo / off network).
@@ -140,7 +142,7 @@ const TAB_GROUPS = [
     { label: 'ผู้ใช้และความปลอดภัย', ids: ['admin', 'audit-log', 'login-logs'] },
     { label: 'ข้อมูลหลักสต็อก', ids: ['vendors', 'locations', 'reasons', 'device-types', 'budgets'] },
     { label: 'สัญญาและบริการ', ids: ['ma-types'] },
-    { label: 'สถานที่และอุปกรณ์', ids: ['factory-layouts', 'record-servers'] },
+    { label: 'สถานที่และอุปกรณ์', ids: ['factory-layouts', 'record-servers', 'netatlas-layouts', 'netatlas-device-types'] },
     { label: 'อื่นๆ', ids: ['activity-categories'] },
 ];
 const LAST_TAB_KEY = 'mgmt.lastTab';
@@ -199,6 +201,8 @@ const ManagementPage = () => {
     const pRecordServers = mgmtFlags('mgmt-record-servers');
     const pActivityCategories = mgmtFlags('mgmt-activity-categories');
     const pDeviceTypes = mgmtFlags('mgmt-device-types');
+    const pNetAtlasLayouts = mgmtFlags('mgmt-netatlas-layouts');
+    const pNetAtlasDeviceTypes = mgmtFlags('mgmt-netatlas-device-types');
     // Users and Login Log can never be granted to anyone but Admin
     const visibleTabs = [
         isAdminUser && { id: 'admin', label: 'ผู้ใช้', icon: Users },
@@ -210,6 +214,8 @@ const ManagementPage = () => {
         pBudgets.view && { id: 'budgets', label: 'หมวดงบประมาณ', icon: DollarSign },
         pFactoryLayouts.view && { id: 'factory-layouts', label: 'แผนผังโรงงาน', icon: Map },
         pRecordServers.view && { id: 'record-servers', label: 'Record Server', icon: Server },
+        pNetAtlasLayouts.view && { id: 'netatlas-layouts', label: 'ผังเครือข่าย (NetAtlas)', icon: Network },
+        pNetAtlasDeviceTypes.view && { id: 'netatlas-device-types', label: 'ประเภทอุปกรณ์ (NetAtlas)', icon: Server },
         pActivityCategories.view && { id: 'activity-categories', label: 'หมวดกิจกรรม', icon: Camera },
         isAdminUser && { id: 'login-logs', label: 'ประวัติเข้าระบบ', icon: History },
         isAdminUser && { id: 'audit-log', label: 'ประวัติการทำงาน', icon: ClipboardList },
@@ -1387,6 +1393,23 @@ const handleFileSelect = (e) => {
                             ]}
                         />
                     </MgmtSection>
+                )}
+
+                {/* ผังเครือข่าย NetAtlas (แยกจากแผนผังโรงงาน) */}
+                {activeTab === 'netatlas-layouts' && (
+                    <NetAtlasLayoutsTab
+                        canCreate={pNetAtlasLayouts.create}
+                        canEdit={pNetAtlasLayouts.edit}
+                        canDelete={pNetAtlasLayouts.del}
+                    />
+                )}
+
+                {activeTab === 'netatlas-device-types' && (
+                    <NetAtlasDeviceTypesTab
+                        canCreate={pNetAtlasDeviceTypes.create}
+                        canEdit={pNetAtlasDeviceTypes.edit}
+                        canDelete={pNetAtlasDeviceTypes.del}
+                    />
                 )}
 
                 {/* หมวดกิจกรรม */}

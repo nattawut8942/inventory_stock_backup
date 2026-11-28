@@ -7,6 +7,9 @@ import ldap from 'ldapjs';
 import dotenv from 'dotenv';
 import { connectDB, getPool, sql } from '../config/db.js';
 import { sendQuotaWarning, sendQuotaReport } from '../services/quotaEmailService.js';
+import jwt from 'jsonwebtoken';
+import { getJwtSecret } from '../config/jwtSecret.js';
+import { writeAuditEvent } from '../services/auditLogService.js';
 import {
     getFilesFromLatestReport,
     isFsrmBusy, getFsrmQueueLength
@@ -716,56 +719,110 @@ const runSetQuota = async (username, limitBytes, warnBytes, apply, quotaPath = '
 };
 
 const quotaEditLocks = new Set();
+// ผู้ใช้ที่สั่งงาน (route quota ไม่ได้ผ่าน authMiddleware จึงอ่านจาก token เอง)
+const identifyActor = (req) => {
+    if (req.user) return req.user;
+    const raw = req.headers['authorization'];
+    if (!raw) return null;
+    try { return jwt.verify(raw.startsWith('Bearer ') ? raw.slice(7) : raw, getJwtSecret()); } catch { return null; }
+};
 
-// POST /quota/extend  { username, newLimitMB, newWarningMB?, dryRun? }
-export const extendQuota = async (req, res) => {
-    const username = String(req.body?.username || '').trim();
-    const newLimitMB = Number(req.body?.newLimitMB);
-    const dryRun = req.body?.dryRun === true;
 
-    if (!USERNAME_RE.test(username)) return res.status(400).json({ success: false, error: 'username ไม่ถูกต้อง' });
-    if (!Number.isInteger(newLimitMB) || newLimitMB < QUOTA_MIN_LIMIT_MB || newLimitMB > QUOTA_MAX_LIMIT_MB) {
-        return res.status(400).json({ success: false, error: `ขนาดใหม่ต้องเป็นจำนวนเต็ม ${QUOTA_MIN_LIMIT_MB}–${QUOTA_MAX_LIMIT_MB} MB` });
-    }
-    let newWarningMB = req.body?.newWarningMB;
-    if (newWarningMB !== undefined && newWarningMB !== null && newWarningMB !== '') {
-        newWarningMB = Number(newWarningMB);
-        if (!Number.isInteger(newWarningMB) || newWarningMB < 1 || newWarningMB > newLimitMB) {
-            return res.status(400).json({ success: false, error: 'ระดับเตือนต้องเป็นจำนวนเต็ม และไม่เกินขนาดใหม่' });
-        }
-    } else newWarningMB = null;
+// ── พื้นที่จริงของไดรฟ์ที่เก็บโควต้า ─────────────────────────
+const QUOTA_VOLUME = /^[A-Za-z]:$/.test(process.env.QUOTA_VOLUME || '') ? process.env.QUOTA_VOLUME.toUpperCase() : 'E:';
+const DISK_CACHE_MS = 10 * 60 * 1000;
+let diskCache = null; // { size, free, at }
 
-    if (quotaEditLocks.has(username)) return res.status(409).json({ success: false, error: `${username} กำลังถูกแก้โควต้าอยู่` });
-    quotaEditLocks.add(username);
+const DISK_PS = [
+    'param([string]$Server, [string]$User, [string]$Volume)',
+    '$ErrorActionPreference = "Stop"',
+    '$pass = ConvertTo-SecureString $env:QUOTA_WINRM_PASS -AsPlainText -Force',
+    '$cred = New-Object System.Management.Automation.PSCredential($User, $pass)',
+    'Invoke-Command -ComputerName $Server -Credential $cred -ArgumentList $Volume -ScriptBlock {',
+    '    param($v)',
+    '    $d = Get-WmiObject Win32_LogicalDisk -Filter ("DeviceID=\'" + $v + "\'")',
+    '    [pscustomobject]@{ Size = [int64]$d.Size; Free = [int64]$d.FreeSpace }',
+    '} | Select-Object Size, Free | ConvertTo-Json -Compress',
+].join('\r\n');
+
+const fetchDiskInfo = async (force = false) => {
+    if (!force && diskCache && Date.now() - diskCache.at < DISK_CACHE_MS) return diskCache;
+    const psFile = join(tmpdir(), `quota_disk_${Date.now()}.ps1`);
     try {
-        // อ่านค่าปัจจุบันก่อน เพื่อตรวจว่าไม่ตั้งต่ำกว่าที่ใช้อยู่ และคำนวณระดับเตือน
+        writeFileSync(psFile, DISK_PS, 'utf8');
+        const { stdout } = await execFileAsync('powershell', [
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', psFile,
+            '-Server', FSRM_SERVER, '-User', FSRM_USER, '-Volume', QUOTA_VOLUME,
+        ], { timeout: 60000, windowsHide: true, env: { ...process.env, QUOTA_WINRM_PASS: FSRM_PASS } });
+        const d = JSON.parse(stdout.trim());
+        diskCache = { size: Number(d.Size), free: Number(d.Free), at: Date.now() };
+        return diskCache;
+    } finally {
+        try { if (existsSync(psFile)) unlinkSync(psFile); } catch { }
+    }
+};
+
+// ส่วนเผื่อจริง = พื้นที่ว่างบนดิสก์ − โควต้าที่แจกไปแล้วแต่ผู้ใช้ยังไม่ได้ใช้
+// ถ้าขยายเกินส่วนนี้ เมื่อทุกคนใช้เต็มโควต้า ดิสก์จะเต็มก่อน (overcommit)
+const computeCapacity = async (disk) => {
+    const pool = await connectDB();
+    const r = await pool.request().query(`
+        SELECT COUNT(*) AS users,
+               SUM(CAST(SizeLimit AS bigint)) AS allocated,
+               SUM(CAST(SizeUsed AS bigint)) AS used,
+               SUM(CASE WHEN SizeLimit > SizeUsed THEN CAST(SizeLimit - SizeUsed AS bigint) ELSE 0 END) AS unusedAllocated,
+               MAX(LastSynced) AS lastSynced
+        FROM Quota_Users`);
+    const s = r.recordset[0] || {};
+    const unusedAllocated = Number(s.unusedAllocated || 0);
+    return {
+        volume: QUOTA_VOLUME,
+        users: s.users || 0,
+        allocated: Number(s.allocated || 0),
+        used: Number(s.used || 0),
+        unusedAllocated,
+        diskSize: disk?.size ?? null,
+        diskFree: disk?.free ?? null,
+        margin: disk ? disk.free - unusedAllocated : null,
+        diskCheckedAt: disk?.at ? new Date(disk.at).toISOString() : null,
+        lastSynced: s.lastSynced || null,
+    };
+};
+
+// งานปรับโควต้า — ทำใน background (ใช้เวลาราว 2 นาที เพราะต้องไล่อ่านโควต้าทุกคน 1 รอบ)
+const runExtendJob = async (jobId, { username, newLimitMB, newWarningMB, allowOvercommit, actor }) => {
+    const started = Date.now();
+    const step = (msg) => { jobs[jobId].step = msg; };
+    let oldLimit = null;
+    try {
+        step('กำลังอ่านโควต้าปัจจุบันจาก File Server (ประมาณ 1–2 นาที)...');
         const cur = await runSetQuota(username, 0, 0, false);
         const used = Number(cur.Before.Used);
-        const oldLimit = Number(cur.Before.Limit);
+        oldLimit = Number(cur.Before.Limit);
         const oldWarn = Number(cur.Before.Warning);
         const limitBytes = newLimitMB * MB;
-        if (limitBytes <= used) {
-            return res.status(400).json({ success: false, error: `ขนาดใหม่ต้องมากกว่าที่ใช้อยู่ (${fmtBytes(used)})` });
+        if (limitBytes <= used) throw new Error(`ขนาดใหม่ต้องมากกว่าที่ใช้อยู่ (${fmtBytes(used)})`);
+        if (limitBytes - oldLimit > QUOTA_MAX_INCREASE_MB * MB) throw new Error(`เพิ่มได้ไม่เกิน ${fmtBytes(QUOTA_MAX_INCREASE_MB * MB)} ต่อครั้ง`);
+
+        // ตรวจพื้นที่ดิสก์จริง (ค่าพื้นที่ว่างได้มาพร้อมการอ่านรอบนี้ จึงเป็นค่าล่าสุด)
+        diskCache = { size: Number(cur.DiskSize), free: Number(cur.DiskFree), at: Date.now() };
+        const cap = await computeCapacity(diskCache);
+        const increase = limitBytes - oldLimit;
+        if (increase > 0 && increase > cap.margin && !allowOvercommit) {
+            throw Object.assign(new Error(
+                `พื้นที่ดิสก์จริงไม่พอ: ส่วนเผื่อเหลือ ${fmtBytes(Math.max(cap.margin, 0))} แต่ขอเพิ่ม ${fmtBytes(increase)} ` +
+                '— ถ้ายืนยันจะทำให้โควต้ารวมเกินพื้นที่ว่างของดิสก์'), { code: 'OVERCOMMIT' });
         }
-        if (limitBytes - oldLimit > QUOTA_MAX_INCREASE_MB * MB) {
-            return res.status(400).json({ success: false, error: `เพิ่มได้ไม่เกิน ${fmtBytes(QUOTA_MAX_INCREASE_MB * MB)} ต่อครั้ง` });
-        }
+
         // ไม่ระบุระดับเตือน = รักษาระยะห่างเดิมจากเพดาน (ค่าเริ่มต้นของเซิร์ฟเวอร์คือ 400 MB / เตือน 390 MB)
         let warnBytes = newWarningMB !== null ? newWarningMB * MB : limitBytes - Math.max(oldLimit - oldWarn, 0);
         if (warnBytes <= 0 || warnBytes > limitBytes) warnBytes = Math.floor(limitBytes * 0.9);
 
-        if (dryRun) {
-            return res.json({
-                success: true, dryRun: true, username, volume: cur.Volume,
-                before: { used, limit: oldLimit, warning: oldWarn },
-                after: { used, limit: limitBytes, warning: warnBytes },
-                disk: { size: Number(cur.DiskSize), free: Number(cur.DiskFree) },
-            });
-        }
-
+        step(`กำลังปรับ ${fmtBytes(oldLimit)} → ${fmtBytes(limitBytes)}...`);
         const r = await runSetQuota(username, limitBytes, warnBytes, true, cur.Path);
         const after = { used: Number(r.After.Used), limit: Number(r.After.Limit), warning: Number(r.After.Warning) };
         if (after.limit !== limitBytes) throw new Error('ตั้งค่าแล้วแต่อ่านค่ากลับมาไม่ตรง กรุณา Sync เพื่อตรวจสอบ');
+        diskCache = { size: Number(r.DiskSize), free: Number(r.DiskFree), at: Date.now() };
 
         // อัปเดตตาราง cache ให้หน้าเว็บเห็นทันทีโดยไม่ต้อง Sync ทั้งหมด
         const pct = Math.round((after.used / after.limit) * 1000) / 10;
@@ -788,34 +845,81 @@ export const extendQuota = async (req, res) => {
             console.warn('[DB] extendQuota cache update error:', err.message);
         }
 
-        res.locals.auditSummary = `${username}: ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)}`;
-        res.locals.auditChanges = {
-            fields: [
-                { field: 'Limit', from: fmtBytes(oldLimit), to: fmtBytes(after.limit) },
-                { field: 'WarningLimit', from: fmtBytes(oldWarn), to: fmtBytes(after.warning) },
-            ],
-        };
-        console.log(`[Quota] ${req.user?.username || '?'} set ${username} ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)} (warn ${fmtBytes(after.warning)})`);
-        res.json({
-            success: true, username, volume: r.Volume,
-            before: { used, limit: oldLimit, warning: oldWarn },
-            after,
-            disk: { size: Number(r.DiskSize), free: Number(r.DiskFree) },
+        const overcommitted = increase > 0 && increase > cap.margin;
+        await writeAuditEvent({
+            user: actor, module: 'quota', path: '/quota/extend', recordId: username,
+            summary: `${username}: ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)}${overcommitted ? ' (ยืนยันเกินพื้นที่ดิสก์)' : ''}`,
+            durationMs: Date.now() - started,
+            changes: {
+                fields: [
+                    { field: 'Limit', from: fmtBytes(oldLimit), to: fmtBytes(after.limit) },
+                    { field: 'WarningLimit', from: fmtBytes(oldWarn), to: fmtBytes(after.warning) },
+                ],
+            },
         });
+        console.log(`[Quota] ${actor?.username || '?'} set ${username} ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)} (warn ${fmtBytes(after.warning)})`);
+        jobs[jobId] = {
+            ...jobs[jobId], status: 'done', step: `✅ ${username}: ${fmtBytes(oldLimit)} → ${fmtBytes(after.limit)}`,
+            result: {
+                username, volume: r.Volume,
+                before: { used, limit: oldLimit, warning: oldWarn },
+                after,
+                disk: { size: diskCache.size, free: diskCache.free },
+            },
+        };
     } catch (err) {
-        res.status(err.status || 500).json({ success: false, error: err.message });
+        jobs[jobId] = { ...jobs[jobId], status: 'error', error: err.message, code: err.code || null, step: `❌ ${err.message}` };
+        if (err.code !== 'OVERCOMMIT' && oldLimit !== null) {
+            await writeAuditEvent({
+                user: actor, module: 'quota', path: '/quota/extend', recordId: username, success: false,
+                summary: `${username}: ปรับเป็น ${newLimitMB} MB ไม่สำเร็จ — ${err.message}`, durationMs: Date.now() - started,
+            });
+        }
     } finally {
         quotaEditLocks.delete(username);
     }
 };
 
-// GET /quota/capacity — ภาพรวมพื้นที่จริงของไดรฟ์เทียบกับโควต้าที่แจกไปแล้ว
-export const getQuotaCapacity = async (_req, res) => {
+// POST /quota/extend  { username, newLimitMB, newWarningMB?, allowOvercommit? }
+// ตอบกลับทันทีด้วย jobId → หน้าเว็บ poll GET /quota/job/:id (ไม่ติด timeout ของ proxy)
+export const extendQuota = async (req, res) => {
+    const username = String(req.body?.username || '').trim();
+    const newLimitMB = Number(req.body?.newLimitMB);
+    const allowOvercommit = req.body?.allowOvercommit === true;
+
+    if (!USERNAME_RE.test(username)) return res.status(400).json({ success: false, error: 'username ไม่ถูกต้อง' });
+    if (!Number.isInteger(newLimitMB) || newLimitMB < QUOTA_MIN_LIMIT_MB || newLimitMB > QUOTA_MAX_LIMIT_MB) {
+        return res.status(400).json({ success: false, error: `ขนาดใหม่ต้องเป็นจำนวนเต็ม ${QUOTA_MIN_LIMIT_MB}–${QUOTA_MAX_LIMIT_MB} MB` });
+    }
+    let newWarningMB = req.body?.newWarningMB;
+    if (newWarningMB !== undefined && newWarningMB !== null && newWarningMB !== '') {
+        newWarningMB = Number(newWarningMB);
+        if (!Number.isInteger(newWarningMB) || newWarningMB < 1 || newWarningMB > newLimitMB) {
+            return res.status(400).json({ success: false, error: 'ระดับเตือนต้องเป็นจำนวนเต็ม และไม่เกินขนาดใหม่' });
+        }
+    } else newWarningMB = null;
+
+    if (quotaEditLocks.has(username)) return res.status(409).json({ success: false, error: `${username} กำลังถูกปรับโควต้าอยู่ กรุณารอให้เสร็จก่อน` });
+    quotaEditLocks.add(username);
+
+    const jobId = `extend_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    jobs[jobId] = { status: 'running', type: 'extend', username, newLimitMB, step: 'เริ่มงาน...' };
+    // log ของ request นี้ (ผู้ขอ + ขนาดที่ขอ) — ผลจริง (ค่าเดิม → ค่าใหม่) บันทึกแยกเมื่องานเสร็จ
+    res.locals.auditSummary = `${username}: ขอปรับเป็น ${newLimitMB} MB${allowOvercommit ? ' (ยืนยันเกินพื้นที่ดิสก์)' : ''}`;
+    res.json({ success: true, jobId });
+
+    const actor = identifyActor(req);
+    runExtendJob(jobId, { username, newLimitMB, newWarningMB, allowOvercommit, actor });
+};
+
+// GET /quota/capacity[?refresh=1] — พื้นที่จริงของไดรฟ์เทียบกับโควต้าที่แจกไปแล้ว
+export const getQuotaCapacity = async (req, res) => {
+    let disk = null, diskError = null;
+    try { disk = await fetchDiskInfo(req.query.refresh === '1'); }
+    catch (err) { diskError = 'อ่านพื้นที่ดิสก์จาก File Server ไม่สำเร็จ'; console.warn('[Quota] disk info error:', err.message); }
     try {
-        const pool = await connectDB();
-        const r = await pool.request().query(`SELECT COUNT(*) AS users, SUM(SizeLimit) AS allocated, SUM(SizeUsed) AS used FROM Quota_Users`);
-        const s = r.recordset[0] || {};
-        res.json({ success: true, data: { users: s.users || 0, allocated: Number(s.allocated || 0), used: Number(s.used || 0), maxLimitMB: QUOTA_MAX_LIMIT_MB, maxIncreaseMB: QUOTA_MAX_INCREASE_MB } });
+        const cap = await computeCapacity(disk);
+        res.json({ success: true, data: { ...cap, diskError, maxLimitMB: QUOTA_MAX_LIMIT_MB, maxIncreaseMB: QUOTA_MAX_INCREASE_MB } });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }

@@ -23,6 +23,7 @@ export const ACTION_LABELS = {
     adjust: 'ปรับสต็อก',
     manage: 'จัดการ subnet / สั่งสแกน',
     send: 'ส่งแจ้งเตือน / รายงาน',
+    scan: 'ดึงข้อมูลจากเครื่อง (สแกน)',
     extend: 'ปรับขนาดโควต้าพื้นที่',
 };
 
@@ -36,8 +37,8 @@ export const PAGES = [
     // ── Inventory & Procurement ──
     { key: 'inventory',       group: 'Inventory & Procurement', label: 'Stock Inventory',  route: '/inventory',       actions: ['view', 'withdraw', 'return', 'edit', 'delete'] },
     { key: 'stock-count',     group: 'Inventory & Procurement', label: 'Stock Count',      route: null,               actions: ['view', 'count', 'adjust', 'edit', 'delete'] },
-    { key: 'ink-toner',       group: 'Inventory & Procurement', label: 'Ink & Toner',      route: '/ink-toner',       actions: ['view'] },
-    { key: 'printer-health',  group: 'Inventory & Procurement', label: 'Printer Health',   route: '/printer-health',  actions: ['view', 'create', 'edit'] },
+    { key: 'ink-toner',       group: 'Inventory & Procurement', label: 'Ink & Toner',      route: '/ink-toner',       actions: ['view', 'edit'] },
+    { key: 'printer-health',  group: 'Inventory & Procurement', label: 'Printer Health',   route: '/printer-health',  actions: ['view', 'create', 'edit', 'scan'] },
     { key: 'purchase-orders', group: 'Inventory & Procurement', label: 'PR & Orders',      route: '/purchase-orders', actions: CRUD },
     { key: 'receive',         group: 'Inventory & Procurement', label: 'Receive Items',    route: '/receive',         actions: ['view', 'receive', 'cancel'] },
     { key: 'borrowings',      group: 'Inventory & Procurement', label: 'Borrowing System', route: '/borrowings',      actions: ['view', 'create', 'return', 'edit'] },
@@ -50,6 +51,7 @@ export const PAGES = [
     // ── Infrastructure & Network ──
     { key: 'ip-management',   group: 'Infrastructure & Network', label: 'IP Management', route: '/ip-management', actions: ['view', 'edit', 'manage'] },
     { key: 'ad-explorer',     group: 'Infrastructure & Network', label: 'AD Explorer',   route: '/ad-explorer',   actions: ['view'] },
+    { key: 'netatlas',        group: 'Infrastructure & Network', label: 'NetAtlas (Network Map)', route: '/netatlas', actions: CRUD, defaultView: false },
     // ── System Administration ──
     { key: 'quota-manager',   group: 'System Administration', label: 'Quota Manager',     route: '/quota-manager', actions: ['view', 'send', 'delete', 'extend'] },
     { key: 'calendar',        group: 'System Administration', label: 'Calendar',          route: '/calendar',      actions: CRUD },
@@ -71,6 +73,8 @@ export const PAGES = [
     { key: 'mgmt-factory-layouts',     group: 'Management', label: 'Maps (Factory Layouts)', route: null, actions: CRUD, defaultView: false },
     { key: 'mgmt-record-servers',      group: 'Management', label: 'Record Servers',         route: null, actions: CRUD, defaultView: false },
     { key: 'mgmt-activity-categories', group: 'Management', label: 'Activity Categories',    route: null, actions: CRUD, defaultView: false },
+    { key: 'mgmt-netatlas-layouts',    group: 'Management', label: 'NetAtlas Layouts',       route: null, actions: CRUD, defaultView: false },
+    { key: 'mgmt-netatlas-device-types', group: 'Management', label: 'NetAtlas Device Types', route: null, actions: CRUD, defaultView: false },
 ];
 
 const PAGE_BY_KEY = new Map(PAGES.map((p) => [p.key, p]));

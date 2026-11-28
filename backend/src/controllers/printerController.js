@@ -1,5 +1,6 @@
 import { sql, getPool } from '../config/db.js';
 import { scanOnePrinter } from '../services/printerScanService.js';
+import { printerPhotoUrl } from './printerPhotoController.js';
 
 // GET /api/printer-health
 // สรุปสถานะล่าสุดของทุกเครื่อง + จำนวน error ที่ยังไม่แก้
@@ -8,7 +9,8 @@ export const getPrinterHealth = async (req, res) => {
         const pool = getPool();
         const result = await pool.request().query(`
             SELECT
-                p.PrinterId, p.IpAddress, p.Name, p.Model, p.Location, p.Factory, p.IsColor,
+                p.PrinterId, p.IpAddress, p.Name, p.Model, p.Location, p.Factory, p.IsColor, p.PhotoFile, p.SitePhotoFile,
+                p.ConnectionType, p.UsbHost,
                 r.CheckedAt, r.Method, r.Online,
                 r.BlackPct, r.CyanPct, r.MagentaPct, r.YellowPct,
                 e.OpenErrorCount
@@ -27,7 +29,11 @@ export const getPrinterHealth = async (req, res) => {
             WHERE p.IsActive = 1
             ORDER BY p.Name
         `);
-        res.json(result.recordset);
+        res.json(result.recordset.map(({ PhotoFile, SitePhotoFile, ...row }) => ({
+            ...row,
+            PhotoUrl: printerPhotoUrl(PhotoFile),
+            SitePhotoUrl: printerPhotoUrl(SitePhotoFile),
+        })));
     } catch (err) {
         console.error('Get Printer Health Error:', err);
         res.status(500).json({ error: 'Database error' });
@@ -59,6 +65,37 @@ export const getPrinterHistory = async (req, res) => {
     }
 };
 
+// POST /api/printer-health/scan-all
+// ดึงข้อมูลทุกเครื่องที่ใช้งานอยู่ (ทีละ 4 เครื่องพร้อมกัน) — เครื่องไหนล้มเหลวไม่กระทบเครื่องอื่น
+export const scanAllPrinters = async (req, res) => {
+    try {
+        const pool = getPool();
+        const rows = await pool.request().query(`SELECT PrinterId, Name, IpAddress FROM dbo.Printers WHERE IsActive = 1 ORDER BY Name`);
+        // เครื่องที่ไม่มี IPv4 (เช่น ต่อ USB หรือ "SHARE FROM ...") สแกนผ่านเครือข่ายไม่ได้ จึงข้าม และรายงานแยก
+        const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+        const printers = rows.recordset.filter((p) => IPV4.test((p.IpAddress || '').trim()));
+        const skipped = rows.recordset.length - printers.length;
+        const results = [];
+        const CONCURRENCY = 4;
+        for (let i = 0; i < printers.length; i += CONCURRENCY) {
+            const batch = printers.slice(i, i + CONCURRENCY);
+            const settled = await Promise.allSettled(batch.map((p) => scanOnePrinter(p.PrinterId)));
+            settled.forEach((s, idx) => {
+                const p = batch[idx];
+                results.push(s.status === 'fulfilled'
+                    ? { PrinterId: p.PrinterId, Name: p.Name, ok: true }
+                    : { PrinterId: p.PrinterId, Name: p.Name, ok: false, error: s.reason?.message || 'scan failed' });
+            });
+        }
+        const failed = results.filter((r) => !r.ok).length;
+        res.locals.auditSummary = `ดึงข้อมูลทุกเครื่อง ${results.length} เครื่อง (สำเร็จ ${results.length - failed}, ล้มเหลว ${failed}, ข้าม ${skipped})`;
+        res.json({ success: true, total: results.length, failed, skipped, results });
+    } catch (err) {
+        console.error('Scan All Printers Error:', err);
+        res.status(500).json({ success: false, error: 'ไม่สามารถดึงข้อมูลทุกเครื่องได้' });
+    }
+};
+
 // POST /api/printer-health/:id/scan
 // ดึงข้อมูลเครื่องนี้เดี๋ยวนี้ (ไม่รอ cron) — ใช้กับปุ่ม "ดึงข้อมูล" รายเครื่อง
 export const scanPrinterNow = async (req, res) => {
@@ -72,13 +109,24 @@ export const scanPrinterNow = async (req, res) => {
     }
 };
 
+// ประเภทการเชื่อมต่อ: 'ethernet' (ค่าเริ่มต้น) หรือ 'usb' (ต้องระบุชื่อคอมพิวเตอร์ที่ต่ออยู่)
+const parseConnection = (body) => {
+    const connectionType = body.ConnectionType === 'usb' ? 'usb' : 'ethernet';
+    const usbHost = connectionType === 'usb' ? (body.UsbHost?.trim().slice(0, 100) || null) : null;
+    return { connectionType, usbHost };
+};
+
 // POST /api/printer-health
 // เพิ่มเครื่องพรินเตอร์ใหม่เข้า dbo.Printers
 export const createPrinter = async (req, res) => {
     const { IpAddress, Name, Model, Location, Factory } = req.body;
+    const { connectionType, usbHost } = parseConnection(req.body);
 
     if (!IpAddress || !Name) {
         return res.status(400).json({ success: false, error: 'ต้องระบุ IP และชื่อเครื่อง' });
+    }
+    if (connectionType === 'usb' && !usbHost) {
+        return res.status(400).json({ success: false, error: 'ต้องระบุชื่อคอมพิวเตอร์ที่เครื่องพรินเตอร์ต่อ USB อยู่' });
     }
 
     try {
@@ -89,10 +137,12 @@ export const createPrinter = async (req, res) => {
             .input('Model', sql.VarChar, Model?.trim() || null)
             .input('Location', sql.VarChar, Location?.trim() || null)
             .input('Factory', sql.VarChar, Factory?.trim() || null)
+            .input('ConnectionType', sql.NVarChar(10), connectionType)
+            .input('UsbHost', sql.NVarChar(100), usbHost)
             .query(`
-                INSERT INTO dbo.Printers (IpAddress, Name, Model, Location, Factory)
+                INSERT INTO dbo.Printers (IpAddress, Name, Model, Location, Factory, ConnectionType, UsbHost)
                 OUTPUT INSERTED.PrinterId
-                VALUES (@IpAddress, @Name, @Model, @Location, @Factory)
+                VALUES (@IpAddress, @Name, @Model, @Location, @Factory, @ConnectionType, @UsbHost)
             `);
         res.json({ success: true, printerId: result.recordset[0].PrinterId });
     } catch (err) {
@@ -110,9 +160,13 @@ export const createPrinter = async (req, res) => {
 export const updatePrinter = async (req, res) => {
     const { id } = req.params;
     const { IpAddress, Name, Model, Location, Factory } = req.body;
+    const { connectionType, usbHost } = parseConnection(req.body);
 
     if (!IpAddress || !Name) {
         return res.status(400).json({ success: false, error: 'ต้องระบุ IP และชื่อเครื่อง' });
+    }
+    if (connectionType === 'usb' && !usbHost) {
+        return res.status(400).json({ success: false, error: 'ต้องระบุชื่อคอมพิวเตอร์ที่เครื่องพรินเตอร์ต่อ USB อยู่' });
     }
 
     try {
@@ -124,10 +178,13 @@ export const updatePrinter = async (req, res) => {
             .input('Model', sql.VarChar, Model?.trim() || null)
             .input('Location', sql.VarChar, Location?.trim() || null)
             .input('Factory', sql.VarChar, Factory?.trim() || null)
+            .input('ConnectionType', sql.NVarChar(10), connectionType)
+            .input('UsbHost', sql.NVarChar(100), usbHost)
             .query(`
                 UPDATE dbo.Printers
                 SET IpAddress = @IpAddress, Name = @Name, Model = @Model,
-                    Location = @Location, Factory = @Factory
+                    Location = @Location, Factory = @Factory,
+                    ConnectionType = @ConnectionType, UsbHost = @UsbHost
                 WHERE PrinterId = @PrinterId
             `);
         res.json({ success: true });

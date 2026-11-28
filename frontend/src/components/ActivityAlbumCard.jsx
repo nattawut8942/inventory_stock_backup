@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Images, Star, Trash2 } from 'lucide-react';
 import { API_URL } from '../config/api';
-import { formatThaiDateShort } from '../utils/formatDate';
+import { formatThaiDateShortCE as formatThaiDateShort } from '../utils/formatDate';
 
 const ActivityAlbumCard = ({ album, index = 0, onClick, onTogglePin, onDelete, setAlertModal, compact = false }) => {
     const coverSrc = (album.CoverThumbnailURL || album.CoverImageURL) ? `${API_URL}${album.CoverThumbnailURL || album.CoverImageURL}` : null;

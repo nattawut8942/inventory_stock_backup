@@ -19,7 +19,7 @@ export const NAV_GROUPS = [
     {
         id: 'inventory', label: 'Inventory & Procurement', icon: Package, items: [
             { to: '/inventory', label: 'Stock Inventory', icon: Database, badge: 'stock_low', badgeTone: 'amber', badgeLabel: 'ใกล้หมด' },
-            { to: '/ink-toner', label: 'Ink & Toner', icon: Printer },
+            { to: '/ink-toner', label: 'Ink & Toner', icon: Printer, badge: 'ink_low', badgeTone: 'amber', badgeLabel: 'ใกล้หมด' },
             { to: '/purchase-orders', label: 'PR & Orders', icon: ShoppingCart, badge: 'po_open', badgeTone: 'sky', badgeLabel: 'เปิดอยู่' },
             { to: '/receive', label: 'Receive Items', icon: ArrowDownToLine, badge: 'po_partial', badgeTone: 'sky', badgeLabel: 'รอรับของ' },
         ],
@@ -38,6 +38,7 @@ export const NAV_GROUPS = [
     {
         id: 'network', label: 'Infrastructure & Network', icon: Network, items: [
             { to: '/ip-management', label: 'IP Management', icon: Network },
+            { to: '/netatlas', label: 'NetAtlas', icon: Network },
             { to: '/ad-explorer', label: 'AD Explorer', icon: Shield },
         ],
     },

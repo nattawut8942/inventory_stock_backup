@@ -5,7 +5,7 @@ import { Camera, Images, Calendar, Star, ChevronLeft, ChevronRight, Search, Layo
 import { useAuth } from '../context/AuthContext';
 import { useCan, useCanAct } from '../context/PermissionContext';
 import { API_BASE, API_URL } from '../config/api';
-import { formatThaiDate, formatThaiDateShort } from '../utils/formatDate';
+import { formatThaiDateShortCE } from '../utils/formatDate';
 import AlertModal from '../components/AlertModal';
 import ActivityAlbumCard from '../components/ActivityAlbumCard';
 import ActivityUploadModal from '../components/ActivityUploadModal';
@@ -139,7 +139,7 @@ const ActivityPage = () => {
             const key = isNaN(d.getTime()) ? 'unknown' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
             if (!index.has(key)) {
                 const label = key === 'unknown' ? 'ไม่ระบุวันที่'
-                    : d.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+                    : d.toLocaleDateString('th-TH-u-ca-gregory', { month: 'long', year: 'numeric' });
                 index.set(key, groups.length);
                 groups.push({ key, label, items: [] });
             }
@@ -299,7 +299,7 @@ const ActivityPage = () => {
                                     <p className="max-w-lg text-slate-200 text-sm mb-4 font-light line-clamp-2">{heroAlbum.Description}</p>
                                 )}
                                 <div className="flex items-center gap-4 text-xs text-slate-200">
-                                    <span className="flex items-center gap-1.5"><Calendar size={13} /> {formatThaiDateShort(heroAlbum.EventDate)}</span>
+                                    <span className="flex items-center gap-1.5"><Calendar size={13} /> {formatThaiDateShortCE(heroAlbum.EventDate)}</span>
                                     <span className="flex items-center gap-1.5"><Images size={13} /> {heroAlbum.PhotoCount} รูปภาพ</span>
                                 </div>
                             </div>
@@ -344,7 +344,7 @@ const ActivityPage = () => {
                         className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm shadow-sm outline-none focus:border-indigo-500"
                     >
                         <option value="all">ทุกปี</option>
-                        {years.map(y => <option key={y} value={y}>พ.ศ. {y + 543}</option>)}
+                        {years.map(y => <option key={y} value={y}>ค.ศ. {y}</option>)}
                     </select>
                     <select
                         value={sort}

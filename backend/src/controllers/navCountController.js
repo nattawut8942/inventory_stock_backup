@@ -3,6 +3,7 @@
 import { getPool } from '../config/db.js';
 import { getItRequestPool } from '../config/itRequestDb.js';
 import { getSoundPool } from '../config/soundDb.js';
+import { getDciPool } from '../config/dciDb.js';
 import { hasManagementColumns, lowStockWhere } from '../lib/stockManagement.js';
 
 const countOrNull = async (fn) => {
@@ -25,7 +26,7 @@ export const getNavCounts = async (req, res) => {
 
     const [
         printer_toner_low, po_open, borrowed, ma_attention, stock_low, cctv_offline, po_partial, cal_today, it_request_open,
-        sound_offline, disposal_open,
+        sound_offline, disposal_open, ink_low,
     ] = await Promise.all([
         // เครื่องพิมพ์ที่หมึกสีใดสีหนึ่งต่ำกว่าหรือเท่ากับ 20% (ค่าล่าสุดของแต่ละเครื่อง นับเครื่องละ 1)
         countOrNull(() => scalar(db(), `
@@ -95,13 +96,21 @@ export const getNavCounts = async (req, res) => {
         // รอบ IT Asset Disposal ที่ยังเปิดอยู่
         countOrNull(() => scalar(db(), `
             SELECT COUNT(*) AS cnt FROM dbo.Disposal_Runs WHERE Status = 'Open'`)),
+
+        // Ink & Toner ที่ใกล้หมด (DCI, ACTIVE เท่านั้น) — กฎเดียวกับหน้า Ink & Toner: Minimum > 0 และ CurrentStock ≤ Minimum (รวมที่หมดแล้ว)
+        countOrNull(() => scalar(getDciPool(), `
+            SELECT COUNT(*) AS cnt FROM [dbDCI].[dbo].[SP_PartSock]
+            WHERE Prt_Code LIKE '6CC-ITP%'
+              AND Prt_Status = 'ACTIVE'
+              AND Minimum > 0
+              AND CurrentStock <= Minimum`)),
     ]);
 
     res.json({
         success: true,
         data: {
             po_open, borrowed, ma_attention, stock_low, cctv_offline, po_partial, cal_today, it_request_open, printer_toner_low,
-            sound_offline, disposal_open,
+            sound_offline, disposal_open, ink_low,
         },
     });
 };

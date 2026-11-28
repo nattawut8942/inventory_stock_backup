@@ -5,6 +5,8 @@ import { PermissionProvider } from './context/PermissionContext';
 import { DataProvider } from './context/DataContext';
 import { QuotaJobProvider } from './context/QuotaJobContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { ToastHost } from './components/Toast';
+import { ConfirmHost } from './components/ConfirmDialog';
 
 // Components
 import Layout from './components/Layout';
@@ -37,6 +39,7 @@ import KBPage from './pages/KBPage';
 import ActivityPage from './pages/ActivityPage'; 
 import PrinterHealthPage from './pages/PrinterHealthPage';
 import PCControlPage from './pages/PCControlPage';
+import NetAtlasPage from './pages/NetAtlasPage';
 
 
 // App Routes Component
@@ -83,6 +86,7 @@ const AppRoutes = () => {
                 <Route path="borrowings" element={<ITBorrowSystem />} />
                 <Route path="it-disposal" element={<ProtectedRoute perm={['it-disposal', 'view']}><ITDisposalPage /></ProtectedRoute>} />
                 <Route path="pc-control" element={<PCControlPage />} />
+                <Route path="netatlas" element={<ProtectedRoute perm={['netatlas', 'view']}><NetAtlasPage /></ProtectedRoute>} />
 
                 {/* PO and Receive */}
                 <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
@@ -120,6 +124,8 @@ const App = () => {
                 <PermissionProvider>
                 <DataProvider>
                     <QuotaJobProvider>
+                    <ToastHost />
+                    <ConfirmHost />
                         <AppRoutes />
                     </QuotaJobProvider>
                 </DataProvider>

@@ -806,7 +806,7 @@ const fmtDateOnly = (d) => {
     return /notebook|laptop|portable|sub notebook|convertible|detachable/.test(t);
   };
 
-  const StatBox = ({ id, label, list, bgClass, textClass, ringClass, onSecondaryClick, secondaryLabel = 'Detail', secondaryAlways = false }) => {
+  const StatBox = ({ id, label, note, list, bgClass, textClass, ringClass, onSecondaryClick, secondaryLabel = 'Detail', secondaryAlways = false }) => {
     const isOn = filterKeys.find(k => k.key === id);
     const count = list?.length || 0;
     const clickable = count > 0 || isOn;
@@ -826,6 +826,7 @@ const fmtDateOnly = (d) => {
             >{secondaryLabel}</span>
           )}
         </div>
+        {note && <div className="text-[10px] text-gray-400 -mt-1.5 mb-1.5">{note}</div>}
         <div className={`text-2xl font-bold leading-none ${textClass}`}>{count}</div>
         {clickable ? (
           <div className="text-[11px] text-gray-400 mt-1.5">{isOn ? '✕ คลิกซ้ำเพื่อล้าง' : '☞ คลิกเพื่อ filter'}</div>
@@ -968,7 +969,7 @@ const sessionView = useMemo(() => {
                     <StatBox id="longUptime" label="Uptime > 5 วัน" list={sumData?.longUptime} textClass="text-sky-600" bgClass="bg-sky-50" ringClass="ring-sky-500" />
 
                     <StatBox id="noAsset" label="No Fix Asset" list={sumData?.noAsset} textClass="text-amber-600" bgClass="bg-amber-50" ringClass="ring-amber-500" />
-                    <StatBox id="oldFixAssets" label="Old Fix Assets" list={sumData?.oldFixAssets} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" />
+                    <StatBox id="oldFixAssets" label="Old Fix Assets" note="อายุเกิน 5 ปี (Notebook และ Desktop)" list={sumData?.oldFixAssets} textClass="text-orange-600" bgClass="bg-orange-50" ringClass="ring-orange-500" />
                     <StatBox id="noLocation" label="No Location" list={sumData?.noLocation} textClass="text-purple-600" bgClass="bg-purple-50" ringClass="ring-purple-500" />
                     <div className="col-span-2 bg-white border border-gray-200 rounded-xl p-3 px-3.5 shadow-sm">
                       <div className="text-xs font-medium text-gray-500 mb-2 flex items-center justify-between gap-2">

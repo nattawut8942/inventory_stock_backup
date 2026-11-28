@@ -60,6 +60,11 @@ import { startPrinterScanCron, runPrinterScan } from './src/services/printerScan
 import cctvCaptureRoutes from './src/cctv/cctvCaptureRoutes.js';
 import { startCaptureCron } from './src/cctv/cctvCaptureCron.js';
 import itDisposalRoutes from './src/routes/itDisposalRoutes.js';
+import netAtlasRoutes from './src/routes/netAtlasRoutes.js';
+import ctspPicRoutes from './src/routes/ctspPicRoutes.js';
+import { NETATLAS_UPLOAD_DIR, NETATLAS_PUBLIC_PREFIX } from './src/controllers/netAtlasController.js';
+import { PRINTER_PHOTO_DIR, PRINTER_PHOTO_PREFIX } from './src/controllers/printerPhotoController.js';
+import { NETATLAS_DEVICE_PHOTO_DIR, NETATLAS_DEVICE_PHOTO_PREFIX } from './src/controllers/netAtlasDevicePhotoController.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -111,11 +116,16 @@ const fileUploadMiddleware = fileUpload({
 // จนทำให้ multer เจอ stream ที่ถูกอ่านแล้ว ("Unexpected end of form")
 // - การต่ออายุ MA
 // - IT Asset Disposal: เพิ่มรายการพร้อมรูป และแนบรูปภายหลัง
+// - NetAtlas: อัปโหลดรูปแปลนผัง (multer)
 app.use((req, res, next) => {
+    if (req.method === 'PUT' && /\/netatlas\/layouts\/\d+\/floorplan$/.test(req.path)) return next();
+    if (req.method === 'PUT' && /\/netatlas\/devices\/\d+\/(site-)?photo$/.test(req.path)) return next();
     if (req.method === 'POST' && /\/ma\/\d+\/renew$/.test(req.path)) return next();
     if (req.method === 'POST' && /\/disposal\/runs\/\d+\/items$/.test(req.path)) return next();
     if (req.method === 'PUT' && /\/disposal\/runs\/\d+\/items\/\d+\/photos$/.test(req.path)) return next();
     if (req.method === 'POST' && /\/disposal\/runs\/\d+\/attachments$/.test(req.path)) return next();
+    // รูปเครื่องพรินเตอร์ (multer)
+    if (req.method === 'POST' && /\/printer-health\/\d+\/(site-)?photo$/.test(req.path)) return next();
     return fileUploadMiddleware(req, res, next);
 });
 
@@ -142,6 +152,10 @@ app.use('/uploads/activity', express.static(activityUploadDir));
 app.use('/ITinventory/uploads/activity', express.static(activityUploadDir));
 // ✅ IT Asset Disposal photos — เก็บใน backend/uploads/disposal/<RunID>/
 app.use('/ITinventory/uploads/disposal', express.static(path.join(uploadsDir, 'disposal')));
+// NetAtlas — รูปแปลนผัง (เฉพาะไฟล์รูป, ไม่รับ SVG)
+app.use(NETATLAS_PUBLIC_PREFIX, express.static(NETATLAS_UPLOAD_DIR));
+app.use(NETATLAS_DEVICE_PHOTO_PREFIX, express.static(NETATLAS_DEVICE_PHOTO_DIR));
+app.use(PRINTER_PHOTO_PREFIX, express.static(PRINTER_PHOTO_DIR));
 
 // ── DB connection with retry ──────────────────────────────────────────────
 const connectWithRetry = async (fn, name, retries = 5) => {
@@ -188,6 +202,7 @@ const startServer = async () => {
         app.use('/ITinventory/api', reasonRoutes);
         app.use('/ITinventory/api', maRoutes);
         app.use('/ITinventory/api', inkTonerRoutes);
+        app.use('/ITinventory/api', ctspPicRoutes);
         app.use('/ITinventory/api', pcInventoryRoutes);
         app.use('/ITinventory/api', monitorInventoryRoutes);
         app.use('/ITinventory/api', stockCountRoutes);
@@ -200,6 +215,7 @@ const startServer = async () => {
         app.use('/ITinventory/api', ipScanRoutes);
         app.use('/ITinventory/api', itRequestRoutes);
         app.use('/ITinventory/api/disposal', itDisposalRoutes);
+        app.use('/ITinventory/api/netatlas', netAtlasRoutes);
         app.use('/ITinventory/api/sound', soundRoutes);
         app.use('/ITinventory/api/borrowings', BorrowRoute);
         app.use('/api/pc-inventory', pcInventoryRoutes);

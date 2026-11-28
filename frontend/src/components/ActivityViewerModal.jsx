@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { X, Calendar, Image as ImageIcon, Edit2, Check, UploadCloud, Camera, Trash2, ChevronLeft, ChevronRight, Star, FileText, Archive, Link2, Download, ZoomIn, ZoomOut } from 'lucide-react';
 import Portal from './Portal';
 import { API_BASE, API_URL } from '../config/api';
-import { formatThaiDate, formatThaiDateShort } from '../utils/formatDate';
+import { formatThaiDateCE as formatThaiDate, formatThaiDateShortCE as formatThaiDateShort } from '../utils/formatDate';
 import { useAuth } from '../context/AuthContext';
 
 const ActivityViewerModal = ({ albumId, onClose, onUpdated, categories = [], setAlertModal, isAdmin = false, canDelete = false, canAddPhoto = false }) => {

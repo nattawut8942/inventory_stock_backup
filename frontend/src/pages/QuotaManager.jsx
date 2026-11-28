@@ -504,16 +504,28 @@ const MB = 1024 * 1024;
 const fmtMB = (mb) => mb >= 1024 ? `${parseFloat((mb / 1024).toFixed(2))} GB` : `${mb} MB`;
 const EXTEND_STEPS_MB = [100, 500, 1024, 2048];
 
-const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, onClose, onSubmit }) => {
+const fmtBytesUI = (b) => {
+    if (b === null || b === undefined) return '—';
+    const neg = b < 0, v = Math.abs(b);
+    const s = v >= 1024 ** 4 ? `${(v / 1024 ** 4).toFixed(2)} TB` : v >= 1024 ** 3 ? `${(v / 1024 ** 3).toFixed(1)} GB` : `${Math.round(v / MB)} MB`;
+    return neg ? `-${s}` : s;
+};
+
+const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, capacity, job, onClose, onSubmit }) => {
     const curLimitMB = Math.round((user?.sizeLimit || 0) / MB);
     const usedMB = (user?.sizeUsed || 0) / MB;
     const gapMB = Math.max(Math.round(((user?.sizeLimit || 0) - (user?.warningLevel || 0)) / MB), 0);
     const [newLimitMB, setNewLimitMB] = useState(curLimitMB + 100);
-    const [busy, setBusy] = useState(false);
+    const [starting, setStarting] = useState(false);
     const [error, setError] = useState('');
+    const [ackOvercommit, setAckOvercommit] = useState(false);
 
-    useEffect(() => { setNewLimitMB(curLimitMB + 100); setError(''); setBusy(false); }, [user?.username, curLimitMB]);
+    useEffect(() => { setNewLimitMB(curLimitMB + 100); setError(''); setStarting(false); setAckOvercommit(false); }, [user?.username, curLimitMB]);
     if (!user) return null;
+
+    const running = job?.status === 'running';
+    const busy = starting || running;
+    const jobError = job?.status === 'error' ? job.error : '';
 
     const n = Number(newLimitMB);
     const warnMB = n - gapMB > 0 ? n - gapMB : Math.floor(n * 0.9);
@@ -525,17 +537,24 @@ const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, onClose, onSubmit }
                     : n === curLimitMB ? 'ขนาดเท่าเดิม' : '';
     const newPct = n > 0 ? Math.min((usedMB / n) * 100, 100) : 0;
 
+    // ส่วนเผื่อจริงของดิสก์ = พื้นที่ว่าง − โควต้าที่แจกแล้วแต่ยังไม่ถูกใช้
+    const increaseBytes = Math.max((n - curLimitMB) * MB, 0);
+    const margin = capacity?.margin ?? null;
+    const overcommit = !invalid && margin !== null && increaseBytes > 0 && increaseBytes > margin;
+    const needAck = overcommit || job?.code === 'OVERCOMMIT';
+
     const submit = async () => {
-        setBusy(true); setError('');
-        const err = await onSubmit(user, n);
-        if (err) { setError(err); setBusy(false); }
+        setStarting(true); setError('');
+        const err = await onSubmit(user, n, needAck && ackOvercommit);
+        if (err) setError(err);
+        setStarting(false);
     };
 
     return (
         <Portal>
             <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
                 <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                    className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
+                    className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto">
                     <div className="flex items-start gap-3 mb-4">
                         <div className="w-11 h-11 rounded-2xl bg-emerald-50 flex items-center justify-center flex-shrink-0 text-emerald-600">
                             <Expand size={22} />
@@ -568,7 +587,7 @@ const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, onClose, onSubmit }
                         {EXTEND_STEPS_MB.map(s => (
                             <button key={s} type="button" disabled={busy}
                                 onClick={() => setNewLimitMB(curLimitMB + s)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors disabled:opacity-50
                                     ${n === curLimitMB + s ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
                                 +{fmtMB(s)}
                             </button>
@@ -577,7 +596,7 @@ const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, onClose, onSubmit }
 
                     <label className="text-xs font-bold text-slate-500">หรือกำหนดขนาดใหม่ (MB)</label>
                     <input type="number" min={100} max={maxLimitMB} step={1} value={newLimitMB} disabled={busy}
-                        onChange={e => setNewLimitMB(e.target.value === '' ? '' : Number(e.target.value))}
+                        onChange={e => { setNewLimitMB(e.target.value === '' ? '' : Number(e.target.value)); setAckOvercommit(false); }}
                         className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-200" />
 
                     {!invalid && (
@@ -586,21 +605,56 @@ const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, onClose, onSubmit }
                             <p>การใช้งานหลังปรับ: <b>{newPct.toFixed(1)}%</b></p>
                         </div>
                     )}
-                    {(invalid || error) && (
-                        <p className="mt-3 text-xs font-bold text-red-500">{error || invalid}</p>
-                    )}
-                    <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-[11px] text-amber-800 leading-relaxed">
-                        ⚠️ แก้ค่าบน File Server จริงทันที ระบบจะบันทึกลงประวัติการทำงาน · อาจใช้เวลา 1–3 นาที
+
+                    {/* พื้นที่ดิสก์จริง */}
+                    <div className={`mt-3 rounded-xl px-4 py-2.5 text-[11px] border leading-relaxed
+                        ${overcommit ? 'bg-red-50 border-red-200 text-red-700' : 'bg-slate-50 border-slate-100 text-slate-600'}`}>
+                        {!capacity ? (
+                            <span className="flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> กำลังตรวจพื้นที่ดิสก์ {'…'}</span>
+                        ) : capacity.diskFree === null ? (
+                            <span>⚠️ {capacity.diskError || 'ตรวจพื้นที่ดิสก์ไม่ได้'} — ระบบจะตรวจอีกครั้งตอนปรับจริง</span>
+                        ) : (
+                            <>
+                                <p>ไดรฟ์ {capacity.volume} ว่าง <b>{fmtBytesUI(capacity.diskFree)}</b> จาก {fmtBytesUI(capacity.diskSize)} · โควต้าที่แจกแล้วแต่ยังไม่ถูกใช้ {fmtBytesUI(capacity.unusedAllocated)}</p>
+                                <p>ส่วนเผื่อจริง: <b>{fmtBytesUI(margin)}</b>{increaseBytes > 0 && !invalid && <> · ครั้งนี้เพิ่ม <b>{fmtBytesUI(increaseBytes)}</b></>}</p>
+                                {overcommit && <p className="font-bold mt-1">⛔ เกินส่วนเผื่อ — ถ้าทุกคนใช้เต็มโควต้า ดิสก์จะเต็มก่อน</p>}
+                            </>
+                        )}
                     </div>
+                    {needAck && !invalid && (
+                        <label className="mt-2 flex items-start gap-2 text-[11px] text-red-700 font-semibold cursor-pointer">
+                            <input type="checkbox" checked={ackOvercommit} disabled={busy}
+                                onChange={e => setAckOvercommit(e.target.checked)} className="mt-0.5" />
+                            เข้าใจความเสี่ยง ยืนยันปรับเกินพื้นที่ว่างของดิสก์ (บันทึกลงประวัติ)
+                        </label>
+                    )}
+
+                    {running && (
+                        <div className="mt-3 flex items-start gap-2 bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5 text-[11px] text-indigo-700">
+                            <Loader2 size={12} className="animate-spin mt-0.5 flex-shrink-0" />
+                            <div>
+                                <p className="font-bold">{job.step}</p>
+                                <p className="text-indigo-500">ปิดหน้าต่างนี้ได้ ระบบจะแจ้งเมื่อเสร็จ</p>
+                            </div>
+                        </div>
+                    )}
+                    {!running && (invalid || error || jobError) && (
+                        <p className="mt-3 text-xs font-bold text-red-500">{error || jobError || invalid}</p>
+                    )}
+                    {!running && (
+                        <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-[11px] text-amber-800 leading-relaxed">
+                            ⚠️ แก้ค่าบน File Server จริง และบันทึกลงประวัติการทำงาน · ใช้เวลาประมาณ 2 นาที
+                        </div>
+                    )}
 
                     <div className="flex gap-3 mt-4">
-                        <button onClick={onClose} disabled={busy}
+                        <button onClick={onClose} disabled={starting}
                             className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50">
-                            ยกเลิก
+                            {running ? 'ปิด' : 'ยกเลิก'}
                         </button>
-                        <button onClick={submit} disabled={busy || !!invalid}
+                        <button onClick={submit} disabled={busy || !!invalid || (needAck && !ackOvercommit)}
                             className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                            {busy ? <><Loader2 size={14} className="animate-spin" /> กำลังปรับ...</> : <><Expand size={14} /> ยืนยัน</>}
+                            {busy ? <><Loader2 size={14} className="animate-spin" /> กำลังปรับ{'…'}</> : <><Expand size={14} /> ยืนยัน</>}
                         </button>
                     </div>
                 </motion.div>

@@ -4,6 +4,7 @@
 // - ปิดบังรหัสผ่าน/token, ตัดข้อความยาว, ไฟล์เก็บแค่ชื่อ
 // - ตารางมาจาก migrations/2026-11-21_stock_audit_log.sql — ถ้ายังไม่ได้รัน จะไม่บันทึกอะไร (เช็คใหม่ทุก 60 วินาที)
 // ระดับ 2: การแก้/ลบ ข้อมูลหลักที่อยู่ใน TRACKED จะอ่านแถวนั้น "ก่อน" และ "หลัง" แล้วเก็บเฉพาะช่องที่เปลี่ยน (ค่าเดิม → ค่าใหม่)
+//   ข้อมูลที่ไม่ใช่แถวเดียว (เช่น หมายเหตุพอร์ต) controller ตั้ง res.locals.auditChanges / auditSummary เองได้
 //   ลบ = เก็บข้อมูลทั้งแถวก่อนลบ · เก็บในคอลัมน์ Changes (migrations/2026-11-21_stock_audit_log_changes.sql)
 //   ถ้ายังไม่มีคอลัมน์ Changes จะเก็บใน Body ช่อง __changes แทน · อ่านไม่สำเร็จ = บันทึกแบบระดับ 1 ตามเดิม
 import jwt from 'jsonwebtoken';
@@ -82,6 +83,8 @@ const describe = (method, apiPath) => {
 // re: path หลัง /ITinventory/api (กลุ่มแรก = รหัสรายการ) · table/key: ตารางและคอลัมน์ที่ใช้หาแถว
 const TRACKED = [
     { re: /^\/products\/(\d+)$/, table: 'Stock_Products', key: 'ProductID', type: 'int' },
+    // Printer Health: แก้ข้อมูลเครื่อง (รวมประเภทการเชื่อมต่อ/ชื่อคอมพิวเตอร์ USB) เก็บค่าเดิม → ค่าใหม่
+    { re: /^\/printer-health\/(\d+)$/, table: 'Printers', key: 'PrinterId', type: 'int' },
     { re: /^\/types\/([^/]+)$/, table: 'Stock_DeviceTypes', key: 'TypeId' },
     { re: /^\/vendors\/(\d+)$/, table: 'Stock_Vendors', key: 'VendorID', type: 'int' },
     { re: /^\/locations\/(\d+)$/, table: 'Stock_Locations', key: 'LocationID', type: 'int' },
@@ -98,6 +101,10 @@ const TRACKED = [
     { re: /^\/cctv\/maintenance-logs\/(\d+)$/, table: 'cctv_maintenance_logs', key: 'id', type: 'int' },
     { re: /^\/cctv\/record-servers\/(\d+)$/, table: 'cctv_record_servers', key: 'id', type: 'int' },
     { re: /^\/factory-layouts\/(\d+)$/, table: 'factory_layouts', key: 'id', type: 'int' },
+    // NetAtlas: อุปกรณ์ (รวมการลากย้ายตำแหน่ง /position) และผัง/รูปแปลน
+    { re: /^\/netatlas\/devices\/(\d+)(?:\/position)?$/, table: 'NetAtlas_Devices', key: 'DeviceID', type: 'int' },
+    { re: /^\/netatlas\/layouts\/(\d+)(?:\/floorplan)?$/, table: 'NetAtlas_Layouts', key: 'LayoutID', type: 'int' },
+    { re: /^\/netatlas\/device-types\/([A-Za-z0-9]+)$/, table: 'NetAtlas_DeviceTypes', key: 'Code' },
     { re: /^\/activity-categories\/([^/]+)$/, table: 'Activity_Categories', key: 'CategoryCode' },
     { re: /^\/stock-users\/(\d+)\/role$/, table: 'Stock_Users', key: 'ID', type: 'int' },
 ];
@@ -212,6 +219,31 @@ const write = async (row) => {
     purgeOld();
 };
 
+// บันทึกผลของงานที่ทำต่อใน background (หลังตอบ request ไปแล้ว) เช่น การปรับโควต้า
+export const writeAuditEvent = async ({ user, method = 'POST', action = 'action', module, path, recordId, summary, success = true, durationMs = null, changes = null }) => {
+    try {
+        await write({
+            Changes: changes ? JSON.stringify(changes).slice(0, 20000) : null,
+            EmpCode: user?.empcode ? String(user.empcode) : null,
+            Username: user?.username ? String(user.username) : null,
+            DisplayName: user?.name ? String(user.name) : null,
+            Method: method,
+            Action: action,
+            Module: module ? String(module).slice(0, 60) : null,
+            Path: path ? String(path).slice(0, 400) : null,
+            RecordId: recordId ? String(recordId).slice(0, 100) : null,
+            Summary: summary ? String(summary).slice(0, 400) : null,
+            StatusCode: success ? 200 : 500,
+            Success: !!success,
+            DurationMs: durationMs,
+            IpAddress: null,
+            Body: null,
+        });
+    } catch (err) {
+        console.error('[Audit] writeAuditEvent failed:', err.message);
+    }
+};
+
 // mount: app.use('/ITinventory/api', auditLogMiddleware) — ก่อน route อื่น
 export const auditLogMiddleware = async (req, res, next) => {
     if (!WRITE_METHODS.has(req.method)) return next();
@@ -246,6 +278,8 @@ export const auditLogMiddleware = async (req, res, next) => {
                 let changes = null;
                 // controller อาจกำหนดข้อความสรุปเอง (เช่น รหัสรอบ / ASSET NO) ผ่าน res.locals.auditSummary
                 let summary = res.locals?.auditSummary ? String(res.locals.auditSummary).slice(0, 400) : findName(req.body);
+                // controller ที่ไม่อยู่ใน TRACKED (เช่น หมายเหตุพอร์ต) ส่งค่าเปลี่ยนแปลงมาเองผ่าน res.locals.auditChanges
+                if (!tracked && res.locals?.auditChanges && res.statusCode < 400) changes = res.locals.auditChanges;
                 if (tracked && before && res.statusCode < 400) {
                     if (req.method === 'DELETE') {
                         const after = await withTimeout(readRow(tracked), 1500).catch(() => undefined);

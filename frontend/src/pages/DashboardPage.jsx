@@ -384,7 +384,7 @@ const DashboardPage = () => {
     };
 
     // --- Section header component ---
-    const SectionHeader = ({ icon: Icon, gradient, title, actionText, onAction }) => (
+    const SectionHeader = ({ icon: Icon, gradient, title, subtitle, actionText, onAction }) => (
         <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-3">
                 <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg`}>
@@ -392,6 +392,7 @@ const DashboardPage = () => {
                 </div>
                 <div>
                     <h3 className="font-bold text-slate-800 text-[15px]">{title}</h3>
+                    {subtitle && <p className="text-[11px] text-slate-400 mt-0.5">{subtitle}</p>}
                 </div>
             </div>
             {actionText && (
@@ -1123,7 +1124,7 @@ const DashboardPage = () => {
                 transition={{ delay: 0.25 }}
                 className="bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl transition-shadow flex flex-col h-[320px]"
             >
-                <SectionHeader icon={Clock} gradient="from-indigo-500 to-blue-600" title={`Old Fix Assets (${pcSummary?.oldFixAssets?.length || 0})`} actionText="ดูทั้งหมด" onAction={() => navigate('/pc-inventory', { state: { filterKey: 'oldFixAssets', filterLabel: 'Old Fix Assets' } })} />
+                <SectionHeader icon={Clock} gradient="from-indigo-500 to-blue-600" title={`Old Fix Assets (${pcSummary?.oldFixAssets?.length || 0})`} subtitle="อายุเกิน 5 ปี (Notebook และ Desktop)" actionText="ดูทั้งหมด" onAction={() => navigate('/pc-inventory', { state: { filterKey: 'oldFixAssets', filterLabel: 'Old Fix Assets' } })} />
                 <div className="overflow-y-auto flex-1 pr-1 space-y-2.5 custom-scrollbar">
                      {Array.isArray(pcSummary?.oldFixAssets) && pcSummary.oldFixAssets.length > 0 ? pcSummary.oldFixAssets.slice(0, 5).map((host, idx) => (
                          <div key={idx} className="flex items-center justify-between p-3.5 bg-indigo-50/50 border border-indigo-100 hover:border-indigo-200 hover:bg-indigo-50 rounded-xl transition-colors">

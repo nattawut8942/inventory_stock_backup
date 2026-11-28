@@ -500,7 +500,7 @@ export const getSummary = async (req, res) => {
             const assetYear = parseInt(yearMatch[1]);
             const year = assetYear > 50 ? 1900 + assetYear : 2000 + assetYear;
             const age = currentYear - year;
-            return isNotebook(r) ? age > 3 : age > 5;
+            return age > 5; // Notebook และ Desktop ใช้เกณฑ์เดียวกัน: อายุเกิน 5 ปี
         }).map(r => r.hostname);
 
         const longUptime = activeOnly
