@@ -17,6 +17,17 @@ const buildWhere = (q = {}) => {
         clauses.push('Part_Code = @Code');
         inputs.push(['Code', sql.NVarChar(50), code]);
     }
+    // ค้นหาทั่วไป: รหัส / Cost Center / ผู้เบิก / เหตุผล (+ รหัสที่ตรงกับชื่อรายการ ส่งมาเป็น codes)
+    const term = String(q.search || '').trim();
+    if (term) {
+        if (term.length > 100) throw Object.assign(new Error('คำค้นยาวเกินไป'), { status: 400 });
+        const ors = ['Part_Code LIKE @Search', 'CostCerter LIKE @Search', 'cr_by LIKE @Search', 'ReasonText LIKE @Search'];
+        inputs.push(['Search', sql.NVarChar(120), `%${term}%`]);
+        const codes = String(q.codes || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 300);
+        codes.forEach((c, i) => inputs.push([`C${i}`, sql.NVarChar(50), c]));
+        if (codes.length) ors.push(`Part_Code IN (${codes.map((_, i) => `@C${i}`).join(',')})`);
+        clauses.push(`(${ors.join(' OR ')})`);
+    }
     const cost = String(q.cost || '').trim();
     if (cost) {
         clauses.push(`${COST_EXPR} = @Cost`);
@@ -70,7 +81,7 @@ export const getInkWithdrawalReport = async (req, res) => {
         const { where, inputs } = buildWhere(req.query);
         // bucket = day (รายวัน สำหรับช่วงสั้น) หรือ month (รายเดือน) — ค่าอื่นให้เป็นรายเดือน
         const bucketExpr = req.query.bucket === 'day' ? `FORMAT(upd_dt, 'yyyy-MM-dd')` : `FORMAT(upd_dt, 'yyyy-MM')`;
-        const [costItem, monthItem] = await Promise.all([
+        const [costItem, monthItem, byRequester] = await Promise.all([
             runQuery(`
                 SELECT ${COST_EXPR} AS CostCenter, Part_Code,
                        COUNT(*) AS Times, SUM(Qty) AS TotalQty, MAX(upd_dt) AS LastAt
@@ -83,11 +94,20 @@ export const getInkWithdrawalReport = async (req, res) => {
                 FROM ${TABLE} WHERE ${where}
                 GROUP BY ${bucketExpr}, Part_Code
             `, inputs),
+            // ผู้เบิก (cr_by) ทั้งหมด เรียงตามจำนวนครั้ง
+            runQuery(`
+                SELECT COALESCE(NULLIF(LTRIM(RTRIM(cr_by)), ''), N'ไม่ระบุ') AS Requester,
+                       COUNT(*) AS Times, SUM(Qty) AS TotalQty, MAX(upd_dt) AS LastAt
+                FROM ${TABLE} WHERE ${where}
+                GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(cr_by)), ''), N'ไม่ระบุ')
+                ORDER BY Times DESC
+            `, inputs),
         ]);
         res.json({
             success: true,
             costItem: costItem.recordset,
             monthItem: monthItem.recordset,
+            byRequester: byRequester.recordset,
         });
     } catch (err) {
         if (err.status === 400) return res.status(400).json({ success: false, error: err.message });

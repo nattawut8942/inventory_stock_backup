@@ -79,7 +79,7 @@ const useApi = (url) => {
     const [state, setState] = useState({ loading: true, error: null, json: null });
     const [reloadKey, setReloadKey] = useState(0);
     useEffect(() => {
-        if (!url) return undefined;
+        if (!url) { setState({ loading: false, error: null, json: null }); return undefined; }
         let alive = true;
         setState((s) => ({ ...s, loading: true, error: null }));
         fetch(url)
@@ -146,12 +146,24 @@ const ColorLegend = ({ colors }) => (
 
 // ── แท็บประวัติการเบิก ──
 export const WithdrawalHistoryTab = ({ meta, name }) => {
-    const [code, setCode] = useState('');
+    const [searchInput, setSearchInput] = useState('');
+    const [search, setSearch] = useState('');
     const [cost, setCost] = useState('');
     const [from, setFrom] = useState('');
     const [to, setTo] = useState('');
     const [limit, setLimit] = useState(500);
-    const url = `${API_BASE}/ink-toner/withdrawals?${buildQuery({ code: code.trim(), cost, from, to, limit })}`;
+    // พิมพ์แล้วรอ 300 ms ค่อยค้นหา
+    useEffect(() => {
+        const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+        return () => clearTimeout(t);
+    }, [searchInput]);
+    // รหัสที่ชื่อรายการตรงกับคำค้น (ชื่อไม่ได้อยู่ในข้อมูลการเบิกจึงต้องแปลงจากสต็อก)
+    const nameCodes = useMemo(() => {
+        if (!search) return '';
+        const s = search.toLowerCase();
+        return Object.entries(meta || {}).filter(([, m]) => (m.name || '').toLowerCase().includes(s)).map(([c]) => c).join(',');
+    }, [search, meta]);
+    const url = `${API_BASE}/ink-toner/withdrawals?${buildQuery({ search, codes: nameCodes, cost, from, to, limit })}`;
     const { loading, error, json, reload } = useApi(url);
     const all = useApi(`${API_BASE}/ink-toner/withdrawals/report`);
     const costOptions = useMemo(
@@ -164,10 +176,11 @@ export const WithdrawalHistoryTab = ({ meta, name }) => {
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-                <Field label="รหัสหมึก">
+                <Field label="ค้นหา">
                     <div className="relative">
                         <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="6CC-ITP0018" className={`${inputCls} pl-8 w-44`} />
+                        <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} aria-label="ค้นหาประวัติการเบิก"
+                            placeholder="รหัส, ชื่อรายการ, Cost Center, ผู้เบิก, เหตุผล" className={`${inputCls} pl-8 w-72`} />
                     </div>
                 </Field>
                 <Field label="Cost Center">
@@ -184,7 +197,7 @@ export const WithdrawalHistoryTab = ({ meta, name }) => {
                     </select>
                 </Field>
                 <div className="ml-auto flex items-center gap-2">
-                    <button type="button" onClick={() => { setCode(''); setCost(''); setFrom(''); setTo(''); }}
+                    <button type="button" onClick={() => { setSearchInput(''); setCost(''); setFrom(''); setTo(''); }}
                         className="text-xs font-bold text-slate-500 hover:text-slate-700 px-3 h-[38px]">ล้างตัวกรอง</button>
                     <button type="button" onClick={reload} disabled={loading}
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 px-3 h-[38px] rounded-xl">
@@ -367,6 +380,29 @@ const Donut = ({ segments, centerTop, centerBottom, size = 168, stroke = 24 }) =
 
 const COST_COLORS = ['#6366f1', '#8b5cf6', '#0ea5e9', '#10b981', '#f59e0b'];
 
+// การ์ดเทียบกับช่วงก่อนหน้า: ▲ เพิ่ม / ▼ ลด (ไม่มี = ไม่มีข้อมูลช่วงก่อน)
+const DeltaCard = ({ label, cur, prev, loading, bare = false }) => {
+    const d = prev > 0 ? (cur - prev) / prev : null;
+    const arrow = d === null ? '' : d > 0 ? '▲' : d < 0 ? '▼' : '•';
+    const tone = d === null || d === 0 ? 'text-slate-500' : d > 0 ? 'text-emerald-600' : 'text-rose-500';
+    return (
+        <div className={bare ? 'p-4' : 'rounded-2xl border border-slate-100 bg-white p-4 shadow-sm'}>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</div>
+            <div className="mt-1 flex flex-wrap items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-800">{fmtNum(cur)}</span>
+                {loading ? (
+                    <span className="text-xs text-slate-400">กำลังเทียบ...</span>
+                ) : d === null ? (
+                    <span className="text-xs text-slate-400">{prev === 0 ? 'ช่วงก่อนไม่มีการเบิก' : 'ไม่มีข้อมูลช่วงก่อน'}</span>
+                ) : (
+                    <span className={`text-sm font-black ${tone}`}>{arrow} {Math.abs(Math.round(d * 100))}%</span>
+                )}
+            </div>
+            <div className="text-[11px] text-slate-500">ช่วงก่อนหน้า {fmtNum(prev ?? 0)}</div>
+        </div>
+    );
+};
+
 // ── แท็บรายงานการเบิก ──
 export const WithdrawalReportTab = ({ meta }) => {
     const [period, setPeriod] = useState('all'); // '7d' | '1m' | '3m' | 'all' | 'custom'
@@ -431,6 +467,36 @@ export const WithdrawalReportTab = ({ meta }) => {
         [agg.items, meta, monthsWindow]);
     const coveragePaged = usePaged(coverage, url, 10);
     const monthsBadge = (m) => (m <= 0 ? 'bg-red-100 text-red-700' : m < 1 ? 'bg-red-100 text-red-700' : m < 3 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700');
+
+    // เทียบกับช่วงก่อนหน้าที่มีความยาวเท่ากัน (ใช้เฉพาะเมื่อกำหนดช่วงวันที่)
+    const prevRange = (() => {
+        if (!from || !to || !spanDays) return null;
+        const end = new Date(`${from}T00:00:00`);
+        end.setDate(end.getDate() - 1);
+        const start = new Date(end);
+        start.setDate(end.getDate() - (spanDays - 1));
+        return { from: toISO(start), to: toISO(end) };
+    })();
+    const prevUrl = prevRange
+        ? `${API_BASE}/ink-toner/withdrawals/report?${buildQuery({ from: prevRange.from, to: prevRange.to, cost, bucket: 'month' })}`
+        : null;
+    const prevApi = useApi(prevUrl);
+    const prevTotals = prevApi.json?.costItem
+        ? prevApi.json.costItem.reduce((s, r) => ({ times: s.times + (Number(r.Times) || 0), qty: s.qty + (Number(r.TotalQty) || 0) }), { times: 0, qty: 0 })
+        : null;
+
+    // ผู้เบิกทั้งหมด (ใช้ 5 อันดับแรก + จำนวนคนทั้งหมด)
+    const requesters = json?.byRequester || [];
+    const maxRequesterTimes = Math.max(1, ...requesters.map((r) => r.Times));
+
+    // รายการที่มีสต็อกแต่ไม่เคยเบิกในช่วงที่เลือก
+    const usedCodes = new Set(agg.items.map((i) => i.code));
+    const notWithdrawn = useMemo(() => Object.entries(meta || {})
+        .filter(([code, m]) => !usedCodes.has(code) && (Number(m.stock) || 0) > 0)
+        .map(([code, m]) => ({ code, name: m.name, color: m.color, stock: Number(m.stock) || 0 }))
+        .sort((a, b) => b.stock - a.stock),
+        [agg.items, meta]);
+    const notWithdrawnPaged = usePaged(notWithdrawn, url, 5);
 
     const trend = fillBuckets(agg.months, from, to, bucket);
     const trendStep = Math.max(1, Math.ceil(trend.length / 12)); // แสดงป้ายวันที่ไม่ถี่เกินไป
@@ -514,6 +580,13 @@ export const WithdrawalReportTab = ({ meta }) => {
                                     </li>
                                 ))}
                             </ul>
+                            {/* เทียบกับช่วงก่อนหน้า (อยู่ในพื้นที่ว่างข้างสัดส่วนสี) */}
+                            {prevRange && (
+                                <div className="md:w-64 shrink-0 flex flex-col divide-y divide-slate-100 rounded-2xl border border-slate-100 bg-white shadow-sm">
+                                    <DeltaCard bare label="จำนวนครั้งที่เบิก" cur={agg.totals.times} prev={prevTotals?.times} loading={prevApi.loading} />
+                                    <DeltaCard bare label="จำนวนชิ้นที่เบิก" cur={agg.totals.qty} prev={prevTotals?.qty} loading={prevApi.loading} />
+                                </div>
+                            )}
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
                             {agg.colors.map((c) => (
@@ -558,6 +631,30 @@ export const WithdrawalReportTab = ({ meta }) => {
                                         </li>
                                     )}
                                 </ul>
+                            </div>
+                            {/* ผู้เบิกที่เบิกบ่อย (อยู่ในพื้นที่ว่างใต้สัดส่วน Cost Center) */}
+                            <div className="mt-4 border-t border-slate-100 pt-4">
+                                <div className="flex items-baseline justify-between mb-2">
+                                    <h4 className="text-xs font-black text-slate-800">ผู้เบิกที่เบิกบ่อย</h4>
+                                    <span className="text-[11px] text-slate-500">ทั้งหมด <b className="text-slate-800">{fmtNum(requesters.length)}</b> คน</span>
+                                </div>
+                                {requesters.length === 0 ? (
+                                    <div className="py-3 text-xs text-slate-400">ไม่มีข้อมูล</div>
+                                ) : (
+                                    <ol className="space-y-2">
+                                        {requesters.slice(0, 5).map((r, i) => (
+                                            <li key={r.Requester}>
+                                                <div className="flex items-baseline justify-between gap-2 text-xs">
+                                                    <span className="font-bold text-slate-700 truncate"><span className="text-slate-400 mr-1.5">{i + 1}.</span>{r.Requester}</span>
+                                                    <span className="text-slate-500 whitespace-nowrap"><b className="text-slate-800">{fmtNum(r.Times)}</b> ครั้ง · {fmtNum(r.TotalQty)} ชิ้น</span>
+                                                </div>
+                                                <div className="mt-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                                                    <div className="h-full rounded-full bg-gradient-to-r from-sky-500 to-indigo-500" style={{ width: `${(r.Times / maxRequesterTimes) * 100}%` }} />
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ol>
+                                )}
                             </div>
                         </section>
 
@@ -651,6 +748,32 @@ export const WithdrawalReportTab = ({ meta }) => {
                                         <span className="text-[10px] text-slate-400 whitespace-nowrap h-3">{idx % trendStep === 0 ? monthLabel(m.month) : ''}</span>
                                     </div>
                                 ))}
+                            </div>
+                            {/* ไม่เคยเบิกในช่วงนี้ (อยู่ในพื้นที่ว่างใต้แนวโน้ม) */}
+                            <div className="mt-4 border-t border-slate-100 pt-4">
+                                <div className="flex items-baseline justify-between mb-2">
+                                    <h4 className="text-xs font-black text-slate-800">ไม่เคยเบิกในช่วงนี้</h4>
+                                    <span className="text-[11px] text-slate-500">รวม <b className="text-slate-800">{fmtNum(notWithdrawn.length)}</b> รายการ</span>
+                                </div>
+                                {notWithdrawn.length === 0 ? (
+                                    <div className="py-3 text-xs text-slate-400">ทุกรายการมีการเบิกในช่วงนี้</div>
+                                ) : (
+                                    <>
+                                        <ul className="divide-y divide-slate-100">
+                                            {notWithdrawnPaged.slice.map((n) => (
+                                                <li key={n.code} className="flex items-center gap-3 py-2 text-xs">
+                                                    <Dot color={n.color} size={9} />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="font-mono font-bold text-slate-700">{n.code}</div>
+                                                        <div className="truncate text-slate-500">{n.name || '-'}</div>
+                                                    </div>
+                                                    <span className="whitespace-nowrap text-slate-500">คงเหลือ <b className="text-slate-800">{fmtNum(n.stock)}</b></span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                        <div className="mt-2"><PagedFooter paged={notWithdrawnPaged} /></div>
+                                    </>
+                                )}
                             </div>
                         </section>
                     </div>
