@@ -1128,9 +1128,12 @@ export const addAttachment = async (req, res) => {
         const isPdfHead = head.subarray(0, 5).toString('latin1') === '%PDF-';
         const isJpeg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
         const isPng = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
-        if (isPhotoType(docType) ? !(isJpeg || isPng) : !isPdfHead) {
+        const isImage = isJpeg || isPng;
+        // รูปหลักฐานการทิ้ง ต้องเป็นรูปเท่านั้น ส่วนประเภทอื่นแนบได้ทั้ง PDF และรูป (JPG/PNG)
+        const allowed = isPhotoType(docType) ? isImage : (isPdfHead || isImage);
+        if (!allowed) {
             discard();
-            return res.status(400).json({ error: isPhotoType(docType) ? 'รูปหลักฐานต้องเป็นไฟล์ JPG หรือ PNG' : 'ไฟล์ไม่ใช่ PDF ที่ถูกต้อง' });
+            return res.status(400).json({ error: isPhotoType(docType) ? 'รูปหลักฐานต้องเป็นไฟล์ JPG หรือ PNG' : 'รองรับเฉพาะไฟล์ PDF หรือรูป JPG/PNG' });
         }
 
         const title = textOrNull(req.body.title, 200);

@@ -355,8 +355,8 @@ const ITDisposalPage = () => {
     if (!f) return;
     const isImg = /\.(jpe?g|png)$/i.test(f.name);
     const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
-    if (isPhotoDocType(docType) ? !isImg : !isPdf) {
-      setError(isPhotoDocType(docType) ? 'ประเภทนี้ต้องเป็นรูป JPG หรือ PNG' : 'ประเภทนี้ต้องเป็นไฟล์ PDF');
+    if (isPhotoDocType(docType) ? !isImg : !(isPdf || isImg)) {
+      setError(isPhotoDocType(docType) ? 'ประเภทนี้ต้องเป็นรูป JPG หรือ PNG' : 'รองรับเฉพาะไฟล์ PDF หรือรูป JPG/PNG');
       return;
     }
     setDocFile(f);
@@ -644,8 +644,8 @@ const ITDisposalPage = () => {
       {canEditRun && (
         <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
           <div>
-            <h3 className="font-bold text-slate-800 text-sm">แนบเอกสาร PDF</h3>
-            <p className="text-[11px] text-slate-400">ไฟล์ไม่เกิน 20 MB</p>
+            <h3 className="font-bold text-slate-800 text-sm">แนบเอกสาร</h3>
+            <p className="text-[11px] text-slate-400">PDF หรือรูป JPG/PNG · ไฟล์ไม่เกิน 20 MB</p>
           </div>
           <label
             onDragOver={(e) => { e.preventDefault(); setDragDoc(true); }}
@@ -665,13 +665,13 @@ const ITDisposalPage = () => {
               </>
             ) : (
               <>
-                <span className="text-sm text-slate-600">{isPhotoDocType(docType) ? 'ลากรูป JPG/PNG มาวางที่นี่' : 'ลากไฟล์ PDF มาวางที่นี่'}</span>
+                <span className="text-sm text-slate-600">{isPhotoDocType(docType) ? 'ลากรูป JPG/PNG มาวางที่นี่' : 'ลากไฟล์ PDF หรือรูป JPG/PNG มาวางที่นี่'}</span>
                 <span className="text-[11px] text-slate-400">หรือคลิกเพื่อเลือกไฟล์</span>
               </>
             )}
             <input
               type="file"
-              accept={isPhotoDocType(docType) ? 'image/jpeg,image/png,.jpg,.jpeg,.png' : 'application/pdf,.pdf'}
+              accept={isPhotoDocType(docType) ? 'image/jpeg,image/png,.jpg,.jpeg,.png' : 'application/pdf,.pdf,image/jpeg,image/png,.jpg,.jpeg,.png'}
               className="sr-only"
               onChange={(e) => { pickDocFile(e.target.files?.[0]); e.target.value = ''; }}
             />
