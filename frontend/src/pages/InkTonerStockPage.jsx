@@ -1,5 +1,6 @@
 import React, { useState, useEffect, Fragment } from 'react';
-import { Search, Printer, Package, AlertTriangle, List, LayoutGrid, TrendingDown, Truck, Droplet, RefreshCw, ChevronUp, ChevronDown, ArrowUpDown, Pencil, Clock, Link2, X } from 'lucide-react';
+import { Search, Printer, Package, AlertTriangle, List, LayoutGrid, TrendingDown, Truck, Droplet, RefreshCw, ChevronUp, ChevronDown, ArrowUpDown, Pencil, Clock, Link2, X, History } from 'lucide-react';
+import { WithdrawalHistoryTab, WithdrawalReportTab, WithdrawalHistoryModal } from '../components/WithdrawalPanels';
 import Portal from '../components/Portal';
 import { motion, AnimatePresence } from 'framer-motion'; 
 import { API_BASE, API_URL } from '../config/api';
@@ -264,6 +265,8 @@ const InkTonerStockPage = () => {
     const [compatMap, setCompatMap] = useState({}); // { [Prt_Code]: [{ PrinterId, Remark, Name, Model, ... }] }
     const [compatItem, setCompatItem] = useState(null); // รายการที่เปิด modal "เครื่องที่ใช้ได้"
     const [expanded, setExpanded] = useState({}); // { [Prt_Code]: true } แถวที่กางดูเครื่องอยู่
+    const [tab, setTab] = useState('stock'); // 'stock' | 'history' | 'report'
+    const [historyItem, setHistoryItem] = useState(null); // { code, name } modal ประวัติการเบิกของรายการเดียว
     const canEditCompat = useCanAct('ink-toner', 'edit');
     const itemsPerPage = 20;
 
@@ -472,8 +475,38 @@ const InkTonerStockPage = () => {
         );
     }
 
+    // ชื่อและสีของหมึกแต่ละรหัส (ใช้ในประวัติการเบิก/รายงาน)
+    const itemMeta = Object.fromEntries(data.map((d) => [d.Prt_Code, { name: d.Prt_Name, color: getTonerType(d), stock: d.CurrentStock, minStock: d.Minimum }]));
+    const tabBar = (
+        <>
+            <div role="tablist" aria-label="มุมมองหมึกและโทนเนอร์"
+                className="inline-flex flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit">
+                {[['stock', 'สต็อก'], ['history', 'ประวัติการเบิก'], ['report', 'รายงานการเบิก']].map(([key, label]) => (
+                    <button key={key} type="button" role="tab" aria-selected={tab === key}
+                        onClick={() => setTab(key)}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-colors ${tab === key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                        {label}
+                    </button>
+                ))}
+            </div>
+            {historyItem && (
+                <WithdrawalHistoryModal code={historyItem.code} name={historyItem.name} color={historyItem.color} onClose={() => setHistoryItem(null)} />
+            )}
+        </>
+    );
+
+    if (tab !== 'stock') {
+        return (
+            <div className="space-y-6">
+                {tabBar}
+                {tab === 'history' ? <WithdrawalHistoryTab meta={itemMeta} /> : <WithdrawalReportTab meta={itemMeta} />}
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
+            {tabBar}
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard
@@ -693,6 +726,11 @@ const InkTonerStockPage = () => {
                                                 <span className="inline-flex items-center gap-1">
                                                     <span className="font-mono text-[11px] font-semibold text-slate-500">{item.Prt_Code}</span>
                                                     <CopyButton text={item.Prt_Code} title="คัดลอกรหัส" />
+                                                    <button type="button" onClick={() => setHistoryItem({ code: item.Prt_Code, name: item.Prt_Name, color: getTonerType(item) })}
+                                                        title="ดูประวัติการเบิก" aria-label={`ดูประวัติการเบิก ${item.Prt_Code}`}
+                                                        className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                                                        <History size={13} />
+                                                    </button>
                                                 </span>
                                             </div>
                                         </td>
@@ -819,6 +857,11 @@ const InkTonerStockPage = () => {
                                         {item.Prt_Code}
                                     </span>
                                     <CopyButton text={item.Prt_Code} title="คัดลอกรหัส" />
+                                    <button type="button" onClick={() => setHistoryItem({ code: item.Prt_Code, name: item.Prt_Name, color: getTonerType(item) })}
+                                        title="ดูประวัติการเบิก" aria-label={`ดูประวัติการเบิก ${item.Prt_Code}`}
+                                        className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                                        <History size={13} />
+                                    </button>
                                 </span>
 
                                 <div className="grid grid-cols-2 gap-2 w-full pt-2 border-t border-black/5 mb-2">
