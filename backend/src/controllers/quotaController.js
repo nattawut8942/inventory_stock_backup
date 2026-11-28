@@ -9,7 +9,7 @@ import { connectDB, getPool, sql } from '../config/db.js';
 import { sendQuotaWarning, sendQuotaReport } from '../services/quotaEmailService.js';
 import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../config/jwtSecret.js';
-import { writeAuditEvent } from '../services/auditLogService.js';
+import { writeAuditEvent, auditTableReady } from '../services/auditLogService.js';
 import {
     getFilesFromLatestReport,
     isFsrmBusy, getFsrmQueueLength
@@ -903,13 +903,55 @@ export const extendQuota = async (req, res) => {
     quotaEditLocks.add(username);
 
     const jobId = `extend_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    jobs[jobId] = { status: 'running', type: 'extend', username, newLimitMB, step: 'เริ่มงาน...' };
+    const actor = identifyActor(req);
+    // เก็บชื่อผู้สั่งไว้ใน job เพื่อแสดงงานที่กำลังทำในแท็บประวัติ
+    jobs[jobId] = { status: 'running', type: 'extend', username, newLimitMB, actor: actor?.name || actor?.username || null, step: 'เริ่มงาน...' };
     // log ของ request นี้ (ผู้ขอ + ขนาดที่ขอ) — ผลจริง (ค่าเดิม → ค่าใหม่) บันทึกแยกเมื่องานเสร็จ
     res.locals.auditSummary = `${username}: ขอปรับเป็น ${newLimitMB} MB${newWarningMB !== null ? ` · เตือน ${newWarningMB} MB` : ''}${allowOvercommit ? ' (ยืนยันเกินพื้นที่ดิสก์)' : ''}`;
     res.json({ success: true, jobId });
 
-    const actor = identifyActor(req);
     runExtendJob(jobId, { username, newLimitMB, newWarningMB, allowOvercommit, actor });
+};
+
+// GET /quota/extend-logs?limit=200 — ประวัติการปรับโควต้า (อ่านจากประวัติการทำงาน Stock_AuditLog)
+// เก็บเฉพาะแถว "ผลจริง" ที่ runExtendJob บันทึก (มี RecordId = ผู้ใช้ที่ถูกปรับ) ไม่รวมแถวคำขอ
+export const getExtendLogs = async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 200, 1), 1000);
+    const running = Object.entries(jobs)
+        .filter(([, j]) => j.type === 'extend' && j.status === 'running')
+        .map(([jobId, j]) => ({ jobId, username: j.username, newLimitMB: j.newLimitMB, step: j.step, actor: j.actor || null }));
+    try {
+        const pool = await connectDB();
+        if (!(await auditTableReady())) return res.json({ success: true, data: [], running, note: 'ยังไม่มีตารางประวัติการทำงาน' });
+        const r = await pool.request()
+            .input('limit', sql.Int, limit)
+            .query(`SELECT TOP (@limit) * FROM dbo.Stock_AuditLog
+                    WHERE Path = '/quota/extend' AND RecordId IS NOT NULL
+                    ORDER BY CreatedAt DESC`);
+        const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
+        const data = r.recordset.map((row) => {
+            // ถ้ายังไม่มีคอลัมน์ Changes ระบบฝากไว้ใน Body.__changes
+            const changes = parse(row.Changes) || parse(row.Body)?.__changes || null;
+            const field = (name) => changes?.fields?.find((f) => f.field === name) || null;
+            const lim = field('Limit'), warn = field('WarningLimit');
+            return {
+                id: row.AuditID ?? row.ID ?? null,
+                at: row.CreatedAt,
+                target: row.RecordId,
+                actor: row.Username,
+                actorName: row.DisplayName || row.Username,
+                success: !!row.Success,
+                durationMs: row.DurationMs,
+                summary: row.Summary,
+                limit: lim ? { from: lim.from, to: lim.to } : null,
+                warning: warn ? { from: warn.from, to: warn.to } : null,
+                overcommit: String(row.Summary || '').includes('ยืนยันเกินพื้นที่ดิสก์'),
+            };
+        });
+        res.json({ success: true, data, running });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
 };
 
 // GET /quota/capacity[?refresh=1] — พื้นที่จริงของไดรฟ์เทียบกับโควต้าที่แจกไปแล้ว

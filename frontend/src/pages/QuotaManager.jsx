@@ -712,6 +712,140 @@ const ExtendQuotaModal = ({ user, maxLimitMB, maxIncreaseMB, capacity, job, onCl
     );
 };
 
+// ── Extend Log Tab — ประวัติการปรับโควต้า ────────────────────
+const ExtendLogTab = ({ API, reloadKey, onPickUser }) => {
+    const [rows, setRows] = useState([]);
+    const [running, setRunning] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [q, setQ] = useState('');
+    const [page, setPage] = useState(1);
+
+    const load = useCallback(async () => {
+        setLoading(true); setError('');
+        try {
+            const r = await fetch(`${API}/extend-logs?limit=500`);
+            const res = await r.json().catch(() => ({}));
+            if (!r.ok || !res.success) throw new Error(res.error || `โหลดไม่สำเร็จ (HTTP ${r.status})`);
+            setRows(res.data || []);
+            setRunning(res.running || []);
+        } catch (e) { setError(e.message); }
+        setLoading(false);
+    }, [API]);
+
+    useEffect(() => { load(); }, [load, reloadKey]);
+    // มีงานที่กำลังทำ → โหลดซ้ำทุก 10 วินาทีจนเสร็จ
+    useEffect(() => {
+        if (!running.length) return undefined;
+        const t = setInterval(load, 10000);
+        return () => clearInterval(t);
+    }, [running.length, load]);
+
+    const filtered = useMemo(() => {
+        const s = q.trim().toLowerCase();
+        if (!s) return rows;
+        return rows.filter(r => [r.target, r.actor, r.actorName, r.summary].join(' ').toLowerCase().includes(s));
+    }, [rows, q]);
+    const totalPages = Math.max(Math.ceil(filtered.length / ITEMS_PER_PAGE), 1);
+    const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+
+    const Change = ({ c }) => !c ? <span className="text-slate-300">—</span>
+        : c.from === c.to ? <span className="font-mono text-slate-400">{c.to}</span>
+            : <span className="font-mono whitespace-nowrap"><span className="text-slate-400">{c.from}</span> <span className="text-slate-300">→</span> <b className="text-slate-700">{c.to}</b></span>;
+
+    return (
+        <motion.div key="extend-log" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-3 flex-wrap">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            {loading && !rows.length ? 'กำลังโหลด...' : `${filtered.length} รายการ${q ? ` — "${q}"` : ''}`}
+                        </span>
+                        <div className="relative">
+                            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input type="text" value={q} onChange={e => { setQ(e.target.value); setPage(1); }}
+                                placeholder="ค้นหา user / ผู้ทำ..."
+                                className="bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-100 w-52" />
+                            {q && <button onClick={() => setQ('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500"><X size={11} /></button>}
+                        </div>
+                    </div>
+                    <button onClick={load} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 font-semibold transition-colors">
+                        <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
+                    </button>
+                </div>
+
+                {running.length > 0 && (
+                    <div className="border-b border-indigo-100 bg-indigo-50/50 px-4 py-3 space-y-1.5">
+                        <p className="text-[11px] font-black text-indigo-700 uppercase tracking-wider flex items-center gap-1.5">
+                            <Loader2 size={11} className="animate-spin" /> กำลังปรับโควต้า
+                        </p>
+                        {running.map(j => (
+                            <div key={j.jobId} className="text-xs text-indigo-800 flex flex-wrap gap-x-2">
+                                <span className="font-mono font-black">{j.username}</span>
+                                <span>→ {fmtMB(j.newLimitMB)}</span>
+                                {j.actor && <span className="text-indigo-500">โดย {j.actor}</span>}
+                                <span className="text-indigo-500 truncate">· {j.step}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {error && <p className="px-4 py-3 text-xs font-bold text-red-500 border-b border-red-100 bg-red-50">{error}</p>}
+
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-max">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                            <tr>
+                                {['เวลา', 'Username', 'โควต้า', 'ระดับเตือน', 'ผู้ทำ', 'สถานะ', 'ใช้เวลา'].map(h => (
+                                    <th key={h} className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider text-slate-400">{h}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                            {loading && !rows.length ? (
+                                [...Array(5)].map((_, i) => (
+                                    <tr key={i}>{[...Array(7)].map((_, j) => (
+                                        <td key={j} className="px-4 py-3"><div className="h-4 bg-slate-100 rounded animate-pulse w-20" /></td>
+                                    ))}</tr>
+                                ))
+                            ) : paged.length === 0 ? (
+                                <tr><td colSpan={7} className="py-14 text-center text-slate-400">
+                                    <Expand size={32} strokeWidth={1} className="mx-auto mb-2 text-slate-200" />
+                                    <p className="text-sm">{q ? 'ไม่พบรายการที่ค้นหา' : 'ยังไม่มีประวัติการปรับโควต้า'}</p>
+                                </td></tr>
+                            ) : paged.map(r => (
+                                <tr key={r.id || `${r.at}-${r.target}`} className="hover:bg-slate-50/70 align-middle">
+                                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{new Date(r.at).toLocaleString('th-TH')}</td>
+                                    <td className="px-4 py-3 whitespace-nowrap">
+                                        <button onClick={() => onPickUser(r.target)} title="ดูในตาราง Quota Usage"
+                                            className="font-mono text-sm text-indigo-600 font-bold hover:underline">{r.target}</button>
+                                    </td>
+                                    <td className="px-4 py-3 text-xs"><Change c={r.limit} /></td>
+                                    <td className="px-4 py-3 text-xs"><Change c={r.warning} /></td>
+                                    <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{r.actorName || r.actor || '—'}</td>
+                                    <td className="px-4 py-3 whitespace-nowrap">
+                                        {r.success
+                                            ? <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200"><CheckCircle2 size={11} /> สำเร็จ</span>
+                                            : <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border bg-rose-50 text-rose-700 border-rose-200" title={r.summary}><XCircle size={11} /> ล้มเหลว</span>}
+                                        {r.overcommit && <span className="ml-1.5 inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold border bg-red-50 text-red-600 border-red-200" title="ผู้ทำยืนยันปรับเกินพื้นที่ว่างของดิสก์">เกินพื้นที่ดิสก์</span>}
+                                        {!r.success && <p className="text-[10px] text-rose-500 mt-0.5 max-w-[260px] truncate" title={r.summary}>{r.summary}</p>}
+                                    </td>
+                                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{r.durationMs ? `${Math.round(r.durationMs / 1000)}s` : '—'}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                {totalPages > 1 && (
+                    <div className="px-4 py-3 border-t border-slate-100">
+                        <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+                    </div>
+                )}
+            </div>
+        </motion.div>
+    );
+};
+
 // ════════════════════════════════════════════════════════════
 //  MAIN COMPONENT
 // ════════════════════════════════════════════════════════════
@@ -725,6 +859,7 @@ const QuotaManager = () => {
     const [capacity, setCapacity] = useState(null);
     const [extendJobs, setExtendJobs] = useState({}); // { [username]: { jobId, status, step, error, code } }
     const extendPollRef = useRef(new Set());
+    const [extendLogReload, setExtendLogReload] = useState(0); // เพิ่มค่าเมื่องานปรับโควต้าจบ → แท็บประวัติโหลดใหม่
     const { user: authUser } = useAuth();
     const [tab, setTab] = useState('quota');
     const [users, setUsers] = useState([]);
@@ -882,6 +1017,7 @@ const QuotaManager = () => {
                     if (!j.success) throw new Error(j.error || 'ไม่พบงาน (server อาจ restart)');
                     if (j.status === 'running') { setExtendJob(u.username, { step: j.step }); return; }
                     clearInterval(timer); extendPollRef.current.delete(timer);
+                    setExtendLogReload(k => k + 1);
                     if (j.status === 'done') {
                         const { before, after } = j.result || {};
                         pushToast(`✅ ${u.username}: ${fmtBytesUI(before?.limit)} → ${fmtBytesUI(after?.limit)} · เตือน ${fmtBytesUI(after?.warning)}`, 'success');
@@ -1517,6 +1653,7 @@ const QuotaManager = () => {
                 {[
                     { key: 'quota', label: 'Quota Usage', icon: BarChart3 },
                     { key: 'logs', label: 'Email Log', icon: History },
+                    { key: 'extend-log', label: 'ประวัติปรับโควต้า', icon: Expand },
                 ].map(t => (
                     <button key={t.key} onClick={() => setTab(t.key)}
                         className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all
@@ -1525,6 +1662,9 @@ const QuotaManager = () => {
                                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}>
                         <t.icon size={15} />
                         {t.label}
+                        {t.key === 'extend-log' && Object.values(extendJobs).some(j => j?.status === 'running') && (
+                            <Loader2 size={13} className="animate-spin" />
+                        )}
                         {t.key === 'logs' && Object.keys(activeJobs).length > 0 && (
                             <span className="w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center">
                                 {Object.keys(activeJobs).length}
@@ -1792,6 +1932,10 @@ const QuotaManager = () => {
             )}
 
             {/* ════ LOG TAB ════ */}
+            {tab === 'extend-log' && (
+                <ExtendLogTab API={API} reloadKey={extendLogReload} onPickUser={(username) => { setQuery(username); setFilter('all'); setPage(1); setTab('quota'); }} />
+            )}
+
             {tab === 'logs' && (
                 <motion.div key="logs" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
